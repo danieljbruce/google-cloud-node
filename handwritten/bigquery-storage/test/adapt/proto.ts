@@ -69,7 +69,10 @@ describe('Adapt Protos', () => {
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      const TestProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const TestProto = Type.fromDescriptor(protoDescriptor);
+      root.add(TestProto);
+      TestProto.setup();
       const raw = {
         foo: 'name',
         bar: 42,
@@ -108,7 +111,10 @@ describe('Adapt Protos', () => {
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      const TestProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const TestProto = Type.fromDescriptor(protoDescriptor);
+      root.add(TestProto);
+      TestProto.setup();
       const raw = {
         id: 1,
         username: 'Alice',
@@ -184,7 +190,10 @@ describe('Adapt Protos', () => {
         ],
       });
 
-      const FlexibleProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const FlexibleProto = Type.fromDescriptor(protoDescriptor);
+      root.add(FlexibleProto);
+      FlexibleProto.setup();
       const raw = {
         field_54m55Yil44Kz44Op44Og: 1,
         field_ZmllbGQtbmFtZQ: 'test',
@@ -315,7 +324,10 @@ describe('Adapt Protos', () => {
           },
         ],
       });
-      const NestedProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const NestedProto = Type.fromDescriptor(protoDescriptor);
+      root.add(NestedProto);
+      NestedProto.setup();
       const raw = {
         record_id: '12345',
         recordDetails: [
@@ -368,7 +380,10 @@ describe('Adapt Protos', () => {
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      const TestProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const TestProto = Type.fromDescriptor(protoDescriptor);
+      root.add(TestProto);
+      TestProto.setup();
       const raw = {
         range_dt: {
           start: '2024-04-05T15:45:58.981Z',
@@ -431,7 +446,10 @@ describe('Adapt Protos', () => {
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      const TestProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const TestProto = Type.fromDescriptor(protoDescriptor);
+      root.add(TestProto);
+      TestProto.setup();
       const raw = {
         rowNum: '1',
         range: {
@@ -478,7 +496,10 @@ describe('Adapt Protos', () => {
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      const TestProto = Type.fromDescriptor(protoDescriptor).setup();
+      const root = new Root();
+      const TestProto = Type.fromDescriptor(protoDescriptor);
+      root.add(TestProto);
+      TestProto.setup();
       const raw = {
         ts: '2024-04-05T15:45:58.981123456789Z',
       };

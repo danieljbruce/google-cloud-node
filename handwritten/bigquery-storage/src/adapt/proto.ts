@@ -306,7 +306,7 @@ export function normalizeDescriptor(dp: DescriptorProto): DescriptorProto {
 }
 
 function normalizeName(name: string): string {
-  return name.replace(/\./, '_');
+  return name.replace(/\./g, '_');
 }
 
 function convertTableFieldSchemaToFieldDescriptorProto(

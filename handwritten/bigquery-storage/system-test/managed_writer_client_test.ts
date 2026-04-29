@@ -526,7 +526,9 @@ describe('managedwriter.WriterClient', () => {
         ],
       };
 
+      const root = new protobuf.Root();
       const Proto = Type.fromDescriptor(protoDescriptor);
+      root.add(Proto);
       const encoded = encoder.encodeRows([row1, row2]);
 
       const encodedRow1 = encoded[0];
@@ -594,7 +596,9 @@ describe('managedwriter.WriterClient', () => {
         customer_funds: '123456789.001234', // still accept in string
       };
 
+      const root = new protobuf.Root();
       const Proto = Type.fromDescriptor(protoDescriptor);
+      root.add(Proto);
       const encoded = encoder.encodeRows([row1, row2]);
 
       const encodedRow1 = encoded[0];
@@ -1683,9 +1687,11 @@ describe('managedwriter.WriterClient', () => {
 
         protoDescriptor.field = protoDescriptor.field?.slice(0, 1); // leave just first field
 
+        const root = new protobuf.Root();
         const invalidProto = Type.fromDescriptor(
           protoDescriptor,
         ) as protobuf.Type;
+        root.add(invalidProto);
         const row = {
           customer_name: 'Test',
         };
