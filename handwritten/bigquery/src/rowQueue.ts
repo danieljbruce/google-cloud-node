@@ -112,11 +112,14 @@ export class RowQueue {
       }
     }
 
+    // Check if the current batch can fit the new row, flush if necessary
     if (!this.batch.canFit(row)) {
       this.insert();
     }
     this.batch.add(row, callback);
 
+    // If batch reaches capacity, flush immediately; otherwise schedule delayed flush
+    // TODO: Dynamic queue delay tuning based on insertion throughput
     if (this.batch.isFull()) {
       this.insert();
     } else if (!this.pending) {
@@ -132,6 +135,7 @@ export class RowQueue {
   insert(callback?: InsertRowsCallback): void {
     const {rows, callbacks} = this.batch;
 
+    // Reset current batch container
     this.batch = new RowBatch(this.batchOptions!);
 
     if (this.pending) {

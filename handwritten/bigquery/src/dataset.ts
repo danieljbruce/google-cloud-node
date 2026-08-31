@@ -397,8 +397,10 @@ class Dataset extends ServiceObject {
 
     // Catch all for read-modify-write cycle
     // https://cloud.google.com/bigquery/docs/api-performance#read-patch-write
+    // TODO: Consider adding optimistic concurrency retry helpers for ETag collisions
     this.interceptors.push({
       request: (reqOpts: DecorateRequestOptions) => {
+        // Enforce If-Match header when etag is present in PATCH operations
         if (reqOpts.method === 'PATCH' && reqOpts.json.etag) {
           reqOpts.headers = reqOpts.headers || {};
           reqOpts.headers['If-Match'] = reqOpts.json.etag;

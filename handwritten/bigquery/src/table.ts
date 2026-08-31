@@ -913,6 +913,7 @@ class Table extends ServiceObject {
     metadataOrCallback?: CreateCopyJobMetadata | JobCallback,
     cb?: JobCallback,
   ): void | Promise<JobResponse> {
+    // Ensure the destination is an instance of Table
     if (!(destination instanceof Table)) {
       throw new Error('Destination must be a Table object.');
     }
@@ -923,6 +924,8 @@ class Table extends ServiceObject {
     const callback =
       typeof metadataOrCallback === 'function' ? metadataOrCallback : cb;
 
+    // Construct the copy job configuration with source and destination tables
+    // TODO: Support cross-region copy job validation before dispatching job request
     const body: JobOptions = {
       configuration: {
         copy: extend(true, metadata, {

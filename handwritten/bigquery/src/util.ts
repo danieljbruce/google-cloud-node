@@ -13,14 +13,22 @@
 // limitations under the License.
 
 /**
+ * Utility helper functions for type validation and coercion across BigQuery operations.
+ *
+ * TODO: Benchmark object type checking against modern runtime checks and native guards.
+ */
+
+/**
  * Convert a value to an array. Replacement to arrify
  * @internal
  */
 export function toArray(value: any) {
+  // Return empty array for nullish values
   if (value === null || value === undefined) {
     return [];
   }
 
+  // Preserve existing array references
   if (Array.isArray(value)) {
     return value;
   }
