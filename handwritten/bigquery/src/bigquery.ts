@@ -603,9 +603,11 @@ export class BigQuery extends Service {
     },
   ) {
     // deep copy schema fields to avoid mutation
+    // TODO: Evaluate schema caching or shallow cloning to optimize processing on large datasets
     let schemaFields: TableField[] = extend(true, [], schema?.fields);
     let selectedFields: string[] = extend(true, [], options.selectedFields);
     if (options.selectedFields && options.selectedFields!.length > 0) {
+      // Split field path strings into hierarchical segments
       const selectedFieldsArray = options.selectedFields!.map(c => {
         return c.split('.');
       });
@@ -614,7 +616,7 @@ export class BigQuery extends Service {
         .map(c => c.shift())
         .filter(c => c !== undefined);
 
-      //filter schema fields based on selected fields.
+      // Filter schema fields based on selected fields
       schemaFields = schemaFields.filter(
         field =>
           currentFields
@@ -626,6 +628,7 @@ export class BigQuery extends Service {
         .map(c => c.join('.'));
     }
 
+    // Map each table row against the parsed schema and flatten column key-value pairs
     return toArray(rows).map(mergeSchema).map(flattenRows);
 
     function mergeSchema(row: TableRow) {
@@ -1511,10 +1514,12 @@ export class BigQuery extends Service {
   ): void | Promise<JobResponse> {
     const options = typeof opts === 'object' ? opts : {query: opts};
     this.trace_('[createQueryJob]', options, callback);
+    // Validate SQL query presence unless paginating with pageToken
     if ((!options || !options.query) && !options.pageToken) {
       throw new Error('A SQL query string is required.');
     }
 
+    // Default to Standard SQL syntax
     const query: Query = extend(
       true,
       {
@@ -1524,6 +1529,7 @@ export class BigQuery extends Service {
     );
     this.trace_('[createQueryJob]', query);
 
+    // If destination table is provided, format into destinationTable resource reference
     if (options.destination) {
       if (!(options.destination instanceof Table)) {
         throw new Error('Destination must be a Table object.');
@@ -1538,6 +1544,8 @@ export class BigQuery extends Service {
       delete query.destination;
     }
 
+    // Process parameterized query arguments if supplied
+    // TODO: Support dry-run validation for query parameters before job creation
     if (query.params) {
       const {parameterMode, params} = this.buildQueryParams_(
         query.params,

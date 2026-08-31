@@ -21,11 +21,14 @@ let logFunction: ((msg: string) => void) | null = null;
  * Log function to use for debug output. By default, we don't perform any
  * logging.
  *
+ * TODO: Support structured log formatters (e.g. JSON output) for Cloud Logging integration.
+ *
  * @private
  * @internal
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function logger(source: string, msg: string, ...otherArgs: any[]) {
+  // Only format and emit if an external logger function is configured
   if (logFunction) {
     const time = new Date().toISOString();
     const formattedMsg = util.format(
@@ -43,5 +46,6 @@ export function logger(source: string, msg: string, ...otherArgs: any[]) {
  * `null` to turn off logging.
  */
 export function setLogFunction(logger: ((msg: string) => void) | null): void {
+  // Update the global reference used across module instances
   logFunction = logger;
 }

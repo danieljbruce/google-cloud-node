@@ -58,8 +58,10 @@ export class RowBatch {
    * @param {InsertRowsCallback} callback The callback function.
    */
   add(row: RowMetadata, callback?: InsertRowsCallback): void {
+    // Append row and track associated callback
     this.rows.push(row);
     this.callbacks.push(callback!);
+    // TODO: Consider caching byte lengths for frequently structured schemas
     this.bytes += Buffer.byteLength(JSON.stringify(row));
   }
   /**
