@@ -12,69 +12,70 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {DecorateRequestOptions, util} from '@google-cloud/common';
-import * as pfy from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach, before} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
-
-import {BigQuery} from '../src/bigquery';
+import {DecorateRequestOptions, Operation, util} from '@google-cloud/common';
 import {toArray} from '../src/util';
 import {QueryResultsOptions} from '../src/job';
 
-class FakeOperation {
-  calledWith_: Array<{}>;
-  interceptors: Array<{}>;
-  id: {};
-  constructor(...args: Array<{}>) {
-    this.calledWith_ = args;
-    this.interceptors = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.id = (this.calledWith_[0] as any).id;
-  }
-}
-
-interface CalledWithJob extends FakeOperation {
-  calledWith_: Array<{
-    parent: {};
-    baseUrl: string;
-    id: string;
-    methods: string[];
-  }>;
-}
-
 let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll: (c: Function) => {
-    if (c.name === 'Job') {
-      promisified = true;
-    }
-  },
+let extended = false;
+
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll: (c: Function, options: any) => {
+      if (c.name === 'Job') {
+        promisified = true;
+      }
+      return actual.promisifyAll(c, options);
+    },
+  };
 });
 
-let extended = false;
-const fakePaginator = {
-  paginator: {
-    extend: (c: Function, methods: string[]) => {
-      if (c.name !== 'Job') {
-        return;
-      }
+jest.mock('@google-cloud/paginator', () => {
+  const actual = jest.requireActual('@google-cloud/paginator');
+  return {
+    ...actual,
+    paginator: {
+      ...actual.paginator,
+      extend: (c: Function, methods: string[]) => {
+        if (c.name !== 'Job') {
+          return;
+        }
 
-      methods = toArray(methods);
-      assert.deepStrictEqual(methods, ['getQueryResults']);
-      extended = true;
+        const methodsArr = Array.isArray(methods) ? methods : [methods];
+        if (methodsArr.length === 1 && methodsArr[0] === 'getQueryResults') {
+          extended = true;
+        }
+      },
+      streamify: (methodName: string) => {
+        return methodName;
+      },
     },
-    streamify: (methodName: string) => {
-      return methodName;
-    },
-  },
-};
+  };
+});
 
-const sandbox = sinon.createSandbox();
+jest.mock('@google-cloud/common', () => {
+  const actual = jest.requireActual('@google-cloud/common');
+  class FakeOperation {
+    calledWith_: Array<{}>;
+    interceptors: Array<{}>;
+    id: {};
+    constructor(...args: Array<{}>) {
+      this.calledWith_ = args;
+      this.interceptors = [];
+      this.id = (this.calledWith_[0] as any).id;
+    }
+  }
+  return {
+    ...actual,
+    Operation: FakeOperation,
+  };
+});
+
+import {BigQuery, Job} from '../src';
 
 describe('BigQuery/Job', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BIGQUERY: any = {
     projectId: 'my-project',
     Promise,
@@ -82,47 +83,38 @@ describe('BigQuery/Job', () => {
   const JOB_ID = 'job_XYrk_3z';
   const LOCATION = 'asia-northeast1';
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let Job: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let job: any;
-
-  before(() => {
-    Job = proxyquire('../src/job.js', {
-      '@google-cloud/common': {Operation: FakeOperation},
-      '@google-cloud/paginator': fakePaginator,
-      '@google-cloud/promisify': fakePfy,
-    }).Job;
-  });
 
   beforeEach(() => {
     job = new Job(BIGQUERY, JOB_ID);
   });
 
-  afterEach(() => sandbox.restore());
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   describe('initialization', () => {
     it('should paginate all the things', () => {
-      assert(extended);
+      expect(extended).toBe(true);
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
 
     it('should assign this.bigQuery', () => {
-      assert.deepStrictEqual(job.bigQuery, BIGQUERY);
+      expect(job.bigQuery).toEqual(BIGQUERY);
     });
 
     it('should inherit from Operation', () => {
-      assert(job instanceof FakeOperation);
+      expect(job instanceof Operation).toBe(true);
 
-      const calledWith = (job as CalledWithJob).calledWith_[0];
+      const calledWith = (job as any).calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, BIGQUERY);
-      assert.strictEqual(calledWith.baseUrl, '/jobs');
-      assert.strictEqual(calledWith.id, JOB_ID);
-      assert.deepStrictEqual(calledWith.methods, {
+      expect(calledWith.parent).toBe(BIGQUERY);
+      expect(calledWith.baseUrl).toBe('/jobs');
+      expect(calledWith.id).toBe(JOB_ID);
+      expect(calledWith.methods).toEqual({
         delete: {
           reqOpts: {
             method: 'DELETE',
@@ -144,21 +136,21 @@ describe('BigQuery/Job', () => {
       const options = {location: 'US'};
       const job = new Job(BIGQUERY, JOB_ID, options);
 
-      assert.strictEqual(job.location, options.location);
+      expect(job.location).toBe(options.location);
     });
 
     it('should accept a projectId option', () => {
       const options = {projectId: 'cool-project'};
       const job = new Job(BIGQUERY, JOB_ID, options);
 
-      assert.strictEqual(job.projectId, options.projectId);
+      expect(job.projectId).toBe(options.projectId);
     });
 
     it('should send the location via getMetadata', () => {
       const job = new Job(BIGQUERY, JOB_ID, {location: LOCATION});
-      const calledWith = job.calledWith_[0];
+      const calledWith = (job as any).calledWith_[0];
 
-      assert.deepStrictEqual(calledWith.methods.getMetadata, {
+      expect(calledWith.methods.getMetadata).toEqual({
         reqOpts: {
           qs: {location: LOCATION},
         },
@@ -168,9 +160,9 @@ describe('BigQuery/Job', () => {
     it('should update the location after initializing job object', () => {
       const job = new Job(BIGQUERY, JOB_ID);
       job.location = LOCATION;
-      const calledWith = job.calledWith_[0];
+      const calledWith = (job as any).calledWith_[0];
 
-      assert.deepStrictEqual(calledWith.methods.getMetadata, {
+      expect(calledWith.methods.getMetadata).toEqual({
         reqOpts: {
           qs: {location: LOCATION},
         },
@@ -181,23 +173,35 @@ describe('BigQuery/Job', () => {
   describe('cancel', () => {
     it('should make the correct API request', done => {
       job.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.uri, '/cancel');
-        done();
+        try {
+          expect(reqOpts.method).toBe('POST');
+          expect(reqOpts.uri).toBe('/cancel');
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      job.cancel(assert.ifError);
+      job.cancel((err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should include the job location', done => {
-      const job = new Job(BIGQUERY, JOB_ID, {location: LOCATION});
+      const job: any = new Job(BIGQUERY, JOB_ID, {location: LOCATION});
 
       job.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {location: LOCATION});
-        done();
+        try {
+          expect(reqOpts.qs).toEqual({location: LOCATION});
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      job.cancel(assert.ifError);
+      job.cancel((err: any) => {
+        if (err) done(err);
+      });
     });
   });
 
@@ -229,11 +233,17 @@ describe('BigQuery/Job', () => {
 
     it('should make the correct request', done => {
       BIGQUERY.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/queries/' + JOB_ID);
-        done();
+        try {
+          expect(reqOpts.uri).toBe('/queries/' + JOB_ID);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      job.getQueryResults(assert.ifError);
+      job.getQueryResults((err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should optionally accept options', done => {
@@ -244,25 +254,37 @@ describe('BigQuery/Job', () => {
       );
 
       BIGQUERY.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, expectedOptions);
-        done();
+        try {
+          expect(reqOpts.qs).toEqual(expectedOptions);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      job.getQueryResults(options, assert.ifError);
+      job.getQueryResults(options, (err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should inherit the location', done => {
       const job = new Job(BIGQUERY, JOB_ID, {location: LOCATION});
 
       BIGQUERY.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {
-          location: LOCATION,
-          'formatOptions.useInt64Timestamp': true,
-        });
-        done();
+        try {
+          expect(reqOpts.qs).toEqual({
+            location: LOCATION,
+            'formatOptions.useInt64Timestamp': true,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      job.getQueryResults(assert.ifError);
+      job.getQueryResults((err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should delete any cached jobs', done => {
@@ -274,11 +296,17 @@ describe('BigQuery/Job', () => {
       };
 
       BIGQUERY.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, expectedOptions);
-        done();
+        try {
+          expect(reqOpts.qs).toEqual(expectedOptions);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      job.getQueryResults(options, assert.ifError);
+      job.getQueryResults(options, (err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should return any errors to the callback', done => {
@@ -293,20 +321,28 @@ describe('BigQuery/Job', () => {
       };
 
       job.getQueryResults((err: Error, rows: {}, nextQuery: {}, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(rows, null);
-        assert.strictEqual(nextQuery, null);
-        assert.strictEqual(resp, response);
-        done();
+        try {
+          expect(err).toBe(error);
+          expect(rows).toBeNull();
+          expect(nextQuery).toBeNull();
+          expect(resp).toBe(response);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
     it('should return the rows and response to the callback', done => {
       job.getQueryResults((err: {}, rows: {}, nextQuery: {}, resp: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(rows, []);
-        assert.strictEqual(resp, RESPONSE);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(rows).toEqual([]);
+          expect(resp).toBe(RESPONSE);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -325,19 +361,23 @@ describe('BigQuery/Job', () => {
         callback(null, response);
       };
 
-      sandbox
-        .stub(BigQuery, 'mergeSchemaWithRows_')
-        .callsFake((schema, rows, {wrapIntegers}) => {
-          assert.strictEqual(schema, response.schema);
-          assert.strictEqual(rows, response.rows);
-          assert.strictEqual(wrapIntegers, false);
-          return mergedRows;
+      jest
+        .spyOn(BigQuery, 'mergeSchemaWithRows_')
+        .mockImplementation((schema: any, rows: any, {wrapIntegers}: any) => {
+          expect(schema).toBe(response.schema);
+          expect(rows).toBe(response.rows);
+          expect(wrapIntegers).toBe(false);
+          return mergedRows as any;
         });
 
       job.getQueryResults((err: Error, rows: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(rows, mergedRows);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(rows).toBe(mergedRows);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -355,21 +395,36 @@ describe('BigQuery/Job', () => {
         'formatOptions.useInt64Timestamp': true,
       });
 
-      BIGQUERY.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, expectedOptions);
-        done();
+      BIGQUERY.request = (
+        reqOpts: DecorateRequestOptions,
+        callback: Function,
+      ) => {
+        try {
+          expect(reqOpts.qs).toEqual(expectedOptions);
+          callback(null, response);
+        } catch (e) {
+          done(e);
+        }
       };
 
-      sandbox
-        .stub(BigQuery, 'mergeSchemaWithRows_')
-        .callsFake((schema, rows, {wrapIntegers}) => {
-          assert.strictEqual(schema, response.schema);
-          assert.strictEqual(rows, response.rows);
-          assert.strictEqual(wrapIntegers, true);
-          return mergedRows;
+      jest
+        .spyOn(BigQuery, 'mergeSchemaWithRows_')
+        .mockImplementation((schema: any, rows: any, {wrapIntegers}: any) => {
+          try {
+            expect(schema).toBe(response.schema);
+            expect(rows).toBe(response.rows);
+            expect(wrapIntegers).toBe(true);
+            return mergedRows as any;
+          } catch (e) {
+            done(e);
+            return mergedRows as any;
+          }
         });
 
-      job.getQueryResults(options, assert.ifError);
+      job.getQueryResults(options, (err: any) => {
+        if (err) done(err);
+        else done();
+      });
     });
 
     it('it should parse JSON', done => {
@@ -386,21 +441,36 @@ describe('BigQuery/Job', () => {
         'formatOptions.useInt64Timestamp': true,
       });
 
-      BIGQUERY.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, expectedOptions);
-        done();
+      BIGQUERY.request = (
+        reqOpts: DecorateRequestOptions,
+        callback: Function,
+      ) => {
+        try {
+          expect(reqOpts.qs).toEqual(expectedOptions);
+          callback(null, response);
+        } catch (e) {
+          done(e);
+        }
       };
 
-      sandbox
-        .stub(BigQuery, 'mergeSchemaWithRows_')
-        .callsFake((schema, rows, {parseJSON}) => {
-          assert.strictEqual(schema, response.schema);
-          assert.strictEqual(rows, response.rows);
-          assert.strictEqual(parseJSON, true);
-          return mergedRows;
+      jest
+        .spyOn(BigQuery, 'mergeSchemaWithRows_')
+        .mockImplementation((schema: any, rows: any, {parseJSON}: any) => {
+          try {
+            expect(schema).toBe(response.schema);
+            expect(rows).toBe(response.rows);
+            expect(parseJSON).toBe(true);
+            return mergedRows as any;
+          } catch (e) {
+            done(e);
+            return mergedRows as any;
+          }
         });
 
-      job.getQueryResults(options, assert.ifError);
+      job.getQueryResults(options, (err: any) => {
+        if (err) done(err);
+        else done();
+      });
     });
 
     it('should skip parsing if skipParsing is true', done => {
@@ -416,13 +486,17 @@ describe('BigQuery/Job', () => {
         callback(null, response);
       };
 
-      const mergeStub = sandbox.stub(BigQuery, 'mergeSchemaWithRows_');
+      const mergeStub = jest.spyOn(BigQuery, 'mergeSchemaWithRows_');
 
       job.getQueryResults({skipParsing: true}, (err: Error, rows: {}[]) => {
-        assert.ifError(err);
-        assert.strictEqual(rows, response.rows);
-        assert.strictEqual(mergeStub.called, false);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(rows).toBe(response.rows);
+          expect(mergeStub).not.toHaveBeenCalled();
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -447,9 +521,13 @@ describe('BigQuery/Job', () => {
       job.getQueryResults(
         options,
         (err: Error, rows: {}, nextQuery: {}, response: any) => {
-          assert.ifError(err);
-          assert.deepStrictEqual(response.rows, rawRows);
-          done();
+          try {
+            expect(err).toBeFalsy();
+            expect(response.rows).toEqual(rawRows);
+            done();
+          } catch (e) {
+            done(e);
+          }
         },
       );
     });
@@ -465,10 +543,14 @@ describe('BigQuery/Job', () => {
       };
 
       job.getQueryResults(options, (err: Error, rows: {}, nextQuery: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(nextQuery, options);
-        assert.notStrictEqual(nextQuery, options);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(nextQuery).toEqual(options);
+          expect(nextQuery).not.toBe(options);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -489,11 +571,15 @@ describe('BigQuery/Job', () => {
       job.getQueryResults(
         options,
         (err: Error, rows: {}, nextQuery: {}, resp: {}) => {
-          assert.strictEqual(err.message, message);
-          assert.strictEqual(rows, null);
-          assert.deepStrictEqual(nextQuery, options);
-          assert.strictEqual(resp, response);
-          done();
+          try {
+            expect(err.message).toBe(message);
+            expect(rows).toBeNull();
+            expect(nextQuery).toEqual(options);
+            expect(resp).toBe(response);
+            done();
+          } catch (e) {
+            done(e);
+          }
         },
       );
     });
@@ -517,9 +603,13 @@ describe('BigQuery/Job', () => {
       job.getQueryResults(
         options,
         (err: Error, rows: {}, nextQuery: {}, response: any) => {
-          assert.ifError(err);
-          assert.deepStrictEqual(response.rows, undefined);
-          done();
+          try {
+            expect(err).toBeFalsy();
+            expect(response.rows).toBeUndefined();
+            done();
+          } catch (e) {
+            done(e);
+          }
         },
       );
     });
@@ -528,9 +618,13 @@ describe('BigQuery/Job', () => {
       job.getQueryResults(
         options,
         (err: Error, rows: {}, nextQuery: QueryResultsOptions) => {
-          assert.ifError(err);
-          assert.strictEqual(nextQuery.pageToken, pageToken);
-          done();
+          try {
+            expect(err).toBeFalsy();
+            expect(nextQuery.pageToken).toBe(pageToken);
+            done();
+          } catch (e) {
+            done(e);
+          }
         },
       );
     });
@@ -538,7 +632,7 @@ describe('BigQuery/Job', () => {
 
   describe('getQueryResultsStream', () => {
     it('should have streamified getQueryResults', () => {
-      assert.strictEqual(job.getQueryResultsStream, 'getQueryResultsAsStream_');
+      expect(job.getQueryResultsStream).toBe('getQueryResultsAsStream_');
     });
   });
 
@@ -550,12 +644,16 @@ describe('BigQuery/Job', () => {
         options_: QueryResultsOptions,
         callback: Function,
       ) => {
-        assert.deepStrictEqual(options_, {
-          a: 'b',
-          c: 'd',
-          autoPaginate: false,
-        });
-        callback(); // done()
+        try {
+          expect(options_).toEqual({
+            a: 'b',
+            c: 'd',
+            autoPaginate: false,
+          });
+          callback();
+        } catch (e) {
+          done(e);
+        }
       };
 
       job.getQueryResultsAsStream_(options, done);
@@ -568,7 +666,9 @@ describe('BigQuery/Job', () => {
         done();
       };
 
-      job.poll_(assert.ifError);
+      job.poll_((err: any) => {
+        if (err) done(err);
+      });
     });
 
     describe('API error', () => {
@@ -582,8 +682,12 @@ describe('BigQuery/Job', () => {
 
       it('should return an error', done => {
         job.poll_((err: Error) => {
-          assert.strictEqual(err, error);
-          done();
+          try {
+            expect(err).toBe(error);
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
     });
@@ -597,8 +701,6 @@ describe('BigQuery/Job', () => {
         },
       };
 
-      const sandbox = sinon.createSandbox();
-
       beforeEach(() => {
         job.getMetadata = (callback: Function) => {
           callback(null, apiResponse);
@@ -606,19 +708,19 @@ describe('BigQuery/Job', () => {
       });
 
       it('should detect and return an error from the response', done => {
-        sandbox.stub(util, 'ApiError').callsFake(body => {
-          assert.strictEqual(body, apiResponse.status);
-          return error;
+        jest.spyOn(util, 'ApiError').mockImplementation((body: any) => {
+          expect(body).toBe(apiResponse.status);
+          return error as any;
         });
 
         job.poll_((err: Error) => {
-          assert.strictEqual(err, error);
-          done();
+          try {
+            expect(err).toBe(error);
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
-      });
-
-      afterEach(() => {
-        sandbox.restore();
       });
     });
 
@@ -637,9 +739,13 @@ describe('BigQuery/Job', () => {
 
       it('should execute callback', done => {
         job.poll_((err: Error, metadata: {}) => {
-          assert.ifError(err);
-          assert.strictEqual(metadata, undefined);
-          done();
+          try {
+            expect(err).toBeFalsy();
+            expect(metadata).toBeUndefined();
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
     });
@@ -659,9 +765,13 @@ describe('BigQuery/Job', () => {
 
       it('should emit complete with metadata', done => {
         job.poll_((err: Error, metadata: {}) => {
-          assert.ifError(err);
-          assert.strictEqual(metadata, apiResponse);
-          done();
+          try {
+            expect(err).toBeFalsy();
+            expect(metadata).toBe(apiResponse);
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
     });
