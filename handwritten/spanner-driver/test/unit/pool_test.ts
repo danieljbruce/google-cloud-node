@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {afterEach, beforeEach, describe, it} from 'mocha';
-import * as sinon from 'sinon';
 import {Client, Pool, Query, QueryResult} from '../../src/index.js';
 import {Pool as NativePool} from '../../src/lib/native.js';
 import {createMockPool} from './mock_native.js';
@@ -27,29 +24,28 @@ describe('Pool Class', () => {
         instance: 'i',
         database: 'd',
       });
-      assert.strictEqual(pool1.config.project, 'p');
-      assert.strictEqual(pool1.dsn, 'projects/p/instances/i/databases/d');
+      expect(pool1.config.project).toBe('p');
+      expect(pool1.dsn).toBe('projects/p/instances/i/databases/d');
 
       const pool2 = new Pool('projects/p/instances/i/databases/d');
-      assert.strictEqual(
-        pool2.config.connectionString,
+      expect(pool2.config.connectionString).toBe(
         'projects/p/instances/i/databases/d',
       );
-      assert.strictEqual(pool2.dsn, 'projects/p/instances/i/databases/d');
+      expect(pool2.dsn).toBe('projects/p/instances/i/databases/d');
     });
   });
 
   describe('Mock Native Bridge Execution (End-to-End Pooling & Lifecycle)', () => {
-    let poolStub: sinon.SinonStub;
+    let poolSpy: jest.SpyInstance;
 
     beforeEach(() => {
-      poolStub = sinon
-        .stub(NativePool, 'create')
-        .callsFake(async () => createMockPool());
+      poolSpy = jest
+        .spyOn(NativePool, 'create')
+        .mockImplementation(async () => createMockPool());
     });
 
     afterEach(() => {
-      poolStub.restore();
+      poolSpy.mockRestore();
     });
 
     it('should acquire client via connect() promise and return it to idle pool on release()', async () => {
@@ -59,28 +55,20 @@ describe('Pool Class', () => {
         database: 'd',
       });
       const client = await pool.connect();
-      assert.strictEqual(client.isConnected, true);
-      assert.strictEqual(typeof client.release, 'function');
-      assert.strictEqual(pool.totalCount, 1);
-      assert.strictEqual(pool.idleCount, 0);
+      expect(client.isConnected).toBe(true);
+      expect(typeof client.release).toBe('function');
+      expect(pool.totalCount).toBe(1);
+      expect(pool.idleCount).toBe(0);
 
       await client.release();
-      assert.strictEqual(
-        client.isConnected,
-        true,
-        'Client remains connected in idle pool',
-      );
-      assert.strictEqual(pool.idleCount, 1);
-      assert.strictEqual(pool.totalCount, 1);
+      expect(client.isConnected).toBe(true);
+      expect(pool.idleCount).toBe(1);
+      expect(pool.totalCount).toBe(1);
 
       await pool.end();
-      assert.strictEqual(pool.idleCount, 0);
-      assert.strictEqual(pool.totalCount, 0);
-      assert.strictEqual(
-        client.isConnected,
-        false,
-        'Client is closed when pool ends',
-      );
+      expect(pool.idleCount).toBe(0);
+      expect(pool.totalCount).toBe(0);
+      expect(client.isConnected).toBe(false);
     });
 
     it('should reuse idle clients from the pool on subsequent connect() calls', async () => {
@@ -93,11 +81,7 @@ describe('Pool Class', () => {
       await client1.release();
 
       const client2 = await pool.connect();
-      assert.strictEqual(
-        client1,
-        client2,
-        'Should reuse the same client instance',
-      );
+      expect(client1).toBe(client2);
       await client2.release();
       await pool.end();
     });
@@ -112,8 +96,8 @@ describe('Pool Class', () => {
 
       const c1 = await pool.connect();
       const c2 = await pool.connect();
-      assert.strictEqual(pool.totalCount, 2);
-      assert.strictEqual(pool.idleCount, 0);
+      expect(pool.totalCount).toBe(2);
+      expect(pool.idleCount).toBe(0);
 
       let c3Acquired = false;
       let c3Client: Client | undefined;
@@ -123,19 +107,15 @@ describe('Pool Class', () => {
         return c;
       });
 
-      assert.strictEqual(pool.waitingCount, 1);
-      assert.strictEqual(c3Acquired, false);
+      expect(pool.waitingCount).toBe(1);
+      expect(c3Acquired).toBe(false);
 
       await c1.release();
       await p3;
 
-      assert.strictEqual(c3Acquired, true);
-      assert.strictEqual(
-        c3Client,
-        c1,
-        'Queued acquirer should receive released client',
-      );
-      assert.strictEqual(pool.waitingCount, 0);
+      expect(c3Acquired).toBe(true);
+      expect(c3Client).toBe(c1);
+      expect(pool.waitingCount).toBe(0);
 
       await c2.release();
       await c3Client!.release();
@@ -152,14 +132,13 @@ describe('Pool Class', () => {
       });
 
       const c1 = await pool.connect();
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.totalCount).toBe(1);
 
       try {
         await pool.connect();
-        assert.fail('Should have timed out waiting for connection');
+        throw new Error('Should have timed out waiting for connection');
       } catch (err: unknown) {
-        assert.strictEqual(
-          (err as Error).message,
+        expect((err as Error).message).toBe(
           'timeout exceeded when trying to connect',
         );
       }
@@ -183,10 +162,9 @@ describe('Pool Class', () => {
 
       try {
         await pool.connect();
-        assert.fail('Should have timed out establishing connection');
+        throw new Error('Should have timed out establishing connection');
       } catch (err: unknown) {
-        assert.strictEqual(
-          (err as Error).message,
+        expect((err as Error).message).toBe(
           'timeout exceeded when trying to connect',
         );
       } finally {
@@ -210,15 +188,14 @@ describe('Pool Class', () => {
 
       try {
         await pool.connect();
-        assert.fail('Should have timed out during onConnect');
+        throw new Error('Should have timed out during onConnect');
       } catch (err: unknown) {
-        assert.strictEqual(
-          (err as Error).message,
+        expect((err as Error).message).toBe(
           'timeout exceeded when trying to connect',
         );
       }
 
-      assert.strictEqual(pool.totalCount, 0);
+      expect(pool.totalCount).toBe(0);
       await pool.end();
     });
 
@@ -232,12 +209,12 @@ describe('Pool Class', () => {
 
       const c1 = await pool.connect();
       await c1.release();
-      assert.strictEqual(pool.idleCount, 1);
+      expect(pool.idleCount).toBe(1);
 
       await new Promise(r => setTimeout(r, 80));
-      assert.strictEqual(pool.idleCount, 0);
-      assert.strictEqual(pool.totalCount, 0);
-      assert.strictEqual(c1.isConnected, false);
+      expect(pool.idleCount).toBe(0);
+      expect(pool.totalCount).toBe(0);
+      expect(c1.isConnected).toBe(false);
 
       await pool.end();
     });
@@ -253,15 +230,11 @@ describe('Pool Class', () => {
 
       const c1 = await pool.connect();
       await c1.release();
-      assert.strictEqual(pool.idleCount, 1);
+      expect(pool.idleCount).toBe(1);
 
       await new Promise(r => setTimeout(r, 70));
-      assert.strictEqual(
-        pool.idleCount,
-        1,
-        'min idle client should be retained',
-      );
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.idleCount).toBe(1);
+      expect(pool.totalCount).toBe(1);
 
       await pool.end();
     });
@@ -283,12 +256,7 @@ describe('Pool Class', () => {
       await c.release();
       await pool.end();
 
-      assert.deepStrictEqual(events, [
-        'connect',
-        'acquire',
-        'release',
-        'remove',
-      ]);
+      expect(events).toEqual(['connect', 'acquire', 'release', 'remove']);
     });
 
     it('should destroy client when released with error parameter', async () => {
@@ -299,12 +267,12 @@ describe('Pool Class', () => {
       });
 
       const c = await pool.connect();
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.totalCount).toBe(1);
 
       await c.release(new Error('Fatal error'));
-      assert.strictEqual(pool.idleCount, 0);
-      assert.strictEqual(pool.totalCount, 0);
-      assert.strictEqual(c.isConnected, false);
+      expect(pool.idleCount).toBe(0);
+      expect(pool.totalCount).toBe(0);
+      expect(c.isConnected).toBe(false);
 
       await pool.end();
     });
@@ -318,7 +286,7 @@ describe('Pool Class', () => {
       });
 
       const c1 = await pool.connect();
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.totalCount).toBe(1);
 
       let waiterResolved = false;
       let newClient: Client | undefined;
@@ -328,21 +296,17 @@ describe('Pool Class', () => {
         return c;
       });
 
-      assert.strictEqual(pool.waitingCount, 1);
+      expect(pool.waitingCount).toBe(1);
 
       // Release c1 with fatal error -> removeClient destroys c1 and connects fresh replacement for waiter
       await c1.release(new Error('Connection lost'));
       await p2;
 
-      assert.strictEqual(waiterResolved, true);
-      assert.notStrictEqual(
-        newClient,
-        c1,
-        'Should instantiate a fresh new Client instance',
-      );
-      assert.strictEqual(newClient?.isConnected, true);
-      assert.strictEqual(pool.waitingCount, 0);
-      assert.strictEqual(pool.totalCount, 1);
+      expect(waiterResolved).toBe(true);
+      expect(newClient).not.toBe(c1);
+      expect(newClient?.isConnected).toBe(true);
+      expect(pool.waitingCount).toBe(0);
+      expect(pool.totalCount).toBe(1);
 
       await newClient!.release();
       await pool.end();
@@ -363,16 +327,11 @@ describe('Pool Class', () => {
       const c = await pool.connect();
       c.emit('error', new Error('Background connection dropped'));
 
-      assert.ok(receivedErr);
-      assert.strictEqual(
-        (receivedErr as Error).message,
+      expect(receivedErr).toBeTruthy();
+      expect((receivedErr as unknown as Error).message).toBe(
         'Background connection dropped',
       );
-      assert.strictEqual(
-        pool.totalCount,
-        0,
-        'Dead client should be removed from pool',
-      );
+      expect(pool.totalCount).toBe(0);
 
       await pool.end();
     });
@@ -387,11 +346,7 @@ describe('Pool Class', () => {
       const c = await pool.connect();
       // Should not throw or crash uncaught exception and should remove dead client
       c.emit('error', new Error('Background silent drop'));
-      assert.strictEqual(
-        pool.totalCount,
-        0,
-        'Dead client should be removed from pool',
-      );
+      expect(pool.totalCount).toBe(0);
 
       await pool.end();
     });
@@ -404,21 +359,17 @@ describe('Pool Class', () => {
       });
 
       const c = await pool.connect();
-      assert.strictEqual(pool.totalCount, 1);
-      assert.strictEqual(pool.idleCount, 0);
+      expect(pool.totalCount).toBe(1);
+      expect(pool.idleCount).toBe(0);
 
       await c.release();
-      assert.strictEqual(pool.idleCount, 1);
+      expect(pool.idleCount).toBe(1);
 
       // Second and third release calls should safely no-op
       await c.release();
       await c.release();
-      assert.strictEqual(
-        pool.idleCount,
-        1,
-        'idleCount must not duplicate client',
-      );
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.idleCount).toBe(1);
+      expect(pool.totalCount).toBe(1);
 
       await pool.end();
     });
@@ -434,7 +385,7 @@ describe('Pool Class', () => {
 
       const c = await pool.connect();
       await c.release();
-      assert.strictEqual(pool.idleCount, 1);
+      expect(pool.idleCount).toBe(1);
 
       await pool.end();
     });
@@ -449,19 +400,15 @@ describe('Pool Class', () => {
 
       const c1 = await pool.connect();
       await c1.release();
-      assert.strictEqual(pool.idleCount, 1);
+      expect(pool.idleCount).toBe(1);
 
       const c1Again = await pool.connect();
-      assert.strictEqual(c1, c1Again);
+      expect(c1).toBe(c1Again);
 
       await c1Again.release();
-      assert.strictEqual(
-        pool.idleCount,
-        0,
-        'Client should be destroyed after 2 uses',
-      );
-      assert.strictEqual(pool.totalCount, 0);
-      assert.strictEqual(c1.isConnected, false);
+      expect(pool.idleCount).toBe(0);
+      expect(pool.totalCount).toBe(0);
+      expect(c1.isConnected).toBe(false);
 
       await pool.end();
     });
@@ -478,13 +425,9 @@ describe('Pool Class', () => {
       await new Promise(r => setTimeout(r, 60));
       await c1.release();
 
-      assert.strictEqual(
-        pool.idleCount,
-        0,
-        'Client should be destroyed due to maxLifetimeSeconds',
-      );
-      assert.strictEqual(pool.totalCount, 0);
-      assert.strictEqual(c1.isConnected, false);
+      expect(pool.idleCount).toBe(0);
+      expect(pool.totalCount).toBe(0);
+      expect(c1.isConnected).toBe(false);
 
       await pool.end();
     });
@@ -501,26 +444,18 @@ describe('Pool Class', () => {
       const c1 = await pool.connect();
       // Released immediately while still young
       await c1.release();
-      assert.strictEqual(pool.idleCount, 1);
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.idleCount).toBe(1);
+      expect(pool.totalCount).toBe(1);
 
       // Wait 60ms so client expires while sitting idle in pool
       await new Promise(r => setTimeout(r, 60));
 
       // Connect again -> should detect expired lifetime on checkout, evict c1, and create fresh c2
       const c2 = await pool.connect();
-      assert.notStrictEqual(
-        c1,
-        c2,
-        'Should create a fresh client rather than reusing expired idle client',
-      );
-      assert.strictEqual(
-        c1.isConnected,
-        false,
-        'Expired client should have been closed',
-      );
-      assert.strictEqual(c2.isConnected, true);
-      assert.strictEqual(pool.totalCount, 1);
+      expect(c1).not.toBe(c2);
+      expect(c1.isConnected).toBe(false);
+      expect(c2.isConnected).toBe(true);
+      expect(pool.totalCount).toBe(1);
 
       await c2.release();
       await pool.end();
@@ -534,12 +469,12 @@ describe('Pool Class', () => {
         database: 'd',
         onConnect: async client => {
           onConnectRan = true;
-          assert.strictEqual(client.isConnected, true);
+          expect(client.isConnected).toBe(true);
         },
       });
 
       const c1 = await pool.connect();
-      assert.strictEqual(onConnectRan, true);
+      expect(onConnectRan).toBe(true);
       await c1.release();
       await pool.end();
     });
@@ -556,15 +491,12 @@ describe('Pool Class', () => {
 
       try {
         await pool.connect();
-        assert.fail('Should have thrown onConnect error');
+        throw new Error('Should have thrown onConnect error');
       } catch (err: unknown) {
-        assert.strictEqual(
-          (err as Error).message,
-          'onConnect initialization failed',
-        );
+        expect((err as Error).message).toBe('onConnect initialization failed');
       }
 
-      assert.strictEqual(pool.totalCount, 0);
+      expect(pool.totalCount).toBe(0);
       await pool.end();
     });
 
@@ -575,12 +507,19 @@ describe('Pool Class', () => {
         database: 'd',
       });
       pool.connect((err, client, releaseDone) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(client?.isConnected, true);
-        if (releaseDone) {
-          releaseDone();
+        try {
+          expect(err).toBe(null);
+          expect(client?.isConnected).toBe(true);
+          if (releaseDone) {
+            releaseDone();
+          }
+          void pool
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
         }
-        void pool.end().then(() => done());
       });
     });
 
@@ -591,14 +530,21 @@ describe('Pool Class', () => {
         database: 'd',
       });
       pool.connect((err, client, releaseDone) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(pool.totalCount, 1);
-        if (releaseDone) {
-          releaseDone(new Error('Fatal connection issue'));
+        try {
+          expect(err).toBe(null);
+          expect(pool.totalCount).toBe(1);
+          if (releaseDone) {
+            releaseDone(new Error('Fatal connection issue'));
+          }
+          expect(pool.totalCount).toBe(0);
+          expect(pool.idleCount).toBe(0);
+          void pool
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
         }
-        assert.strictEqual(pool.totalCount, 0);
-        assert.strictEqual(pool.idleCount, 0);
-        void pool.end().then(() => done());
       });
     });
 
@@ -609,10 +555,10 @@ describe('Pool Class', () => {
         database: 'd',
       });
       const res = await pool.query('SELECT 1');
-      assert.strictEqual(res.command, 'SELECT');
-      assert.strictEqual(res.rowCount, 1);
-      assert.deepStrictEqual(res.rows, [{'?column?': '1'}]);
-      assert.strictEqual(res.fields.length, 1);
+      expect(res.command).toBe('SELECT');
+      expect(res.rowCount).toBe(1);
+      expect(res.rows).toEqual([{'?column?': '1'}]);
+      expect(res.fields.length).toBe(1);
       await pool.end();
     });
 
@@ -623,9 +569,16 @@ describe('Pool Class', () => {
         database: 'd',
       });
       void pool.query('SELECT 1', (err, res) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(res?.command, 'SELECT');
-        void pool.end().then(() => done());
+        try {
+          expect(err).toBe(null);
+          expect(res?.command).toBe('SELECT');
+          void pool
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -637,8 +590,8 @@ describe('Pool Class', () => {
       });
       const q = new Query<QueryResult>('SELECT $1', [42]);
       void pool.query(q, [42], (err, res) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(res?.command, 'SELECT');
+        expect(err).toBe(null);
+        expect(res?.command).toBe('SELECT');
         void pool.end().then(() => done());
       });
     });
@@ -649,17 +602,23 @@ describe('Pool Class', () => {
       const pool = new Pool({});
       let callCount = 0;
       void pool.query('SELECT 1', (err, res) => {
-        if (originalProject !== undefined) {
-          process.env.GOOGLE_CLOUD_PROJECT = originalProject;
-        } else {
-          delete process.env.GOOGLE_CLOUD_PROJECT;
+        try {
+          if (originalProject !== undefined) {
+            process.env.GOOGLE_CLOUD_PROJECT = originalProject;
+          } else {
+            delete process.env.GOOGLE_CLOUD_PROJECT;
+          }
+          callCount++;
+          expect(res).toBe(undefined);
+          expect(callCount).toBe(1);
+          expect(err instanceof Error).toBe(true);
+          expect(err!.message).toMatch(
+            /Invalid Spanner connection configuration/,
+          );
+          done();
+        } catch (e) {
+          done(e);
         }
-        callCount++;
-        assert.strictEqual(res, undefined);
-        assert.strictEqual(callCount, 1);
-        assert.strictEqual(err instanceof Error, true);
-        assert.match(err!.message, /Invalid Spanner connection configuration/);
-        done();
       });
     });
 
@@ -680,18 +639,14 @@ describe('Pool Class', () => {
       await new Promise<void>(resolve => {
         void pool.query(q, undefined, (err, res) => {
           callCount++;
-          assert.strictEqual(res, undefined);
-          assert.strictEqual(callCount, 1);
-          assert.strictEqual(err instanceof Error, true);
+          expect(res).toBe(undefined);
+          expect(callCount).toBe(1);
+          expect(err instanceof Error).toBe(true);
           setTimeout(resolve, 20);
         });
       });
 
-      assert.strictEqual(
-        errorEventEmitted,
-        false,
-        'error event should not be emitted when callback is provided',
-      );
+      expect(errorEventEmitted).toBe(false);
       await pool.end();
     });
 
@@ -709,20 +664,16 @@ describe('Pool Class', () => {
 
       try {
         await pool.query('SELECT * FROM users');
-        assert.fail('Should have failed on query execution');
+        throw new Error('Should have failed on query execution');
       } catch (err: unknown) {
-        assert.strictEqual((err as Error).message, 'Table not found: users');
+        expect((err as Error).message).toBe('Table not found: users');
       } finally {
         Client.prototype.query = origQuery;
       }
 
       // Client should NOT be destroyed; it should be returned to idle pool
-      assert.strictEqual(
-        pool.idleCount,
-        1,
-        'Client should be returned to idle pool',
-      );
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.idleCount).toBe(1);
+      expect(pool.totalCount).toBe(1);
 
       await pool.end();
     });
@@ -736,10 +687,9 @@ describe('Pool Class', () => {
       await pool.end();
       try {
         await pool.connect();
-        assert.fail('Should have thrown error on ending pool');
+        throw new Error('Should have thrown error on ending pool');
       } catch (err: unknown) {
-        assert.strictEqual(
-          (err as Error).message,
+        expect((err as Error).message).toBe(
           'Cannot acquire client from ending pool',
         );
       }
@@ -764,16 +714,15 @@ describe('Pool Class', () => {
 
       try {
         await connectPromise;
-        assert.fail('connect() should have been rejected');
+        throw new Error('connect() should have been rejected');
       } catch (err: unknown) {
-        assert.strictEqual(
-          (err as Error).message,
+        expect((err as Error).message).toBe(
           'Cannot acquire client from ending pool',
         );
       }
 
       await endPromise;
-      assert.strictEqual(pool.totalCount, 0);
+      expect(pool.totalCount).toBe(0);
     });
 
     it('should reject pool.query() calls after pool.end() and invoke callback with error', done => {
@@ -782,14 +731,23 @@ describe('Pool Class', () => {
         instance: 'i',
         database: 'd',
       });
-      void pool.end().then(() => {
-        void pool.query('SELECT 1', (err, res) => {
-          assert.strictEqual(res, undefined);
-          assert.strictEqual(err instanceof Error, true);
-          assert.match(err!.message, /Cannot acquire client from ending pool/);
-          done();
-        });
-      });
+      void pool
+        .end()
+        .then(() => {
+          void pool.query('SELECT 1', (err, res) => {
+            try {
+              expect(res).toBe(undefined);
+              expect(err instanceof Error).toBe(true);
+              expect(err!.message).toMatch(
+                /Cannot acquire client from ending pool/,
+              );
+              done();
+            } catch (e) {
+              done(e);
+            }
+          });
+        })
+        .catch(done);
     });
 
     it('should ensure client is released before user callback executes in pool.query()', done => {
@@ -824,14 +782,17 @@ describe('Pool Class', () => {
         };
 
       void pool.query('SELECT 1', (err, res) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(res?.command, 'SELECT');
-        assert.strictEqual(
-          clientReleased,
-          true,
-          'Client release must complete BEFORE user callback is executed',
-        );
-        void pool.end().then(() => done());
+        try {
+          expect(err).toBe(null);
+          expect(res?.command).toBe('SELECT');
+          expect(clientReleased).toBe(true);
+          void pool
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -854,8 +815,15 @@ describe('Pool Class', () => {
       });
       const q = new Query<QueryResult>('');
       void q.on('error', err => {
-        assert.strictEqual(err instanceof Error, true);
-        void pool.end().then(() => done());
+        try {
+          expect(err instanceof Error).toBe(true);
+          void pool
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
       void pool.query(q).catch(() => {});
     });
@@ -864,8 +832,14 @@ describe('Pool Class', () => {
       const pool = new Pool({});
       const q = new Query<QueryResult>('SELECT 1');
       void q.on('error', err => {
-        assert.match(err.message, /Invalid Spanner connection configuration/);
-        done();
+        try {
+          expect(err.message).toMatch(
+            /Invalid Spanner connection configuration/,
+          );
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
       void pool.query(q).catch(() => {});
     });
@@ -902,11 +876,7 @@ describe('Pool Class', () => {
         void q.then(() => setTimeout(resolve, 50)).catch(reject);
       });
 
-      assert.strictEqual(
-        releaseStatusWhenEndEmitted,
-        true,
-        'client.release() should complete before end event is emitted on pool.query()',
-      );
+      expect(releaseStatusWhenEndEmitted).toBe(true);
     });
 
     it('should handle concurrent pool.end() calls gracefully and notify all callers', async () => {
@@ -924,8 +894,8 @@ describe('Pool Class', () => {
       // Call pool.end() concurrently 3 times
       await Promise.all([pool.end(), pool.end(), pool.end()]);
 
-      assert.strictEqual(pool.totalCount, 0);
-      assert.strictEqual(pool.idleCount, 0);
+      expect(pool.totalCount).toBe(0);
+      expect(pool.idleCount).toBe(0);
     });
 
     it('should drain active in-flight queries before pool.end() resolves', async () => {
@@ -944,15 +914,11 @@ describe('Pool Class', () => {
         void c1.release();
       }, 50);
 
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.totalCount).toBe(1);
       await pool.end();
 
-      assert.strictEqual(
-        queryFinished,
-        true,
-        'pool.end() must wait for active in-flight client to finish',
-      );
-      assert.strictEqual(pool.totalCount, 0);
+      expect(queryFinished).toBe(true);
+      expect(pool.totalCount).toBe(0);
     });
 
     it('should reject queued waitQueue acquirers when pool.end() is called', async () => {
@@ -973,7 +939,7 @@ describe('Pool Class', () => {
         waiterErrorMsg = err.message;
       });
 
-      assert.strictEqual(pool.waitingCount, 1);
+      expect(pool.waitingCount).toBe(1);
 
       // Release c1 after a short delay so pool.end() rejects waitQueue before c1 release
       setTimeout(() => {
@@ -983,12 +949,9 @@ describe('Pool Class', () => {
       await pool.end();
       await p2;
 
-      assert.strictEqual(waiterRejected, true);
-      assert.strictEqual(
-        waiterErrorMsg,
-        'Cannot acquire client from ending pool',
-      );
-      assert.strictEqual(pool.waitingCount, 0);
+      expect(waiterRejected).toBe(true);
+      expect(waiterErrorMsg).toBe('Cannot acquire client from ending pool');
+      expect(pool.waitingCount).toBe(0);
     });
 
     it('should remove idle client from pool when background error event occurs', async () => {
@@ -1004,28 +967,16 @@ describe('Pool Class', () => {
 
       const idleClient = await pool.connect();
       await idleClient.release();
-      assert.strictEqual(pool.idleCount, 1);
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.idleCount).toBe(1);
+      expect(pool.totalCount).toBe(1);
 
       // Emit a background connection error on the idle client handle
       idleClient.emit('error', new Error('Connection reset by peer'));
 
       // Broken client must be removed from the pool
-      assert.strictEqual(
-        pool.idleCount,
-        0,
-        'Broken idle client should be purged',
-      );
-      assert.strictEqual(
-        pool.totalCount,
-        0,
-        'Broken idle client should be removed from totalCount',
-      );
-      assert.strictEqual(
-        idleClient.isConnected,
-        false,
-        'Broken client should be closed',
-      );
+      expect(pool.idleCount).toBe(0);
+      expect(pool.totalCount).toBe(0);
+      expect(idleClient.isConnected).toBe(false);
 
       await pool.end();
     });
@@ -1052,12 +1003,11 @@ describe('Pool Class', () => {
 
         try {
           await connectPromise;
-          assert.fail(
+          throw new Error(
             'Should not allow client acquisition from an ending pool',
           );
         } catch (err: unknown) {
-          assert.strictEqual(
-            (err as Error).message,
+          expect((err as Error).message).toBe(
             'Cannot acquire client from ending pool',
           );
         }
@@ -1065,7 +1015,7 @@ describe('Pool Class', () => {
         Client.prototype.connect = originalConnect;
       }
 
-      assert.strictEqual(pool.totalCount, 0);
+      expect(pool.totalCount).toBe(0);
     });
 
     it('should forward streaming row and fields events from pool.query()', async () => {
@@ -1088,9 +1038,9 @@ describe('Pool Class', () => {
 
       await query;
 
-      assert.strictEqual(receivedFields.length, 1, 'Should emit fields event');
-      assert.strictEqual(receivedRows.length, 1, 'Should emit row event');
-      assert.ok(receivedResult, 'Should pass result object as 2nd parameter');
+      expect(receivedFields.length).toBe(1);
+      expect(receivedRows.length).toBe(1);
+      expect(receivedResult).toBeTruthy();
 
       await pool.end();
     });
@@ -1105,7 +1055,7 @@ describe('Pool Class', () => {
 
       // 1. Check out the only available connection slot
       const initialClient = await pool.connect();
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.totalCount).toBe(1);
 
       // 2. Queue Request A (index 0) and Request B (index 1) in FIFO order
       const resolutionOrder: string[] = [];
@@ -1117,11 +1067,7 @@ describe('Pool Class', () => {
         resolutionOrder.push('B');
         return client;
       });
-      assert.strictEqual(
-        pool.waitingCount,
-        2,
-        'Both requests should be queued',
-      );
+      expect(pool.waitingCount).toBe(2);
 
       // 3. initialClient encounters a fatal error and is destroyed.
       // Exactly ONE client slot is freed, so only Request A should be dequeued to get the replacement connection.
@@ -1147,22 +1093,14 @@ describe('Pool Class', () => {
       // Request B was queued before Request C, so Request B MUST be resolved before Request C.
       // Without the fix, re-entrant removeClient() prematurely pops Request B from waitQueue,
       // causing Request C to jump ahead of Request B in the queue (resulting in ['A', 'C']).
-      assert.deepStrictEqual(
-        resolutionOrder,
-        ['A', 'B'],
-        `FIFO queue order was violated. Expected Request B before Request C, but got: [${resolutionOrder.join(', ')}]`,
-      );
+      expect(resolutionOrder).toEqual(['A', 'B']);
 
       // 6. Request B completes and frees the connection for Request C
       const clientB = await requestB;
       await clientB.release();
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      assert.deepStrictEqual(
-        resolutionOrder,
-        ['A', 'B', 'C'],
-        'All requests should eventually resolve in strict FIFO order',
-      );
+      expect(resolutionOrder).toEqual(['A', 'B', 'C']);
 
       const clientC = await requestC;
       await clientC.release();
@@ -1177,11 +1115,15 @@ describe('Pool Class', () => {
       });
       void pool.end(); // Closing pool causes _doConnect to reject
       pool.connect((err, client, release) => {
-        assert.ok(err instanceof Error);
-        assert.strictEqual(client, undefined);
-        assert.strictEqual(typeof release, 'function');
-        assert.doesNotThrow(() => release!());
-        done();
+        try {
+          expect(err instanceof Error).toBeTruthy();
+          expect(client).toBe(undefined);
+          expect(typeof release).toBe('function');
+          expect(() => release!()).not.toThrow();
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -1192,7 +1134,7 @@ describe('Pool Class', () => {
         database: 'd',
       });
       const client = await pool.connect();
-      assert.strictEqual(pool.totalCount, 1);
+      expect(pool.totalCount).toBe(1);
 
       let removeEmitted = false;
       pool.on('remove', removedClient => {
@@ -1202,8 +1144,8 @@ describe('Pool Class', () => {
       });
 
       await client.end();
-      assert.strictEqual(removeEmitted, true);
-      assert.strictEqual(pool.totalCount, 0);
+      expect(removeEmitted).toBe(true);
+      expect(pool.totalCount).toBe(0);
       await pool.end();
     });
   });

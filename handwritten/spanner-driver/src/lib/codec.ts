@@ -23,10 +23,13 @@ import {
 } from './types.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
+import * as pkg from '@google-cloud/spanner-api/build/protos/protos.js';
 import type {google as GoogleProto} from '@google-cloud/spanner-api/build/protos/protos.js';
 
-const {google} = pkg as {google: typeof GoogleProto};
+const google =
+  (pkg as unknown as {google: typeof GoogleProto}).google ||
+  (pkg as unknown as {default: {google: typeof GoogleProto}}).default?.google ||
+  (pkg as unknown as {default: typeof GoogleProto}).default;
 const TypeCode = google.spanner.v1.TypeCode;
 
 export interface EncodedParam {

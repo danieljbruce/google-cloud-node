@@ -12,25 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import {escapeIdentifier, escapeLiteral} from '../../src/lib/pg/utilities.js';
 
 describe('PostgreSQL Dialect Utilities', () => {
   it('should escape PostgreSQL identifiers with double quotes', () => {
-    assert.strictEqual(escapeIdentifier('foo'), '"foo"');
-    assert.strictEqual(escapeIdentifier('my_table'), '"my_table"');
-    assert.strictEqual(escapeIdentifier('b"ar'), '"b""ar"');
+    expect(escapeIdentifier('foo')).toBe('"foo"');
+    expect(escapeIdentifier('my_table')).toBe('"my_table"');
+    expect(escapeIdentifier('b"ar')).toBe('"b""ar"');
   });
 
   it('should escape PostgreSQL string literals with single quotes', () => {
-    assert.strictEqual(escapeLiteral('hello'), "'hello'");
-    assert.strictEqual(escapeLiteral("O'Connor"), "'O''Connor'");
+    expect(escapeLiteral('hello')).toBe("'hello'");
+    expect(escapeLiteral("O'Connor")).toBe("'O''Connor'");
   });
 
   it('should escape backslashes using PostgreSQL E string syntax', () => {
-    assert.strictEqual(
-      escapeLiteral('C:\\path\\to\\file'),
+    expect(escapeLiteral('C:\\path\\to\\file')).toBe(
       "E'C:\\\\path\\\\to\\\\file'",
     );
   });

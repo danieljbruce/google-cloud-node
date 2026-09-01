@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {after, before, describe, it} from 'mocha';
 import {Spanner, protos} from '@google-cloud/spanner';
 import {BuiltinOids, Client, Pool, QueryResult} from '../src/index.js';
 
-describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
-  this.timeout(180000); // 3 minutes to allow Spanner DDL / Database creation
+describe('Spanner Driver System Tests (PostgreSQL Dialect)', () => {
+  jest.setTimeout(180000); // 3 minutes to allow Spanner DDL / Database creation
 
   const rawConn =
     process.env.SPANNER_CONNECTION_STRING ||
@@ -77,7 +75,7 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
   let client: Client;
   let pool: Pool;
 
-  before(async () => {
+  beforeAll(async () => {
     if (shouldCreateDb) {
       console.log(
         `Creating temporary Spanner PostgreSQL database: ${dbName}...`,
@@ -453,7 +451,7 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
     }
   });
 
-  after(async () => {
+  afterAll(async () => {
     try {
       if (client && client.isConnected) {
         await client.end();
@@ -497,25 +495,24 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const res = await client.query(
           'SELECT SingerId, FirstName, LastName, BirthDate, LastModified, Rating, Active, Revenues, Metadata FROM Singers WHERE SingerId = 1',
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.ok(row, 'Expected row to be returned');
-        assert.strictEqual(String(row.singerid || row.SingerId), '1');
-        assert.strictEqual(row.firstname || row.FirstName, 'Marc');
-        assert.strictEqual(row.lastname || row.LastName, 'Richards');
-        assert.strictEqual(row.birthdate || row.BirthDate, '1980-01-05');
-        assert.ok(
+        expect(row).toBeTruthy();
+        expect(String(row.singerid || row.SingerId)).toBe('1');
+        expect(row.firstname || row.FirstName).toBe('Marc');
+        expect(row.lastname || row.LastName).toBe('Richards');
+        expect(row.birthdate || row.BirthDate).toBe('1980-01-05');
+        expect(
           (row.lastmodified || row.LastModified) instanceof Date,
-          'Expected LastModified to be Date instance',
-        );
-        assert.strictEqual(row.active ?? row.Active, true);
-        assert.strictEqual(Number(row.rating || row.Rating), 4.8);
-        assert.strictEqual(Number(row.revenues || row.Revenues), 125000.5);
+        ).toBeTruthy();
+        expect(row.active ?? row.Active).toBe(true);
+        expect(Number(row.rating || row.Rating)).toBe(4.8);
+        expect(Number(row.revenues || row.Revenues)).toBe(125000.5);
 
         const meta = (row.metadata || row.Metadata) as
           | {genre?: string}
           | undefined;
-        assert.strictEqual(meta?.genre, 'rock');
+        expect(meta?.genre).toBe('rock');
       });
 
       it('should execute parameterized query with numeric parameter ($1)', async () => {
@@ -523,11 +520,11 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName, Active FROM Singers WHERE SingerId = $1',
           [2],
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.strictEqual(String(row.singerid || row.SingerId), '2');
-        assert.strictEqual(row.firstname || row.FirstName, 'Catalina');
-        assert.strictEqual(row.active ?? row.Active, false);
+        expect(String(row.singerid || row.SingerId)).toBe('2');
+        expect(row.firstname || row.FirstName).toBe('Catalina');
+        expect(row.active ?? row.Active).toBe(false);
       });
 
       it('should execute parameterized query with string parameter ($1)', async () => {
@@ -535,9 +532,9 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName, LastName FROM Singers WHERE LastName = $1',
           ['Richards'],
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.strictEqual(row.firstname || row.FirstName, 'Marc');
+        expect(row.firstname || row.FirstName).toBe('Marc');
       });
 
       it('should execute parameterized query with date parameter ($1::date)', async () => {
@@ -545,11 +542,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE BirthDate = $1::date',
           ['1980-01-05'],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should execute parameterized query with timestamptz Date parameter ($1)', async () => {
@@ -557,11 +551,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE LastModified = $1',
           [new Date('2023-01-01T12:00:00.000Z')],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should execute parameterized query with boolean parameter ($1)', async () => {
@@ -569,11 +560,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE Active = $1',
           [true],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should execute parameterized query with numeric/decimal parameter ($1::numeric)', async () => {
@@ -581,11 +569,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE Revenues = $1::numeric',
           ['125000.50'],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should execute parameterized query filtering jsonb column (Metadata ->> $1)', async () => {
@@ -593,19 +578,16 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           "SELECT SingerId, FirstName FROM Singers WHERE Metadata ->> 'genre' = $1",
           ['rock'],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should encode and decode jsonb parameter ($1::jsonb)', async () => {
         const res = await client.query('SELECT $1::jsonb as payload', [
           {genre: 'rock', tracks: 12},
         ]);
-        assert.strictEqual(res.rowCount, 1);
-        assert.deepStrictEqual(res.rows[0].payload, {
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].payload).toEqual({
           genre: 'rock',
           tracks: 12,
         });
@@ -616,54 +598,45 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const res = await client.query('SELECT $1::bytea as bin_data', [
           payload,
         ]);
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const returnedBuf = res.rows[0].bin_data as Buffer;
-        assert.ok(Buffer.isBuffer(returnedBuf));
-        assert.deepStrictEqual(returnedBuf, payload);
+        expect(Buffer.isBuffer(returnedBuf)).toBeTruthy();
+        expect(returnedBuf).toEqual(payload);
       });
 
       it('should read and decode all table-storable scalar column types from AllTypes table', async () => {
         const res = await client.query(
           'SELECT ColBool, ColBytea, ColInt8, ColFloat4, ColFloat8, ColNumeric, ColText, ColVarchar, ColDate, ColTimestamp, ColJsonb, ColUuid FROM AllTypes WHERE Id = 1',
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.ok(row, 'Expected row to be returned');
-        assert.strictEqual(row.colbool ?? row.ColBool, true);
+        expect(row).toBeTruthy();
+        expect(row.colbool ?? row.ColBool).toBe(true);
         const bytea = (row.colbytea || row.ColBytea) as Buffer;
-        assert.ok(Buffer.isBuffer(bytea));
-        assert.strictEqual(bytea.toString(), 'Spanner Binary Data');
-        assert.strictEqual(
-          String(row.colint8 || row.ColInt8),
-          '9223372036854775807',
-        );
-        assert.ok(
+        expect(Buffer.isBuffer(bytea)).toBeTruthy();
+        expect(bytea.toString()).toBe('Spanner Binary Data');
+        expect(String(row.colint8 || row.ColInt8)).toBe('9223372036854775807');
+        expect(
           Math.abs(Number(row.colfloat4 || row.ColFloat4) - 3.14) < 0.001,
-        );
-        assert.ok(
+        ).toBeTruthy();
+        expect(
           Math.abs(Number(row.colfloat8 || row.ColFloat8) - 2.718281828459045) <
             0.000001,
-        );
-        assert.strictEqual(
-          String(row.colnumeric || row.ColNumeric),
+        ).toBeTruthy();
+        expect(String(row.colnumeric || row.ColNumeric)).toBe(
           '123456789.987654321',
         );
-        assert.strictEqual(
-          row.coltext || row.ColText,
-          'Hello Spanner PostgreSQL',
-        );
-        assert.strictEqual(row.colvarchar || row.ColVarchar, 'Varchar sample');
-        assert.strictEqual(row.coldate || row.ColDate, '2026-08-14');
-        assert.ok(
+        expect(row.coltext || row.ColText).toBe('Hello Spanner PostgreSQL');
+        expect(row.colvarchar || row.ColVarchar).toBe('Varchar sample');
+        expect(row.coldate || row.ColDate).toBe('2026-08-14');
+        expect(
           (row.coltimestamp || row.ColTimestamp) instanceof Date,
-          'Expected ColTimestamp to be Date instance',
-        );
-        assert.deepStrictEqual(row.coljsonb || row.ColJsonb, {
+        ).toBeTruthy();
+        expect(row.coljsonb || row.ColJsonb).toEqual({
           name: 'Spanner',
           dialect: 'postgresql',
         });
-        assert.strictEqual(
-          row.coluuid || row.ColUuid,
+        expect(row.coluuid || row.ColUuid).toBe(
           'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
         );
       });
@@ -673,36 +646,38 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const res = await client.query('SELECT $1::uuid as uuid_val', [
           uuidVal,
         ]);
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(res.rows[0].uuid_val, uuidVal);
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].uuid_val).toBe(uuidVal);
       });
 
       it('should execute query with interval expression and date arithmetic', async () => {
         const res = await client.query(
           "SELECT CAST('1 year 2 months 3 days' AS INTERVAL) as interval_val, ('2026-01-01 00:00:00+00'::timestamptz + CAST('1 year 2 months 3 days' AS INTERVAL)) as shifted_time",
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.ok(
+        expect(res.rowCount).toBe(1);
+        expect(
           typeof res.rows[0].interval_val === 'string' &&
             res.rows[0].interval_val.length > 0,
-        );
-        assert.ok(res.rows[0].shifted_time instanceof Date);
+        ).toBeTruthy();
+        expect(res.rows[0].shifted_time instanceof Date).toBeTruthy();
       });
 
       it('should execute parameterized query with float4 parameter ($1::float4)', async () => {
         const res = await client.query('SELECT $1::float4 as f4_val', [3.14]);
-        assert.strictEqual(res.rowCount, 1);
-        assert.ok(Math.abs(Number(res.rows[0].f4_val) - 3.14) < 0.001);
+        expect(res.rowCount).toBe(1);
+        expect(
+          Math.abs(Number(res.rows[0].f4_val) - 3.14) < 0.001,
+        ).toBeTruthy();
       });
 
       it('should execute parameterized query with float8 parameter ($1::float8)', async () => {
         const res = await client.query('SELECT $1::float8 as f8_val', [
           2.718281828459045,
         ]);
-        assert.strictEqual(res.rowCount, 1);
-        assert.ok(
+        expect(res.rowCount).toBe(1);
+        expect(
           Math.abs(Number(res.rows[0].f8_val) - 2.718281828459045) < 0.000001,
-        );
+        ).toBeTruthy();
       });
     });
 
@@ -711,8 +686,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const res = await client.query(
           'SELECT SingerId, Tags FROM Singers WHERE SingerId = 1',
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.deepStrictEqual(res.rows[0].tags || res.rows[0].Tags, [
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].tags || res.rows[0].Tags).toEqual([
           'rock',
           'classic',
         ]);
@@ -722,46 +697,35 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const res = await client.query(
           'SELECT ArrBool, ArrBytea, ArrInt8, ArrFloat4, ArrFloat8, ArrNumeric, ArrText, ArrDate, ArrTimestamp, ArrJsonb, ArrUuid FROM AllTypes WHERE Id = 1',
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.deepStrictEqual(row.arrbool || row.ArrBool, [true, false, true]);
+        expect(row.arrbool || row.ArrBool).toEqual([true, false, true]);
         const byteaArr = (row.arrbytea || row.ArrBytea) as Buffer[];
-        assert.ok(Array.isArray(byteaArr));
-        assert.strictEqual(byteaArr[0].toString(), 'bin1');
-        assert.strictEqual(byteaArr[1].toString(), 'bin2');
-        assert.deepStrictEqual(row.arrint8 || row.ArrInt8, [
-          '100',
-          '200',
-          '300',
-        ]);
+        expect(Array.isArray(byteaArr)).toBeTruthy();
+        expect(byteaArr[0].toString()).toBe('bin1');
+        expect(byteaArr[1].toString()).toBe('bin2');
+        expect(row.arrint8 || row.ArrInt8).toEqual(['100', '200', '300']);
         const float4Arr = (row.arrfloat4 || row.ArrFloat4) as number[];
-        assert.ok(Math.abs(float4Arr[0] - 1.1) < 0.01);
-        assert.ok(Math.abs(float4Arr[1] - 2.2) < 0.01);
+        expect(Math.abs(float4Arr[0] - 1.1) < 0.01).toBeTruthy();
+        expect(Math.abs(float4Arr[1] - 2.2) < 0.01).toBeTruthy();
         const float8Arr = (row.arrfloat8 || row.ArrFloat8) as number[];
-        assert.ok(Math.abs(float8Arr[0] - 3.1415) < 0.0001);
-        assert.ok(Math.abs(float8Arr[1] - 2.7182) < 0.0001);
-        assert.deepStrictEqual(row.arrnumeric || row.ArrNumeric, [
+        expect(Math.abs(float8Arr[0] - 3.1415) < 0.0001).toBeTruthy();
+        expect(Math.abs(float8Arr[1] - 2.7182) < 0.0001).toBeTruthy();
+        expect(row.arrnumeric || row.ArrNumeric).toEqual([
           '10.5',
           '20.25',
           '30.125',
         ]);
-        assert.deepStrictEqual(row.arrtext || row.ArrText, [
-          'alpha',
-          'beta',
-          'gamma',
-        ]);
-        assert.deepStrictEqual(row.arrdate || row.ArrDate, [
+        expect(row.arrtext || row.ArrText).toEqual(['alpha', 'beta', 'gamma']);
+        expect(row.arrdate || row.ArrDate).toEqual([
           '2026-01-01',
           '2026-06-01',
         ]);
         const tsArr = (row.arrtimestamp || row.ArrTimestamp) as Date[];
-        assert.ok(tsArr[0] instanceof Date);
-        assert.ok(tsArr[1] instanceof Date);
-        assert.deepStrictEqual(row.arrjsonb || row.ArrJsonb, [
-          {k: 'v1'},
-          {k: 'v2'},
-        ]);
-        assert.deepStrictEqual(row.arruuid || row.ArrUuid, [
+        expect(tsArr[0] instanceof Date).toBeTruthy();
+        expect(tsArr[1] instanceof Date).toBeTruthy();
+        expect(row.arrjsonb || row.ArrJsonb).toEqual([{k: 'v1'}, {k: 'v2'}]);
+        expect(row.arruuid || row.ArrUuid).toEqual([
           'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
           'b1ffcd00-0d1c-5fa9-cc7e-7cc0ce491b22',
         ]);
@@ -772,11 +736,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE $1 = ANY(Tags)',
           ['rock'],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should execute parameterized query with numeric array parameter ($1 = ANY)', async () => {
@@ -784,16 +745,10 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE SingerId = ANY($1) ORDER BY SingerId',
           [[1, 2]],
         );
-        assert.strictEqual(res.rowCount, 2);
-        assert.strictEqual(res.rows.length, 2);
-        assert.strictEqual(
-          String(res.rows[0].singerid || res.rows[0].SingerId),
-          '1',
-        );
-        assert.strictEqual(
-          String(res.rows[1].singerid || res.rows[1].SingerId),
-          '2',
-        );
+        expect(res.rowCount).toBe(2);
+        expect(res.rows.length).toBe(2);
+        expect(String(res.rows[0].singerid || res.rows[0].SingerId)).toBe('1');
+        expect(String(res.rows[1].singerid || res.rows[1].SingerId)).toBe('2');
       });
 
       it('should execute parameterized query with string array parameter ($1 = ANY)', async () => {
@@ -801,15 +756,9 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, LastName FROM Singers WHERE LastName = ANY($1) ORDER BY SingerId',
           [['Richards', 'Smith']],
         );
-        assert.strictEqual(res.rowCount, 2);
-        assert.strictEqual(
-          res.rows[0].lastname || res.rows[0].LastName,
-          'Richards',
-        );
-        assert.strictEqual(
-          res.rows[1].lastname || res.rows[1].LastName,
-          'Smith',
-        );
+        expect(res.rowCount).toBe(2);
+        expect(res.rows[0].lastname || res.rows[0].LastName).toBe('Richards');
+        expect(res.rows[1].lastname || res.rows[1].LastName).toBe('Smith');
       });
 
       it('should encode and decode array types ($1::text[] and $2::bigint[])', async () => {
@@ -820,117 +769,105 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
             [10, 20, 30],
           ],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.deepStrictEqual(res.rows[0].text_arr, [
-          'apple',
-          'banana',
-          'cherry',
-        ]);
-        assert.deepStrictEqual(res.rows[0].int_arr, ['10', '20', '30']);
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].text_arr).toEqual(['apple', 'banana', 'cherry']);
+        expect(res.rows[0].int_arr).toEqual(['10', '20', '30']);
       });
 
       it('should read and decode row with all NULL column values (Id = 2)', async () => {
         const res = await client.query(
           'SELECT ColBool, ColBytea, ColInt8, ColFloat4, ColFloat8, ColNumeric, ColText, ColVarchar, ColDate, ColTimestamp, ColJsonb, ColUuid, ArrBool, ArrBytea, ArrInt8, ArrFloat4, ArrFloat8, ArrNumeric, ArrText, ArrDate, ArrTimestamp, ArrJsonb, ArrUuid FROM AllTypes WHERE Id = 2',
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0] as Record<string, unknown>;
-        assert.ok(row, 'Expected row to be returned');
+        expect(row).toBeTruthy();
         const getCol = (name: string) =>
           row[name.toLowerCase()] !== undefined
             ? row[name.toLowerCase()]
             : row[name];
 
-        assert.strictEqual(getCol('ColBool'), null);
-        assert.strictEqual(getCol('ColBytea'), null);
-        assert.strictEqual(getCol('ColInt8'), null);
-        assert.strictEqual(getCol('ColFloat4'), null);
-        assert.strictEqual(getCol('ColFloat8'), null);
-        assert.strictEqual(getCol('ColNumeric'), null);
-        assert.strictEqual(getCol('ColText'), null);
-        assert.strictEqual(getCol('ColVarchar'), null);
-        assert.strictEqual(getCol('ColDate'), null);
-        assert.strictEqual(getCol('ColTimestamp'), null);
-        assert.strictEqual(getCol('ColJsonb'), null);
-        assert.strictEqual(getCol('ColUuid'), null);
-        assert.strictEqual(getCol('ArrBool'), null);
-        assert.strictEqual(getCol('ArrBytea'), null);
-        assert.strictEqual(getCol('ArrInt8'), null);
-        assert.strictEqual(getCol('ArrFloat4'), null);
-        assert.strictEqual(getCol('ArrFloat8'), null);
-        assert.strictEqual(getCol('ArrNumeric'), null);
-        assert.strictEqual(getCol('ArrText'), null);
-        assert.strictEqual(getCol('ArrDate'), null);
-        assert.strictEqual(getCol('ArrTimestamp'), null);
-        assert.strictEqual(getCol('ArrJsonb'), null);
-        assert.strictEqual(getCol('ArrUuid'), null);
+        expect(getCol('ColBool')).toBe(null);
+        expect(getCol('ColBytea')).toBe(null);
+        expect(getCol('ColInt8')).toBe(null);
+        expect(getCol('ColFloat4')).toBe(null);
+        expect(getCol('ColFloat8')).toBe(null);
+        expect(getCol('ColNumeric')).toBe(null);
+        expect(getCol('ColText')).toBe(null);
+        expect(getCol('ColVarchar')).toBe(null);
+        expect(getCol('ColDate')).toBe(null);
+        expect(getCol('ColTimestamp')).toBe(null);
+        expect(getCol('ColJsonb')).toBe(null);
+        expect(getCol('ColUuid')).toBe(null);
+        expect(getCol('ArrBool')).toBe(null);
+        expect(getCol('ArrBytea')).toBe(null);
+        expect(getCol('ArrInt8')).toBe(null);
+        expect(getCol('ArrFloat4')).toBe(null);
+        expect(getCol('ArrFloat8')).toBe(null);
+        expect(getCol('ArrNumeric')).toBe(null);
+        expect(getCol('ArrText')).toBe(null);
+        expect(getCol('ArrDate')).toBe(null);
+        expect(getCol('ArrTimestamp')).toBe(null);
+        expect(getCol('ArrJsonb')).toBe(null);
+        expect(getCol('ArrUuid')).toBe(null);
       });
 
       it('should read and decode row with empty array columns (Id = 3)', async () => {
         const res = await client.query(
           'SELECT ArrBool, ArrBytea, ArrInt8, ArrFloat4, ArrFloat8, ArrNumeric, ArrText, ArrDate, ArrTimestamp, ArrJsonb, ArrUuid FROM AllTypes WHERE Id = 3',
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.deepStrictEqual(row.arrbool || row.ArrBool, []);
-        assert.deepStrictEqual(row.arrbytea || row.ArrBytea, []);
-        assert.deepStrictEqual(row.arrint8 || row.ArrInt8, []);
-        assert.deepStrictEqual(row.arrfloat4 || row.ArrFloat4, []);
-        assert.deepStrictEqual(row.arrfloat8 || row.ArrFloat8, []);
-        assert.deepStrictEqual(row.arrnumeric || row.ArrNumeric, []);
-        assert.deepStrictEqual(row.arrtext || row.ArrText, []);
-        assert.deepStrictEqual(row.arrdate || row.ArrDate, []);
-        assert.deepStrictEqual(row.arrtimestamp || row.ArrTimestamp, []);
-        assert.deepStrictEqual(row.arrjsonb || row.ArrJsonb, []);
-        assert.deepStrictEqual(row.arruuid || row.ArrUuid, []);
+        expect(row.arrbool || row.ArrBool).toEqual([]);
+        expect(row.arrbytea || row.ArrBytea).toEqual([]);
+        expect(row.arrint8 || row.ArrInt8).toEqual([]);
+        expect(row.arrfloat4 || row.ArrFloat4).toEqual([]);
+        expect(row.arrfloat8 || row.ArrFloat8).toEqual([]);
+        expect(row.arrnumeric || row.ArrNumeric).toEqual([]);
+        expect(row.arrtext || row.ArrText).toEqual([]);
+        expect(row.arrdate || row.ArrDate).toEqual([]);
+        expect(row.arrtimestamp || row.ArrTimestamp).toEqual([]);
+        expect(row.arrjsonb || row.ArrJsonb).toEqual([]);
+        expect(row.arruuid || row.ArrUuid).toEqual([]);
       });
 
       it('should read and decode row with arrays containing NULL elements (Id = 4)', async () => {
         const res = await client.query(
           'SELECT ArrBool, ArrBytea, ArrInt8, ArrFloat4, ArrFloat8, ArrNumeric, ArrText, ArrDate, ArrTimestamp, ArrJsonb, ArrUuid FROM AllTypes WHERE Id = 4',
         );
-        assert.strictEqual(res.rowCount, 1);
+        expect(res.rowCount).toBe(1);
         const row = res.rows[0];
-        assert.deepStrictEqual(row.arrbool || row.ArrBool, [true, null, false]);
+        expect(row.arrbool || row.ArrBool).toEqual([true, null, false]);
         const byteaArr = (row.arrbytea || row.ArrBytea) as (Buffer | null)[];
-        assert.ok(Array.isArray(byteaArr));
-        assert.strictEqual(byteaArr[0]?.toString(), 'bin1');
-        assert.strictEqual(byteaArr[1], null);
-        assert.strictEqual(byteaArr[2]?.toString(), 'bin3');
-        assert.deepStrictEqual(row.arrint8 || row.ArrInt8, [
-          '100',
-          null,
-          '300',
-        ]);
+        expect(Array.isArray(byteaArr)).toBeTruthy();
+        expect(byteaArr[0]?.toString()).toBe('bin1');
+        expect(byteaArr[1]).toBe(null);
+        expect(byteaArr[2]?.toString()).toBe('bin3');
+        expect(row.arrint8 || row.ArrInt8).toEqual(['100', null, '300']);
         const float4Arr = (row.arrfloat4 || row.ArrFloat4) as (number | null)[];
-        assert.ok(Math.abs(float4Arr[0]! - 1.1) < 0.01);
-        assert.strictEqual(float4Arr[1], null);
-        assert.ok(Math.abs(float4Arr[2]! - 3.3) < 0.01);
-        assert.deepStrictEqual(row.arrnumeric || row.ArrNumeric, [
+        expect(Math.abs(float4Arr[0]! - 1.1) < 0.01).toBeTruthy();
+        expect(float4Arr[1]).toBe(null);
+        expect(Math.abs(float4Arr[2]! - 3.3) < 0.01).toBeTruthy();
+        expect(row.arrnumeric || row.ArrNumeric).toEqual([
           '10.5',
           null,
           '30.125',
         ]);
-        assert.deepStrictEqual(row.arrtext || row.ArrText, [
-          'alpha',
-          null,
-          'gamma',
-        ]);
-        assert.deepStrictEqual(row.arrdate || row.ArrDate, [
+        expect(row.arrtext || row.ArrText).toEqual(['alpha', null, 'gamma']);
+        expect(row.arrdate || row.ArrDate).toEqual([
           '2026-01-01',
           null,
           '2026-06-01',
         ]);
         const tsArr = (row.arrtimestamp || row.ArrTimestamp) as (Date | null)[];
-        assert.ok(tsArr[0] instanceof Date);
-        assert.strictEqual(tsArr[1], null);
-        assert.ok(tsArr[2] instanceof Date);
-        assert.deepStrictEqual(row.arrjsonb || row.ArrJsonb, [
+        expect(tsArr[0] instanceof Date).toBeTruthy();
+        expect(tsArr[1]).toBe(null);
+        expect(tsArr[2] instanceof Date).toBeTruthy();
+        expect(row.arrjsonb || row.ArrJsonb).toEqual([
           {k: 'v1'},
           null,
           {k: 'v3'},
         ]);
-        assert.deepStrictEqual(row.arruuid || row.ArrUuid, [
+        expect(row.arruuid || row.ArrUuid).toEqual([
           'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
           null,
           'b1ffcd00-0d1c-5fa9-cc7e-7cc0ce491b22',
@@ -953,33 +890,24 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT SingerId, FirstName FROM Singers WHERE SingerId = $1',
           [customSingerId],
         );
-        assert.strictEqual(res1.rowCount, 1);
-        assert.strictEqual(
-          res1.rows[0].firstname || res1.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res1.rowCount).toBe(1);
+        expect(res1.rows[0].firstname || res1.rows[0].FirstName).toBe('Marc');
 
         // Array parameter with .toPostgres() elements inside array
         const res2 = await client.query(
           'SELECT SingerId, LastName FROM Singers WHERE LastName = ANY($1) ORDER BY SingerId',
           [[customItem1, customItem2]],
         );
-        assert.strictEqual(res2.rowCount, 2);
-        assert.strictEqual(
-          res2.rows[0].lastname || res2.rows[0].LastName,
-          'Richards',
-        );
-        assert.strictEqual(
-          res2.rows[1].lastname || res2.rows[1].LastName,
-          'Smith',
-        );
+        expect(res2.rowCount).toBe(2);
+        expect(res2.rows[0].lastname || res2.rows[0].LastName).toBe('Richards');
+        expect(res2.rows[1].lastname || res2.rows[1].LastName).toBe('Smith');
 
         // Array value returned from .toPostgres()
         const res3 = await client.query(
           'SELECT SingerId, FirstName FROM Singers WHERE SingerId = ANY($1)',
           [{toPostgres: () => [1, 2]}],
         );
-        assert.strictEqual(res3.rowCount, 2);
+        expect(res3.rowCount).toBe(2);
       });
 
       it('should query AllTypes rows using array membership filter ($1 = ANY(ArrUuid))', async () => {
@@ -987,9 +915,9 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT Id FROM AllTypes WHERE $1 = ANY(ArrUuid) ORDER BY Id',
           ['a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'],
         );
-        assert.strictEqual(res.rowCount, 2); // Rows 1 and 4 have this UUID in ArrUuid
-        assert.strictEqual(String(res.rows[0].id || res.rows[0].Id), '1');
-        assert.strictEqual(String(res.rows[1].id || res.rows[1].Id), '4');
+        expect(res.rowCount).toBe(2); // Rows 1 and 4 have this UUID in ArrUuid
+        expect(String(res.rows[0].id || res.rows[0].Id)).toBe('1');
+        expect(String(res.rows[1].id || res.rows[1].Id)).toBe('4');
       });
 
       it('should query AllTypes rows using numeric array membership filter ($1 = ANY(ArrInt8))', async () => {
@@ -997,50 +925,47 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           'SELECT Id FROM AllTypes WHERE $1 = ANY(ArrInt8)',
           [200],
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(String(res.rows[0].id || res.rows[0].Id), '1');
+        expect(res.rowCount).toBe(1);
+        expect(String(res.rows[0].id || res.rows[0].Id)).toBe('1');
       });
     });
 
     describe('Field Metadata & PostgreSQL Catalog OIDs', () => {
       it('should map Spanner column metadata to exact PostgreSQL catalog OIDs (BuiltinOids)', async () => {
         const res = await client.query('SELECT * FROM AllTypes WHERE Id = 1');
-        assert.strictEqual(res.rowCount, 1);
-        assert.ok(res.fields && res.fields.length > 0);
+        expect(res.rowCount).toBe(1);
+        expect(res.fields && res.fields.length > 0).toBeTruthy();
 
         const fieldMap = new Map(
           res.fields.map(f => [f.name.toLowerCase(), f.dataTypeID]),
         );
 
         // Assert scalar PostgreSQL OIDs from table
-        assert.strictEqual(fieldMap.get('id'), BuiltinOids.INT8);
-        assert.strictEqual(fieldMap.get('colbool'), BuiltinOids.BOOL);
-        assert.strictEqual(fieldMap.get('colbytea'), BuiltinOids.BYTEA);
-        assert.strictEqual(fieldMap.get('colint8'), BuiltinOids.INT8);
-        assert.strictEqual(fieldMap.get('colfloat4'), BuiltinOids.FLOAT4);
-        assert.strictEqual(fieldMap.get('colfloat8'), BuiltinOids.FLOAT8);
-        assert.strictEqual(fieldMap.get('colnumeric'), BuiltinOids.NUMERIC);
-        assert.strictEqual(fieldMap.get('coltext'), BuiltinOids.TEXT);
-        assert.strictEqual(fieldMap.get('coldate'), BuiltinOids.DATE);
-        assert.strictEqual(
-          fieldMap.get('coltimestamp'),
-          BuiltinOids.TIMESTAMPTZ,
-        );
-        assert.strictEqual(fieldMap.get('coljsonb'), BuiltinOids.JSONB);
-        assert.strictEqual(fieldMap.get('coluuid'), BuiltinOids.UUID);
+        expect(fieldMap.get('id')).toBe(BuiltinOids.INT8);
+        expect(fieldMap.get('colbool')).toBe(BuiltinOids.BOOL);
+        expect(fieldMap.get('colbytea')).toBe(BuiltinOids.BYTEA);
+        expect(fieldMap.get('colint8')).toBe(BuiltinOids.INT8);
+        expect(fieldMap.get('colfloat4')).toBe(BuiltinOids.FLOAT4);
+        expect(fieldMap.get('colfloat8')).toBe(BuiltinOids.FLOAT8);
+        expect(fieldMap.get('colnumeric')).toBe(BuiltinOids.NUMERIC);
+        expect(fieldMap.get('coltext')).toBe(BuiltinOids.TEXT);
+        expect(fieldMap.get('coldate')).toBe(BuiltinOids.DATE);
+        expect(fieldMap.get('coltimestamp')).toBe(BuiltinOids.TIMESTAMPTZ);
+        expect(fieldMap.get('coljsonb')).toBe(BuiltinOids.JSONB);
+        expect(fieldMap.get('coluuid')).toBe(BuiltinOids.UUID);
 
         // Assert Array OIDs from table
-        assert.strictEqual(fieldMap.get('arrbool'), 1000);
-        assert.strictEqual(fieldMap.get('arrbytea'), 1001);
-        assert.strictEqual(fieldMap.get('arrint8'), 1016);
-        assert.strictEqual(fieldMap.get('arrfloat4'), 1021);
-        assert.strictEqual(fieldMap.get('arrfloat8'), 1022);
-        assert.strictEqual(fieldMap.get('arrnumeric'), 1231);
-        assert.strictEqual(fieldMap.get('arrtext'), 1009);
-        assert.strictEqual(fieldMap.get('arrdate'), 1182);
-        assert.strictEqual(fieldMap.get('arrtimestamp'), 1185);
-        assert.strictEqual(fieldMap.get('arrjsonb'), 3807);
-        assert.strictEqual(fieldMap.get('arruuid'), 2951);
+        expect(fieldMap.get('arrbool')).toBe(1000);
+        expect(fieldMap.get('arrbytea')).toBe(1001);
+        expect(fieldMap.get('arrint8')).toBe(1016);
+        expect(fieldMap.get('arrfloat4')).toBe(1021);
+        expect(fieldMap.get('arrfloat8')).toBe(1022);
+        expect(fieldMap.get('arrnumeric')).toBe(1231);
+        expect(fieldMap.get('arrtext')).toBe(1009);
+        expect(fieldMap.get('arrdate')).toBe(1182);
+        expect(fieldMap.get('arrtimestamp')).toBe(1185);
+        expect(fieldMap.get('arrjsonb')).toBe(3807);
+        expect(fieldMap.get('arruuid')).toBe(2951);
 
         // Assert interval OID via expression query
         const ivalRes = await client.query(
@@ -1049,7 +974,7 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const ivalFields = new Map(
           ivalRes.fields.map(f => [f.name.toLowerCase(), f.dataTypeID]),
         );
-        assert.strictEqual(ivalFields.get('ival'), BuiltinOids.INTERVAL);
+        expect(ivalFields.get('ival')).toBe(BuiltinOids.INTERVAL);
       });
     });
   });
@@ -1060,13 +985,10 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         const res = await client.query(
           'SELECT SingerId, FirstName FROM Singers WHERE SingerId = 1',
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(typeof res.rows[0], 'object');
-        assert.strictEqual(Array.isArray(res.rows[0]), false);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(typeof res.rows[0]).toBe('object');
+        expect(Array.isArray(res.rows[0])).toBe(false);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       });
 
       it('should format rows as positional arrays when rowMode is array', async () => {
@@ -1074,8 +996,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
           text: 'SELECT SingerId, FirstName, LastName, Tags FROM Singers WHERE SingerId = 1',
           rowMode: 'array',
         });
-        assert.strictEqual(res.rowCount, 1);
-        assert.deepStrictEqual(res.rows[0], [
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0]).toEqual([
           '1',
           'Marc',
           'Richards',
@@ -1092,25 +1014,25 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
 
         void q.on('fields', fields => {
           fieldsReceived = true;
-          assert.ok(fields.length >= 2);
+          expect(fields.length >= 2).toBeTruthy();
         });
         void q.on('row', (row, currentResult) => {
           rows.push(row);
-          assert.ok(currentResult);
-          assert.ok(currentResult.fields.length >= 2);
+          expect(currentResult).toBeTruthy();
+          expect(currentResult.fields.length >= 2).toBeTruthy();
         });
 
         const res = (await q) as QueryResult;
-        assert.strictEqual(fieldsReceived, true);
-        assert.strictEqual(rows.length >= 2, true);
-        assert.deepStrictEqual(res.rows, rows);
+        expect(fieldsReceived).toBe(true);
+        expect(rows.length >= 2).toBe(true);
+        expect(res.rows).toEqual(rows);
       });
     });
 
     describe('Transactions (BEGIN / COMMIT / ROLLBACK)', () => {
       it('should insert a singer in a transaction and COMMIT', async () => {
         await client.query('BEGIN');
-        assert.strictEqual(client.txStatus, 'T');
+        expect(client.txStatus).toBe('T');
 
         await client.query(`
           INSERT INTO Singers (SingerId, FirstName, LastName, Active)
@@ -1118,21 +1040,18 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         `);
 
         await client.query('COMMIT');
-        assert.strictEqual(client.txStatus, 'I');
+        expect(client.txStatus).toBe('I');
 
         const res = await client.query(
           'SELECT FirstName FROM Singers WHERE SingerId = 3',
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Alice',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Alice');
       });
 
       it('should rollback transaction and not persist rows on ROLLBACK', async () => {
         await client.query('BEGIN');
-        assert.strictEqual(client.txStatus, 'T');
+        expect(client.txStatus).toBe('T');
 
         await client.query(`
           INSERT INTO Singers (SingerId, FirstName, LastName, Active)
@@ -1140,29 +1059,29 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         `);
 
         await client.query('ROLLBACK');
-        assert.strictEqual(client.txStatus, 'I');
+        expect(client.txStatus).toBe('I');
 
         const res = await client.query(
           'SELECT * FROM Singers WHERE SingerId = 4',
         );
-        assert.strictEqual(res.rowCount, 0);
+        expect(res.rowCount).toBe(0);
       });
 
       // Currently this test is failing as node wrapper is not returning transaction state in case of error.
       it.skip('should transition txStatus to E on error inside transaction and reset to I on ROLLBACK', async () => {
         await client.query('BEGIN');
-        assert.strictEqual(client.txStatus, 'T');
+        expect(client.txStatus).toBe('T');
 
         try {
           // Trigger an error inside the active transaction
           await client.query('SELECT * FROM non_existent_table_for_tx_test');
-          assert.fail('Should have thrown error on non-existent table');
+          throw new Error('Should have thrown error on non-existent table');
         } catch {
-          assert.strictEqual(client.txStatus, 'E');
+          expect(client.txStatus).toBe('E');
         }
 
         await client.query('ROLLBACK');
-        assert.strictEqual(client.txStatus, 'I');
+        expect(client.txStatus).toBe('I');
       });
     });
   });
@@ -1170,17 +1089,14 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
   describe('Connection Pool (Pool Class)', () => {
     it('should acquire client, execute query and release back to pool', async () => {
       const clientFromPool = await pool.connect();
-      assert.ok(clientFromPool);
+      expect(clientFromPool).toBeTruthy();
 
       try {
         const res = await clientFromPool.query(
           'SELECT SingerId, FirstName FROM Singers WHERE SingerId = 1',
         );
-        assert.strictEqual(res.rowCount, 1);
-        assert.strictEqual(
-          res.rows[0].firstname || res.rows[0].FirstName,
-          'Marc',
-        );
+        expect(res.rowCount).toBe(1);
+        expect(res.rows[0].firstname || res.rows[0].FirstName).toBe('Marc');
       } finally {
         await clientFromPool.release();
       }
@@ -1188,10 +1104,10 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
 
     it('should execute direct query via pool.query()', async () => {
       const res = await pool.query('SELECT count(*) as total FROM Singers');
-      assert.strictEqual(res.rowCount, 1);
-      assert.ok(
+      expect(res.rowCount).toBe(1);
+      expect(
         Number(res.rows[0].total) >= 2 || Number(res.rows[0].count) >= 2,
-      );
+      ).toBeTruthy();
     });
 
     it('should format pool query results as positional arrays when rowMode is array', async () => {
@@ -1199,8 +1115,8 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
         text: 'SELECT SingerId, FirstName FROM Singers WHERE SingerId = 1',
         rowMode: 'array',
       });
-      assert.strictEqual(res.rowCount, 1);
-      assert.deepStrictEqual(res.rows[0], ['1', 'Marc']);
+      expect(res.rowCount).toBe(1);
+      expect(res.rows[0]).toEqual(['1', 'Marc']);
     });
 
     it('should execute concurrent queries via pool', async () => {
@@ -1217,10 +1133,10 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
       ];
 
       const results = await Promise.all(queries);
-      assert.strictEqual(results.length, 3);
-      assert.strictEqual(results[0].rowCount, 1);
-      assert.strictEqual(results[1].rowCount, 1);
-      assert.strictEqual(results[2].rowCount, 1);
+      expect(results.length).toBe(3);
+      expect(results[0].rowCount).toBe(1);
+      expect(results[1].rowCount).toBe(1);
+      expect(results[2].rowCount).toBe(1);
     });
 
     it('should stream rows and fields events via pool.query()', async () => {
@@ -1231,20 +1147,20 @@ describe('Spanner Driver System Tests (PostgreSQL Dialect)', function () {
 
       void q.on('fields', fields => {
         fieldsReceived = true;
-        assert.ok(fields.length >= 2);
+        expect(fields.length >= 2).toBeTruthy();
       });
       void q.on('row', (row, result) => {
         rows.push(row);
         lastResult = result;
-        assert.ok(result);
-        assert.ok(result.fields.length >= 2);
+        expect(result).toBeTruthy();
+        expect(result.fields.length >= 2).toBeTruthy();
       });
 
       const res = (await q) as QueryResult;
-      assert.strictEqual(fieldsReceived, true);
-      assert.strictEqual(rows.length >= 2, true);
-      assert.ok(lastResult);
-      assert.deepStrictEqual(res.rows, rows);
+      expect(fieldsReceived).toBe(true);
+      expect(rows.length >= 2).toBe(true);
+      expect(lastResult).toBeTruthy();
+      expect(res.rows).toEqual(rows);
     });
   });
 });
