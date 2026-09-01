@@ -12,23 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import {Codec} from '../../src/lib/codec.js';
 import {BuiltinOids} from '../../src/lib/pg/types.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import pkg from '@google-cloud/spanner-api/build/protos/protos.js';
+import * as pkg from '@google-cloud/spanner-api/build/protos/protos.js';
 import type {google as GoogleProto} from '@google-cloud/spanner-api/build/protos/protos.js';
 
-const {google} = pkg as {google: typeof GoogleProto};
+const google =
+  (pkg as unknown as {google: typeof GoogleProto}).google ||
+  (pkg as unknown as {default: {google: typeof GoogleProto}}).default?.google ||
+  (pkg as unknown as {default: typeof GoogleProto}).default;
 
 describe('Codec Utilities', () => {
   describe('mapMetadataToFieldDefs', () => {
     it('should return empty array for null/undefined metadata', () => {
-      assert.deepStrictEqual(Codec.mapMetadataToFieldDefs(null), []);
-      assert.deepStrictEqual(Codec.mapMetadataToFieldDefs(undefined), []);
-      assert.deepStrictEqual(Codec.mapMetadataToFieldDefs({}), []);
+      expect(Codec.mapMetadataToFieldDefs(null)).toEqual([]);
+      expect(Codec.mapMetadataToFieldDefs(undefined)).toEqual([]);
+      expect(Codec.mapMetadataToFieldDefs({})).toEqual([]);
     });
 
     it('should map Spanner scalar and array TypeCodes to PostgreSQL OIDs', () => {
@@ -63,17 +64,17 @@ describe('Codec Utilities', () => {
       };
 
       const fields = Codec.mapMetadataToFieldDefs(metadata, 'pg');
-      assert.strictEqual(fields.length, 11);
-      assert.strictEqual(fields[0].dataTypeID, BuiltinOids.BOOL);
-      assert.strictEqual(fields[1].dataTypeID, BuiltinOids.INT8);
-      assert.strictEqual(fields[2].dataTypeID, BuiltinOids.FLOAT8);
-      assert.strictEqual(fields[3].dataTypeID, BuiltinOids.TIMESTAMPTZ);
-      assert.strictEqual(fields[4].dataTypeID, BuiltinOids.DATE);
-      assert.strictEqual(fields[5].dataTypeID, BuiltinOids.TEXT);
-      assert.strictEqual(fields[6].dataTypeID, BuiltinOids.BYTEA);
-      assert.strictEqual(fields[7].dataTypeID, BuiltinOids.NUMERIC);
-      assert.strictEqual(fields[9].dataTypeID, 1016); // int8[]
-      assert.strictEqual(fields[10].dataTypeID, 1009); // text[]
+      expect(fields.length).toBe(11);
+      expect(fields[0].dataTypeID).toBe(BuiltinOids.BOOL);
+      expect(fields[1].dataTypeID).toBe(BuiltinOids.INT8);
+      expect(fields[2].dataTypeID).toBe(BuiltinOids.FLOAT8);
+      expect(fields[3].dataTypeID).toBe(BuiltinOids.TIMESTAMPTZ);
+      expect(fields[4].dataTypeID).toBe(BuiltinOids.DATE);
+      expect(fields[5].dataTypeID).toBe(BuiltinOids.TEXT);
+      expect(fields[6].dataTypeID).toBe(BuiltinOids.BYTEA);
+      expect(fields[7].dataTypeID).toBe(BuiltinOids.NUMERIC);
+      expect(fields[9].dataTypeID).toBe(1016); // int8[]
+      expect(fields[10].dataTypeID).toBe(1009); // text[]
     });
 
     it('should map GoogleSQL dialect types directly as strings', () => {
@@ -83,9 +84,8 @@ describe('Codec Utilities', () => {
         },
       };
       const fields = Codec.mapMetadataToFieldDefs(metadata, 'googlesql');
-      assert.strictEqual(fields.length, 1);
-      assert.strictEqual(
-        fields[0].dataTypeID,
+      expect(fields.length).toBe(1);
+      expect(fields[0].dataTypeID).toBe(
         String(google.spanner.v1.TypeCode.INT64),
       );
     });
@@ -93,9 +93,9 @@ describe('Codec Utilities', () => {
 
   describe('extractRawRow', () => {
     it('should return empty array for null/undefined ListValue', () => {
-      assert.deepStrictEqual(Codec.extractRawRow(null), []);
-      assert.deepStrictEqual(Codec.extractRawRow(undefined), []);
-      assert.deepStrictEqual(Codec.extractRawRow({}), []);
+      expect(Codec.extractRawRow(null)).toEqual([]);
+      expect(Codec.extractRawRow(undefined)).toEqual([]);
+      expect(Codec.extractRawRow({})).toEqual([]);
     });
 
     it('should extract values directly without unnecessary string conversions', () => {
@@ -112,72 +112,72 @@ describe('Codec Utilities', () => {
       };
 
       const raw = Codec.extractRawRow(listValue);
-      assert.strictEqual(raw[0], 'hello');
-      assert.strictEqual(raw[1], '123');
-      assert.strictEqual(raw[2], true);
-      assert.strictEqual(raw[3], false);
-      assert.strictEqual(raw[4], 45.6);
-      assert.strictEqual(raw[5], null);
-      assert.deepStrictEqual(raw[6], {k: 'v'});
+      expect(raw[0]).toBe('hello');
+      expect(raw[1]).toBe('123');
+      expect(raw[2]).toBe(true);
+      expect(raw[3]).toBe(false);
+      expect(raw[4]).toBe(45.6);
+      expect(raw[5]).toBeNull();
+      expect(raw[6]).toEqual({k: 'v'});
     });
   });
 
   describe('encodeValue & encodeParams', () => {
     it('should encode JavaScript primitives and complex objects into Spanner protobuf format', () => {
       // Booleans
-      assert.deepStrictEqual(Codec.encodeValue(true), {
+      expect(Codec.encodeValue(true)).toEqual({
         valueProto: {boolValue: true},
         typeProto: {code: google.spanner.v1.TypeCode.BOOL},
       });
 
       // Integers
-      assert.deepStrictEqual(Codec.encodeValue(42), {
+      expect(Codec.encodeValue(42)).toEqual({
         valueProto: {stringValue: '42'},
         typeProto: {code: google.spanner.v1.TypeCode.INT64},
       });
 
       // Floats
-      assert.deepStrictEqual(Codec.encodeValue(3.14), {
+      expect(Codec.encodeValue(3.14)).toEqual({
         valueProto: {numberValue: 3.14},
         typeProto: {code: google.spanner.v1.TypeCode.FLOAT64},
       });
 
       // BigInt
-      assert.deepStrictEqual(Codec.encodeValue(BigInt(9007199254740991)), {
+      expect(Codec.encodeValue(BigInt(9007199254740991))).toEqual({
         valueProto: {stringValue: '9007199254740991'},
         typeProto: {code: google.spanner.v1.TypeCode.INT64},
       });
 
       // Buffer
       const buf = Buffer.from('hello');
-      assert.deepStrictEqual(Codec.encodeValue(buf), {
+      expect(Codec.encodeValue(buf)).toEqual({
         valueProto: {stringValue: buf.toString('base64')},
         typeProto: {code: google.spanner.v1.TypeCode.BYTES},
       });
 
       // Dates
       const d = new Date('2023-01-01T00:00:00.000Z');
-      assert.deepStrictEqual(Codec.encodeValue(d), {
+      expect(Codec.encodeValue(d)).toEqual({
         valueProto: {stringValue: d.toISOString()},
         typeProto: {code: google.spanner.v1.TypeCode.TIMESTAMP},
       });
 
       // Invalid Date object -> nullValue
       const invalidDate = new Date('invalid');
-      assert.deepStrictEqual(Codec.encodeValue(invalidDate), {
+      expect(Codec.encodeValue(invalidDate)).toEqual({
         valueProto: {nullValue: google.protobuf.NullValue.NULL_VALUE},
         typeProto: {code: google.spanner.v1.TypeCode.TIMESTAMP},
       });
 
       // Objects / JSON
       const obj = {genre: 'rock'};
-      assert.deepStrictEqual(Codec.encodeValue(obj), {
+      expect(Codec.encodeValue(obj)).toEqual({
         valueProto: {stringValue: JSON.stringify(obj)},
         typeProto: {code: google.spanner.v1.TypeCode.STRING},
       });
 
       // Null / Undefined
-      assert.deepStrictEqual(Codec.encodeValue(null), {
+      expect(Codec.encodeValue(null)).toEqual({
         valueProto: {nullValue: google.protobuf.NullValue.NULL_VALUE},
         typeProto: {code: google.spanner.v1.TypeCode.TYPE_CODE_UNSPECIFIED},
       });
@@ -186,8 +186,8 @@ describe('Codec Utilities', () => {
     it('should encode arrays correctly', () => {
       // Empty array
       const emptyArr = Codec.encodeValue([]);
-      assert.deepStrictEqual(emptyArr.valueProto, {listValue: {values: []}});
-      assert.deepStrictEqual(emptyArr.typeProto, {
+      expect(emptyArr.valueProto).toEqual({listValue: {values: []}});
+      expect(emptyArr.typeProto).toEqual({
         code: google.spanner.v1.TypeCode.ARRAY,
         arrayElementType: {
           code: google.spanner.v1.TypeCode.TYPE_CODE_UNSPECIFIED,
@@ -196,12 +196,12 @@ describe('Codec Utilities', () => {
 
       // Integer array
       const intArr = Codec.encodeValue([1, 2, 3]);
-      assert.deepStrictEqual(intArr.valueProto, {
+      expect(intArr.valueProto).toEqual({
         listValue: {
           values: [{stringValue: '1'}, {stringValue: '2'}, {stringValue: '3'}],
         },
       });
-      assert.deepStrictEqual(intArr.typeProto, {
+      expect(intArr.typeProto).toEqual({
         code: google.spanner.v1.TypeCode.ARRAY,
         arrayElementType: {code: google.spanner.v1.TypeCode.INT64},
       });
@@ -210,10 +210,10 @@ describe('Codec Utilities', () => {
     it('should encode parameters via Codec.encodeParams supporting toPostgres custom objects', () => {
       const customParam = {toPostgres: () => 'custom_val'};
       const {fields} = Codec.encodeParams(['test', 123, true, customParam]);
-      assert.deepStrictEqual(fields.p1, {stringValue: 'test'});
-      assert.deepStrictEqual(fields.p2, {stringValue: '123'});
-      assert.deepStrictEqual(fields.p3, {boolValue: true});
-      assert.deepStrictEqual(fields.p4, {stringValue: 'custom_val'});
+      expect(fields.p1).toEqual({stringValue: 'test'});
+      expect(fields.p2).toEqual({stringValue: '123'});
+      expect(fields.p3).toEqual({boolValue: true});
+      expect(fields.p4).toEqual({stringValue: 'custom_val'});
     });
 
     it('should unwrap custom objects with .toPostgres() inside array parameters', () => {
@@ -222,7 +222,7 @@ describe('Codec Utilities', () => {
       const customId2 = {toPostgres: () => 102};
       // Pass array of custom objects to parameter $1
       const {fields} = Codec.encodeParams([[customId1, customId2]], 'pg');
-      assert.deepStrictEqual(fields.p1, {
+      expect(fields.p1).toEqual({
         listValue: {
           values: [{stringValue: '101'}, {stringValue: '102'}],
         },

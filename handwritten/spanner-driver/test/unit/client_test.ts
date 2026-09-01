@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {afterEach, beforeEach, describe, it} from 'mocha';
-import * as sinon from 'sinon';
 import {Client, DatabaseError, Query, QueryResult} from '../../src/index.js';
 import {Pool as NativePool} from '../../src/lib/native.js';
 import {createMockPool} from './mock_native.js';
@@ -27,18 +24,24 @@ describe('Client Class', () => {
         instance: 'i',
         database: 'd',
       });
-      assert.strictEqual(client1.dsn, 'projects/p/instances/i/databases/d');
+      expect(client1.dsn).toBe('projects/p/instances/i/databases/d');
 
       const client2 = new Client('projects/p/instances/i/databases/d');
-      assert.strictEqual(client2.dsn, 'projects/p/instances/i/databases/d');
+      expect(client2.dsn).toBe('projects/p/instances/i/databases/d');
     });
 
     it('should invoke callback with error when client.connect(cb) fails on invalid config', done => {
       const client = new Client({});
       client.connect(err => {
-        assert.strictEqual(err instanceof DatabaseError, true);
-        assert.match(err!.message, /Invalid Spanner connection configuration/);
-        done();
+        try {
+          expect(err instanceof DatabaseError).toBe(true);
+          expect(err!.message).toMatch(
+            /Invalid Spanner connection configuration/,
+          );
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -50,11 +53,11 @@ describe('Client Class', () => {
       });
       try {
         await client.query('');
-        assert.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err: unknown) {
-        assert.strictEqual(err instanceof DatabaseError, true);
+        expect(err instanceof DatabaseError).toBe(true);
         const dbErr = err as DatabaseError;
-        assert.strictEqual(dbErr.code, 'XX000');
+        expect(dbErr.code).toBe('XX000');
       } finally {
         await client.end();
       }
@@ -69,11 +72,11 @@ describe('Client Class', () => {
       try {
         // @ts-expect-error Testing runtime invalid values argument
         await client.query('SELECT $1', 'not-an-array');
-        assert.fail('Should have thrown error');
+        throw new Error('Should have thrown error');
       } catch (err: unknown) {
-        assert.strictEqual(err instanceof DatabaseError, true);
+        expect(err instanceof DatabaseError).toBe(true);
         const dbErr = err as DatabaseError;
-        assert.strictEqual(dbErr.code, 'XX000');
+        expect(dbErr.code).toBe('XX000');
       } finally {
         await client.end();
       }
@@ -97,11 +100,7 @@ describe('Client Class', () => {
 
       await Promise.all([client.connect(), client.connect(), client.connect()]);
 
-      assert.strictEqual(
-        connectInvocations,
-        1,
-        'concurrent connect() calls should only initiate connection once',
-      );
+      expect(connectInvocations).toBe(1);
     });
 
     it('should handle multiple client.end() calls safely without error', async () => {
@@ -111,7 +110,7 @@ describe('Client Class', () => {
         database: 'd',
       });
       await client.end();
-      await assert.doesNotReject(async () => client.end());
+      await expect(client.end()).resolves.not.toThrow();
     });
 
     it('should clear pending query queue when client.end() is called', async () => {
@@ -127,11 +126,9 @@ describe('Client Class', () => {
       await client.end();
 
       // Verify queue was emptied
-      assert.strictEqual(
+      expect(
         (client as unknown as {queryQueue: unknown[]}).queryQueue.length,
-        0,
-        'query queue should be emptied when client is closed',
-      );
+      ).toBe(0);
       try {
         await p1;
       } catch {
@@ -164,12 +161,11 @@ describe('Client Class', () => {
       await client.end();
       finishConnect();
 
-      assert.strictEqual(
+      expect(
         (client as unknown as {queryQueue: unknown[]}).queryQueue.length,
-        0,
-      );
-      await assert.rejects(async () => p2, /Client was closed/);
-      await assert.rejects(async () => p3, /Client was closed/);
+      ).toBe(0);
+      await expect(p2).rejects.toThrow(/Client was closed/);
+      await expect(p3).rejects.toThrow(/Client was closed/);
     });
 
     it('should delegate release() to end()', async () => {
@@ -179,9 +175,9 @@ describe('Client Class', () => {
         database: 'd',
       });
       (client as unknown as {isConnected: boolean}).isConnected = true;
-      assert.strictEqual(client.isConnected, true);
+      expect(client.isConnected).toBe(true);
       await client.release();
-      assert.strictEqual(client.isConnected, false);
+      expect(client.isConnected).toBe(false);
     });
 
     it('should delegate release(cb) to end(cb) using callback syntax', done => {
@@ -192,9 +188,13 @@ describe('Client Class', () => {
       });
       (client as unknown as {isConnected: boolean}).isConnected = true;
       client.release(err => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(client.isConnected, false);
-        done();
+        try {
+          expect(err).toBeNull();
+          expect(client.isConnected).toBe(false);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -202,9 +202,15 @@ describe('Client Class', () => {
       const client = new Client({});
       const q = client.query('SELECT 1');
       void q.on('error', err => {
-        assert.strictEqual(err instanceof DatabaseError, true);
-        assert.match(err.message, /Invalid Spanner connection configuration/);
-        done();
+        try {
+          expect(err instanceof DatabaseError).toBe(true);
+          expect(err.message).toMatch(
+            /Invalid Spanner connection configuration/,
+          );
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
       void q.catch(() => {});
     });
@@ -226,25 +232,21 @@ describe('Client Class', () => {
         setTimeout(resolve, 50);
       });
 
-      assert.strictEqual(
-        errorEventEmitted,
-        true,
-        'error event should be emitted even when listener is attached immediately after client.query() returns',
-      );
+      expect(errorEventEmitted).toBe(true);
     });
   });
 
   describe('Mock Native Bridge Execution (End-to-End Query & State Flow)', () => {
-    let poolStub: sinon.SinonStub;
+    let poolSpy: jest.SpyInstance;
 
     beforeEach(() => {
-      poolStub = sinon
-        .stub(NativePool, 'create')
-        .callsFake(async () => createMockPool());
+      poolSpy = jest
+        .spyOn(NativePool, 'create')
+        .mockImplementation(async () => createMockPool());
     });
 
     afterEach(() => {
-      poolStub.restore();
+      poolSpy.mockRestore();
     });
 
     it('should connect and close Client', async () => {
@@ -254,15 +256,14 @@ describe('Client Class', () => {
         database: 'd',
       });
       await client.connect();
-      assert.strictEqual(client.isConnected, true);
+      expect(client.isConnected).toBe(true);
       // Calling connect() on an already connected client should reject matching node-postgres
-      await assert.rejects(
-        client.connect(),
+      await expect(client.connect()).rejects.toThrow(
         /Client has already been connected/,
       );
-      assert.strictEqual(client.isConnected, true);
+      expect(client.isConnected).toBe(true);
       await client.end();
-      assert.strictEqual(client.isConnected, false);
+      expect(client.isConnected).toBe(false);
     });
 
     it('should connect using callback syntax', done => {
@@ -272,12 +273,20 @@ describe('Client Class', () => {
         database: 'd',
       });
       client.connect(err => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(client.isConnected, true);
-        client.end(() => {
-          assert.strictEqual(client.isConnected, false);
-          done();
-        });
+        try {
+          expect(err).toBeNull();
+          expect(client.isConnected).toBe(true);
+          client.end(() => {
+            try {
+              expect(client.isConnected).toBe(false);
+              done();
+            } catch (e) {
+              done(e);
+            }
+          });
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -294,9 +303,8 @@ describe('Client Class', () => {
       } catch {
         // Ignored if race rejected
       }
-      assert.strictEqual(client.isConnected, false);
-      await assert.rejects(
-        async () => client.connect(),
+      expect(client.isConnected).toBe(false);
+      await expect(client.connect()).rejects.toThrow(
         /Client was (already )?closed/,
       );
     });
@@ -308,10 +316,10 @@ describe('Client Class', () => {
         database: 'd',
       });
       const res = await client.query('SELECT 1');
-      assert.strictEqual(res.command, 'SELECT');
-      assert.strictEqual(res.rowCount, 1);
-      assert.deepStrictEqual(res.rows, [{'?column?': '1'}]);
-      assert.strictEqual(res.fields.length, 1);
+      expect(res.command).toBe('SELECT');
+      expect(res.rowCount).toBe(1);
+      expect(res.rows).toEqual([{fieldCount: undefined, '?column?': '1'}]);
+      expect(res.fields.length).toBe(1);
       await client.end();
     });
 
@@ -322,9 +330,16 @@ describe('Client Class', () => {
         database: 'd',
       });
       void client.query('SELECT 1', (err, res) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(res?.command, 'SELECT');
-        void client.end().then(() => done());
+        try {
+          expect(err).toBeNull();
+          expect(res?.command).toBe('SELECT');
+          void client
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -336,9 +351,16 @@ describe('Client Class', () => {
       });
       const q = new Query<QueryResult>('SELECT $1', [42]);
       void client.query(q, [42], (err, res) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(res?.command, 'SELECT');
-        void client.end().then(() => done());
+        try {
+          expect(err).toBeNull();
+          expect(res?.command).toBe('SELECT');
+          void client
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -358,18 +380,14 @@ describe('Client Class', () => {
 
       await new Promise<void>(resolve => {
         void client.query(q, undefined, err => {
-          assert.strictEqual(err instanceof DatabaseError, true);
+          expect(err instanceof DatabaseError).toBe(true);
           callbackInvoked = true;
           setTimeout(resolve, 20);
         });
       });
 
-      assert.strictEqual(
-        errorEventEmitted,
-        false,
-        'error event should not be emitted when callback is provided',
-      );
-      assert.strictEqual(callbackInvoked, true);
+      expect(errorEventEmitted).toBe(false);
+      expect(callbackInvoked).toBe(true);
       await client.end();
     });
 
@@ -380,19 +398,18 @@ describe('Client Class', () => {
         database: 'd',
       });
       await client.connect();
-      assert.strictEqual(client.isConnected, true);
+      expect(client.isConnected).toBe(true);
       await client.end();
-      assert.strictEqual(client.isConnected, false);
+      expect(client.isConnected).toBe(false);
 
       try {
         await client.query('SELECT 1');
-        assert.fail(
+        throw new Error(
           'Should have thrown an error when querying an ended client',
         );
       } catch (err: unknown) {
-        assert.strictEqual(client.isConnected, false);
-        assert.match(
-          (err as Error).message,
+        expect(client.isConnected).toBe(false);
+        expect((err as Error).message).toMatch(
           /Client has already been connected|Connection terminated|Client was closed/,
         );
       }
@@ -408,8 +425,7 @@ describe('Client Class', () => {
       (client as unknown as {nativeConnection: unknown}).nativeConnection =
         undefined;
 
-      await assert.rejects(
-        async () => client.query('SELECT 1'),
+      await expect(client.query('SELECT 1')).rejects.toThrow(
         /Connection terminated/,
       );
       await client.end();
@@ -424,12 +440,23 @@ describe('Client Class', () => {
       let endEventEmitted = false;
       const q = client.query('SELECT 1');
       void q.on('end', res => {
-        endEventEmitted = true;
-        assert.strictEqual(res.command, 'SELECT');
-        void client.end().then(() => {
-          assert.strictEqual(endEventEmitted, true);
-          done();
-        });
+        try {
+          endEventEmitted = true;
+          expect(res.command).toBe('SELECT');
+          void client
+            .end()
+            .then(() => {
+              try {
+                expect(endEventEmitted).toBe(true);
+                done();
+              } catch (e) {
+                done(e);
+              }
+            })
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -441,8 +468,15 @@ describe('Client Class', () => {
       });
       const q = new Query<QueryResult>('FAIL_QUERY');
       void q.on('error', err => {
-        assert.strictEqual(err instanceof DatabaseError, true);
-        void client.end().then(() => done());
+        try {
+          expect(err instanceof DatabaseError).toBe(true);
+          void client
+            .end()
+            .then(() => done())
+            .catch(done);
+        } catch (e) {
+          done(e);
+        }
       });
       void client.query(q).catch(() => {});
     });
@@ -454,12 +488,12 @@ describe('Client Class', () => {
         database: 'd',
       });
       const res = await client.query('SELECT 1');
-      assert.strictEqual(res.command, 'SELECT');
-      assert.strictEqual(res.rowCount, 1);
-      assert.strictEqual(res.fields.length, 1);
-      assert.strictEqual(res.fields[0].name, '?column?');
-      assert.strictEqual(res.rows.length, 1);
-      assert.deepStrictEqual(res.rows[0], {'?column?': '1'});
+      expect(res.command).toBe('SELECT');
+      expect(res.rowCount).toBe(1);
+      expect(res.fields.length).toBe(1);
+      expect(res.fields[0].name).toBe('?column?');
+      expect(res.rows.length).toBe(1);
+      expect(res.rows[0]).toEqual({'?column?': '1'});
       await client.end();
     });
 
@@ -475,16 +509,16 @@ describe('Client Class', () => {
       const q = client.query('SELECT 1');
       void q.on('fields', fields => {
         fieldsEmitted = true;
-        assert.strictEqual(fields.length, 1);
+        expect(fields.length).toBe(1);
       });
       void q.on('row', row => {
         receivedRows.push(row);
       });
 
       const res = await q;
-      assert.strictEqual(fieldsEmitted, true);
-      assert.strictEqual(receivedRows.length, 1);
-      assert.deepStrictEqual(res.rows, receivedRows);
+      expect(fieldsEmitted).toBe(true);
+      expect(receivedRows.length).toBe(1);
+      expect(res.rows).toEqual(receivedRows);
       await client.end();
     });
 
@@ -495,7 +529,7 @@ describe('Client Class', () => {
         database: 'd',
       });
       const res = await client.query('SELECT $1 as name', ['hello']);
-      assert.strictEqual(res.command, 'SELECT');
+      expect(res.command).toBe('SELECT');
       await client.end();
     });
 
@@ -509,9 +543,9 @@ describe('Client Class', () => {
         text: 'SELECT 1',
         rowMode: 'array',
       });
-      assert.strictEqual(res.command, 'SELECT');
-      assert.strictEqual(res.rowCount, 1);
-      assert.deepStrictEqual(res.rows, [['1']]);
+      expect(res.command).toBe('SELECT');
+      expect(res.rowCount).toBe(1);
+      expect(res.rows).toEqual([['1']]);
       await client.end();
     });
 
@@ -522,10 +556,10 @@ describe('Client Class', () => {
         database: 'd',
       });
       const res1 = await client.query('SELECT 1', []);
-      assert.strictEqual(res1.rowCount, 1);
+      expect(res1.rowCount).toBe(1);
 
       const res2 = await client.query('SELECT 1', undefined);
-      assert.strictEqual(res2.rowCount, 1);
+      expect(res2.rowCount).toBe(1);
       await client.end();
     });
 
@@ -536,27 +570,27 @@ describe('Client Class', () => {
         database: 'd',
       });
       await client.connect();
-      assert.strictEqual(client.txStatus, 'I');
-      assert.strictEqual(client.getTransactionStatus(), 'I');
+      expect(client.txStatus).toBe('I');
+      expect(client.getTransactionStatus()).toBe('I');
 
       // 1. BEGIN transaction -> 'T'
       await client.query('BEGIN');
-      assert.strictEqual(client.txStatus, 'T');
-      assert.strictEqual(client.getTransactionStatus(), 'T');
+      expect(client.txStatus).toBe('T');
+      expect(client.getTransactionStatus()).toBe('T');
 
       // 2. Query failure inside transaction -> 'E'
       try {
         await client.query('FAIL_QUERY');
-        assert.fail('Should have failed');
+        throw new Error('Should have failed');
       } catch {
-        assert.strictEqual(client.txStatus, 'E');
-        assert.strictEqual(client.getTransactionStatus(), 'E');
+        expect(client.txStatus).toBe('E');
+        expect(client.getTransactionStatus()).toBe('E');
       }
 
       // 3. ROLLBACK aborted transaction -> 'I'
       await client.query('ROLLBACK');
-      assert.strictEqual(client.txStatus, 'I');
-      assert.strictEqual(client.getTransactionStatus(), 'I');
+      expect(client.txStatus).toBe('I');
+      expect(client.getTransactionStatus()).toBe('I');
 
       await client.end();
     });
@@ -569,7 +603,7 @@ describe('Client Class', () => {
       });
       const customParser = (val: string) => `custom_${val}`;
       client.setTypeParser(16, customParser);
-      assert.strictEqual(client.getTypeParser(16), customParser);
+      expect(client.getTypeParser(16)).toBe(customParser);
     });
 
     it('should emit end event when client.end() is called', async () => {
@@ -584,8 +618,8 @@ describe('Client Class', () => {
         endEmitted = true;
       });
       await client.end();
-      assert.strictEqual(endEmitted, true);
-      assert.strictEqual(client.isEnded, true);
+      expect(endEmitted).toBe(true);
+      expect(client.isEnded).toBe(true);
     });
 
     it('should treat client.end() on unconnected client as a no-op that emits end without permanently closing', async () => {
@@ -599,11 +633,11 @@ describe('Client Class', () => {
         endEmitted = true;
       });
       await client.end();
-      assert.strictEqual(endEmitted, true);
-      assert.strictEqual(client.isEnded, false);
+      expect(endEmitted).toBe(true);
+      expect(client.isEnded).toBe(false);
       await client.connect();
       await client.end();
-      assert.strictEqual(client.isEnded, true);
+      expect(client.isEnded).toBe(true);
     });
   });
 });

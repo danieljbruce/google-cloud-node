@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import {enrichError, enrichPgError} from '../../src/lib/errors.js';
 
 describe('enrichPgError SQLSTATE Mapping', () => {
@@ -23,29 +21,28 @@ describe('enrichPgError SQLSTATE Mapping', () => {
         '[SQLSTATE 42P01] rpc error: code = NotFound desc = relation "foo" does not exist',
       ),
     );
-    assert.strictEqual(err.code, '42P01');
-    assert.strictEqual(err.severity, 'ERROR');
+    expect(err.code).toBe('42P01');
+    expect(err.severity).toBe('ERROR');
   });
 
   it('should preserve valid 5-character PostgreSQL SQLSTATE string codes', () => {
     const orig = new Error('custom error') as Error & {code?: string};
     orig.code = '42P01';
     const err = enrichPgError(orig);
-    assert.strictEqual(err.code, '42P01');
+    expect(err.code).toBe('42P01');
   });
 
   it('should fallback to XX000 for unknown errors without SQLSTATE prefix', () => {
     const err = enrichPgError(new Error('random unknown error message'));
-    assert.strictEqual(err.code, 'XX000');
-    assert.strictEqual(err.severity, 'ERROR');
+    expect(err.code).toBe('XX000');
+    expect(err.severity).toBe('ERROR');
   });
 
   it('should preserve stack traces when wrapping Error objects', () => {
     const orig = new Error('test stack preservation');
     orig.stack = 'CustomError: test\n    at testFunction (file.js:1:1)';
     const err = enrichPgError(orig);
-    assert.strictEqual(
-      err.stack,
+    expect(err.stack).toBe(
       'CustomError: test\n    at testFunction (file.js:1:1)',
     );
   });
@@ -56,14 +53,14 @@ describe('enrichPgError SQLSTATE Mapping', () => {
     };
     orig.code = 'EPERM';
     const err = enrichPgError(orig);
-    assert.strictEqual(err.code, 'XX000');
+    expect(err.code).toBe('XX000');
   });
 
   it('should handle gRPC numeric error codes and fallback to XX000', () => {
     const orig = {message: 'not found', code: 5};
     const err = enrichPgError(orig);
-    assert.strictEqual(err.code, 'XX000');
-    assert.strictEqual(err.message, 'not found');
+    expect(err.code).toBe('XX000');
+    expect(err.message).toBe('not found');
   });
 
   describe('enrichError dispatcher', () => {
@@ -73,7 +70,7 @@ describe('enrichPgError SQLSTATE Mapping', () => {
           '[SQLSTATE 42P01] rpc error: code = NotFound desc = relation "foo" does not exist',
         ),
       );
-      assert.strictEqual(err.code, '42P01');
+      expect(err.code).toBe('42P01');
     });
   });
 });
