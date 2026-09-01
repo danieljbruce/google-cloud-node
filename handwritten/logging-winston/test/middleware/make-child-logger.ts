@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, afterEach} from 'mocha';
 import * as winston from 'winston';
 import {
   LOGGING_TRACE_KEY,
@@ -45,28 +43,28 @@ describe('makeChildLogger', () => {
     };
 
     child.info('hello');
-    assert.strictEqual(logEntry!.message, 'hello');
-    assert.strictEqual(logEntry!.level, 'info');
+    expect(logEntry!.message).toBe('hello');
+    expect(logEntry!.level).toBe('info');
 
     child.error('👾', {key: '🎃'});
-    assert.strictEqual(logEntry!.message, '👾');
-    assert.strictEqual(logEntry!.level, 'error');
-    assert.strictEqual(logEntry!.key, '🎃');
+    expect(logEntry!.message).toBe('👾');
+    expect(logEntry!.level).toBe('error');
+    expect(logEntry!.key).toBe('🎃');
 
     child.warn('hello %d', 56, {key: 'value'});
-    assert.strictEqual(logEntry!.message, 'hello %d');
-    assert.strictEqual(logEntry!.level, 'warn');
-    assert.strictEqual(logEntry!.key, undefined);
+    expect(logEntry!.message).toBe('hello %d');
+    expect(logEntry!.level).toBe('warn');
+    expect(logEntry!.key).toBeUndefined();
 
     child.log('silly', '🎈');
-    assert.strictEqual(logEntry!.message, '🎈');
-    assert.strictEqual(logEntry!.level, 'silly');
+    expect(logEntry!.message).toBe('🎈');
+    expect(logEntry!.level).toBe('silly');
   });
 
   it('should override only the write function', () => {
     const child = makeChildLogger(LOGGER, FAKE_TRACE);
-    assert.strictEqual(child.warn, LOGGER.warn);
-    assert.notStrictEqual(child.write, LOGGER.write);
+    expect(child.warn).toBe(LOGGER.warn);
+    expect(child.write).not.toBe(LOGGER.write);
   });
 
   it('should inject LOGGING_TRACE_KEY only into the metadata', () => {
@@ -77,7 +75,7 @@ describe('makeChildLogger', () => {
       trace = info[LOGGING_TRACE_KEY];
     };
     child.debug('hello world');
-    assert.strictEqual(trace, FAKE_TRACE);
+    expect(trace).toBe(FAKE_TRACE);
   });
 
   it('should inject the LOGGING_SPAN_KEY into the metadata', () => {
@@ -89,8 +87,8 @@ describe('makeChildLogger', () => {
       span = info[LOGGING_SPAN_KEY];
     };
     child.debug('hello world');
-    assert.strictEqual(trace, FAKE_TRACE);
-    assert.strictEqual(span, FAKE_SPAN);
+    expect(trace).toBe(FAKE_TRACE);
+    expect(span).toBe(FAKE_SPAN);
   });
 
   it('should inject the LOGGING_SAMPLED_KEY into the metadata', () => {
@@ -103,9 +101,9 @@ describe('makeChildLogger', () => {
       sample = info[LOGGING_SAMPLED_KEY];
     };
     child.debug('hello world');
-    assert.strictEqual(trace, FAKE_TRACE);
-    assert.strictEqual(span, FAKE_SPAN);
-    assert.strictEqual(sample, FAKE_SAMPLE);
+    expect(trace).toBe(FAKE_TRACE);
+    expect(span).toBe(FAKE_SPAN);
+    expect(sample).toBe(FAKE_SAMPLE);
   });
 
   it('should not overwrite existing LOGGING_X_KEY values', () => {
@@ -122,8 +120,8 @@ describe('makeChildLogger', () => {
       [LOGGING_SPAN_KEY]: 'to-be-clobbered',
       [LOGGING_SAMPLED_KEY]: false,
     });
-    assert.notStrictEqual(trace, FAKE_TRACE);
-    assert.notStrictEqual(span, FAKE_SPAN);
-    assert.notStrictEqual(sample, FAKE_SAMPLE);
+    expect(trace).not.toBe(FAKE_TRACE);
+    expect(span).not.toBe(FAKE_SPAN);
+    expect(sample).not.toBe(FAKE_SAMPLE);
   });
 });

@@ -12,72 +12,78 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import {GCPEnv} from 'google-auth-library';
 import {LogEntry} from 'winston';
 import * as TransportStream from 'winston-transport';
 import * as winston from 'winston';
-import * as proxyquire from 'proxyquire';
-import {Options} from '../../src';
-
-// types-only import. Actual require is done through proxyquire below.
+import {Options, LoggingWinston as FakeLoggingWinston} from '../../src';
+import {makeMiddleware} from '../../src/middleware/express';
 
 const FAKE_PROJECT_ID = 'project-🦄';
 const FAKE_GENERATED_MIDDLEWARE = () => {};
 const FAKE_ENVIRONMENT = 'FAKE_ENVIRONMENT';
 
 let authEnvironment: string;
-let passedOptions: Array<Options | undefined>;
-let transport: TransportStream | undefined;
-
-class FakeLoggingWinston extends TransportStream {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  common: any;
-
-  constructor(options: Options) {
-    super(options);
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    transport = this;
-    passedOptions.push(options);
-    this.common = {
-      cloudLog: {
-        logging: {
-          auth: {
-            async getProjectId() {
-              return FAKE_PROJECT_ID;
-            },
-            async getEnv() {
-              return authEnvironment;
-            },
-          },
-        },
-      },
-    };
-  }
-
-  log(info: LogEntry, cb: Function) {
-    cb();
-  }
-}
+let passedOptions: Array<Options | undefined> = [];
+let transport: any;
 
 let passedProjectId: string | undefined;
 let passedEmitRequestLog: Function | undefined;
-function fakeMakeMiddleware(
-  projectId: string,
-  makeChildLogger: Function,
-  emitRequestLog: Function,
-): Function {
-  passedProjectId = projectId;
-  passedEmitRequestLog = emitRequestLog;
-  return FAKE_GENERATED_MIDDLEWARE;
-}
 
-const {makeMiddleware} = proxyquire('../../src/middleware/express', {
-  '../index': {LoggingWinston: FakeLoggingWinston},
-  '@google-cloud/logging': {
-    middleware: {express: {makeMiddleware: fakeMakeMiddleware}},
-  },
+jest.mock('../../src/index', () => {
+  const TransportStream = require('winston-transport');
+  return {
+    LoggingWinston: class FakeLoggingWinston extends TransportStream {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      common: any;
+
+      constructor(options: Options) {
+        super(options);
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        transport = this;
+        passedOptions.push(options);
+        this.common = {
+          cloudLog: {
+            logging: {
+              auth: {
+                async getProjectId() {
+                  return FAKE_PROJECT_ID;
+                },
+                async getEnv() {
+                  return authEnvironment;
+                },
+              },
+            },
+          },
+        };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      log(info: LogEntry, cb: Function) {
+        cb();
+      }
+    },
+  };
+});
+
+jest.mock('@google-cloud/logging', () => {
+  const actual = jest.requireActual('@google-cloud/logging');
+  return {
+    ...actual,
+    middleware: {
+      express: {
+        makeMiddleware: (
+          projectId: string,
+          makeChildLogger: Function,
+          emitRequestLog: Function,
+        ) => {
+          passedProjectId = projectId;
+          passedEmitRequestLog = emitRequestLog;
+          return FAKE_GENERATED_MIDDLEWARE;
+        },
+      },
+    },
+  };
 });
 
 describe('middleware/express', () => {
@@ -94,18 +100,14 @@ describe('middleware/express', () => {
 
   it('should create and return a middleware', async () => {
     const mw = await makeMiddleware(logger);
-    assert.strictEqual(mw, FAKE_GENERATED_MIDDLEWARE);
+    expect(mw).toBe(FAKE_GENERATED_MIDDLEWARE);
   });
 
   it('should not allocate a transport when passed', async () => {
     const t = new FakeLoggingWinston({});
-    assert.strictEqual(transport, t);
-    await makeMiddleware(logger, t);
-    assert.strictEqual(
-      transport,
-      t,
-      'makeMiddleware should not construct a transport',
-    );
+    expect(transport).toBe(t);
+    await makeMiddleware(logger, t as any);
+    expect(transport).toBe(t);
   });
 
   it('should not allocate a transport when it can be inferred', async () => {
@@ -114,34 +116,34 @@ describe('middleware/express', () => {
       transports: [t],
     });
     await makeMiddleware(logger);
-    assert.strictEqual(logger.transports.length, 1);
-    assert.strictEqual(logger.transports[0], t);
+    expect(logger.transports.length).toBe(1);
+    expect(logger.transports[0]).toBe(t);
   });
 
   it('should add a transport to the logger when not provided', async () => {
     await makeMiddleware(logger);
-    assert.strictEqual(logger.transports.length, 1);
-    assert.strictEqual(logger.transports[0], transport);
+    expect(logger.transports.length).toBe(1);
+    expect(logger.transports[0]).toBe(transport);
   });
 
   it('should add a user provided transport to the logger', async () => {
     const t = new FakeLoggingWinston({});
-    await makeMiddleware(logger, t);
-    assert.strictEqual(logger.transports.length, 1);
-    assert.strictEqual(logger.transports[0], t);
+    await makeMiddleware(logger, t as any);
+    expect(logger.transports.length).toBe(1);
+    expect(logger.transports[0]).toBe(t);
   });
 
   it('should create a transport with the correct logName', async () => {
     await makeMiddleware(logger);
-    assert.ok(passedOptions);
-    assert.strictEqual(passedOptions.length, 1);
+    expect(passedOptions).toBeDefined();
+    expect(passedOptions.length).toBe(1);
     const [options] = passedOptions;
-    assert.strictEqual(options!.logName, 'winston_log');
+    expect(options!.logName).toBe('winston_log');
   });
 
   it('should acquire the projectId and pass to makeMiddleware', async () => {
     await makeMiddleware(logger);
-    assert.strictEqual(passedProjectId, FAKE_PROJECT_ID);
+    expect(passedProjectId).toBe(FAKE_PROJECT_ID);
   });
 
   [GCPEnv.APP_ENGINE, GCPEnv.CLOUD_FUNCTIONS, GCPEnv.CLOUD_RUN].forEach(env => {
@@ -150,14 +152,14 @@ describe('middleware/express', () => {
       const t = new FakeLoggingWinston({});
       if (env === GCPEnv.CLOUD_RUN) {
         // Cloud Run needs explicit set skipParentEntryForCloudRun flag to enable this behavior until we can make breaking change in next major version
-        await makeMiddleware(logger, t, /*skipParentEntryForCloudRun=*/ true);
+        await makeMiddleware(logger, t as any, /*skipParentEntryForCloudRun=*/ true);
       } else {
-        await makeMiddleware(logger, t);
+        await makeMiddleware(logger, t as any);
       }
-      assert.ok(passedOptions);
-      assert.strictEqual(passedOptions.length, 1);
+      expect(passedOptions).toBeDefined();
+      expect(passedOptions.length).toBe(1);
       // emitRequestLog parameter to makeChildLogger should be undefined.
-      assert.strictEqual(passedEmitRequestLog, undefined);
+      expect(passedEmitRequestLog).toBeUndefined();
     });
   });
 });

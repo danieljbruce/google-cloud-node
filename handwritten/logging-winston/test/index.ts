@@ -12,54 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import * as TransportStream from 'winston-transport';
-import * as proxyquire from 'proxyquire';
-import {Options} from '../src';
+import {Options, LoggingWinston} from '../src';
+
+let fakeLoggingOptions_: Options | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let lastFakeLoggingArgs: any[] = [];
+
+jest.mock('../src/common', () => {
+  const actual = jest.requireActual('../src/common');
+  return {
+    ...actual,
+    LoggingCommon: class FakeLogging {
+      constructor(options: {}) {
+        fakeLoggingOptions_ = options;
+      }
+      log(
+        level: string,
+        message: string,
+        metadata: {} | undefined,
+        callback: () => void,
+      ): void {
+        // eslint-disable-next-line prefer-rest-params
+        lastFakeLoggingArgs = Array.from(arguments);
+        if (callback) setImmediate(callback);
+      }
+    },
+  };
+});
 
 describe('logging-winston', () => {
-  let fakeLoggingOptions_: Options | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let lastFakeLoggingArgs: IArguments | any[] = [];
-
-  class FakeLogging {
-    constructor(options: {}) {
-      fakeLoggingOptions_ = options;
-    }
-    log(
-      level: string,
-      message: string,
-      metadata: {} | undefined,
-      callback: () => void,
-    ): void {
-      // eslint-disable-next-line prefer-rest-params
-      lastFakeLoggingArgs = arguments;
-      if (callback) setImmediate(callback);
-    }
-  }
-
-  class FakeTransport {
-    // transportCalledWith_ takes arguments which cannot be determined type.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transportCalledWith_: any;
-    constructor() {
-      // eslint-disable-next-line prefer-rest-params
-      this.transportCalledWith_ = arguments;
-    }
-  }
-
-  const fakeWinston = {
-    transports: {},
-    Transport: FakeTransport,
-  };
-
-  const loggingWinstonLib = proxyquire('../src/index', {
-    './common': {LoggingCommon: FakeLogging},
-    winston: fakeWinston,
-  });
-  // loggingWinston is LoggingWinston namespace which cannot be determined type.
-  // eslint-disable-next-line
   let loggingWinston: any;
 
   const OPTIONS: Options = {
@@ -76,14 +59,13 @@ describe('logging-winston', () => {
 
   beforeEach(() => {
     fakeLoggingOptions_ = null;
-    //eslint-disable-next-line @typescript-eslint/no-unused-vars
-    loggingWinston = new loggingWinstonLib.LoggingWinston(OPTIONS);
+    loggingWinston = new LoggingWinston(OPTIONS);
   });
 
   describe('instantiation/options', () => {
     it('should inherit from winston-transport.TransportStream', () => {
-      const loggingWinston = new loggingWinstonLib.LoggingWinston(OPTIONS);
-      assert.ok(loggingWinston instanceof TransportStream);
+      const loggingWinston = new LoggingWinston(OPTIONS);
+      expect(loggingWinston instanceof TransportStream).toBe(true);
     });
 
     it('should initialize Log instance using provided scopes', () => {
@@ -91,16 +73,15 @@ describe('logging-winston', () => {
 
       const optionsWithScopes: Options = Object.assign({}, OPTIONS);
       optionsWithScopes.scopes = fakeScope;
-      // tslint:disable-next-line:no-unused-expression
-      new loggingWinstonLib.LoggingWinston(optionsWithScopes);
+      new LoggingWinston(optionsWithScopes);
 
-      assert.deepStrictEqual(fakeLoggingOptions_, optionsWithScopes);
+      expect(fakeLoggingOptions_).toEqual(optionsWithScopes);
     });
 
     it('should initialize Log instance using provided apiEndpoint', () => {
       const options = Object.assign({}, OPTIONS);
-      new loggingWinstonLib.LoggingWinston(options);
-      assert.deepStrictEqual(fakeLoggingOptions_, options);
+      new LoggingWinston(options);
+      expect(fakeLoggingOptions_).toEqual(options);
     });
 
     it('should pass the provided options.inspectMetadata', () => {
@@ -108,13 +89,12 @@ describe('logging-winston', () => {
         inspectMetadata: true,
       });
 
-      // tslint:disable-next-line:no-unused-expression
-      new loggingWinstonLib.LoggingWinston(optionsWithInspectMetadata);
-      assert.strictEqual(fakeLoggingOptions_!.inspectMetadata, true);
+      new LoggingWinston(optionsWithInspectMetadata);
+      expect(fakeLoggingOptions_!.inspectMetadata).toBe(true);
     });
 
     it('should pass provided levels', () => {
-      assert.strictEqual(fakeLoggingOptions_!.levels, OPTIONS.levels);
+      expect(fakeLoggingOptions_!.levels).toEqual(OPTIONS.levels);
     });
 
     it('should pass Log instance using provided name', () => {
@@ -122,19 +102,17 @@ describe('logging-winston', () => {
 
       const optionsWithLogName = Object.assign({}, OPTIONS);
       optionsWithLogName.logName = logName;
-      // tslint:disable-next-line:no-unused-expression
-      new loggingWinstonLib.LoggingWinston(optionsWithLogName);
+      new LoggingWinston(optionsWithLogName);
 
-      assert.strictEqual(fakeLoggingOptions_!.logName, logName);
+      expect(fakeLoggingOptions_!.logName).toBe(logName);
     });
 
     it('should pass the provided resource', () => {
-      assert.strictEqual(fakeLoggingOptions_!.resource, OPTIONS.resource);
+      expect(fakeLoggingOptions_!.resource).toEqual(OPTIONS.resource);
     });
 
     it('should pass the provided service context', () => {
-      assert.strictEqual(
-        fakeLoggingOptions_!.serviceContext,
+      expect(fakeLoggingOptions_!.serviceContext).toEqual(
         OPTIONS.serviceContext,
       );
     });
@@ -149,14 +127,14 @@ describe('logging-winston', () => {
         handleExceptions: true,
         handleRejections: false,
       });
-      new loggingWinstonLib.LoggingWinston(
+      new LoggingWinston(
         optionsWithTransportStreamparameters,
       );
-      assert.strictEqual(fakeLoggingOptions_!.level, level);
-      assert.strictEqual(fakeLoggingOptions_!.format, format);
-      assert.strictEqual(fakeLoggingOptions_!.silent, true);
-      assert.strictEqual(fakeLoggingOptions_!.handleExceptions, true);
-      assert.strictEqual(fakeLoggingOptions_!.handleRejections, false);
+      expect(fakeLoggingOptions_!.level).toBe(level);
+      expect(fakeLoggingOptions_!.format).toBe(format);
+      expect(fakeLoggingOptions_!.silent).toBe(true);
+      expect(fakeLoggingOptions_!.handleExceptions).toBe(true);
+      expect(fakeLoggingOptions_!.handleRejections).toBe(false);
     });
   });
 
@@ -165,7 +143,7 @@ describe('logging-winston', () => {
     const MESSAGE = 'message';
     const METADATA = {a: 1};
 
-    const loggingWinston = new loggingWinstonLib.LoggingWinston();
+    const loggingWinston: any = new LoggingWinston();
 
     beforeEach(() => {
       lastFakeLoggingArgs = [];
@@ -180,9 +158,9 @@ describe('logging-winston', () => {
       loggingWinston.log(args);
 
       const [level, message, meta] = lastFakeLoggingArgs;
-      assert.strictEqual(level, 'one');
-      assert.strictEqual(message, 'message');
-      assert.deepStrictEqual(meta, {a: 1});
+      expect(level).toBe('one');
+      expect(message).toBe('message');
+      expect(meta).toEqual({a: 1});
       done();
     });
 
@@ -195,9 +173,9 @@ describe('logging-winston', () => {
       };
       loggingWinston.log(info);
       const [level, message, meta] = lastFakeLoggingArgs;
-      assert.strictEqual(level, 'one');
-      assert.strictEqual(message, 'message');
-      assert.deepStrictEqual(meta, {a: 1, [Symbol.for('level')]: LEVEL});
+      expect(level).toBe('one');
+      expect(message).toBe('message');
+      expect(meta).toEqual({a: 1, [Symbol.for('level')]: LEVEL});
     });
   });
 });

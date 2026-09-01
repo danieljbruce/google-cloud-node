@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import * as nodeutil from 'util';
-import * as proxyquire from 'proxyquire';
 import {Options} from '../src';
 import {Entry, Logging, LogSync, Log} from '@google-cloud/logging';
 import * as instrumentation from '@google-cloud/logging/build/src/utils/instrumentation';
-import {LoggingCommon} from '../src/common';
+import {
+  LoggingCommon,
+  LOGGING_TRACE_KEY,
+  LOGGING_SPAN_KEY,
+  LOGGING_SAMPLED_KEY,
+} from '../src/common';
 
 declare const global: {[index: string]: {} | null};
 
@@ -28,44 +30,37 @@ interface Metadata {
   labels?: {label2?: string};
 }
 
-describe('logging-common', () => {
-  let fakeLogInstance: Logging;
-  let fakeLoggingOptions_: Options | null;
-  let fakeLogName_: string | null;
-  let fakeLogOptions_: object | null;
+let fakeLogInstance: any;
+let fakeLoggingOptions_: Options | null = null;
+let fakeLogName_: string | null = null;
+let fakeLogOptions_: object | null = null;
 
-  function fakeLogging(options: Options) {
-    fakeLoggingOptions_ = options;
-    return {
-      log: (logName: string, logOptions: object) => {
-        fakeLogName_ = logName;
-        fakeLogOptions_ = logOptions;
-        return fakeLogInstance;
-      },
-    };
-  }
-
-  class FakeTransport {
-    // transportCalledWith_ takes arguments which cannot be determined type.
-    transportCalledWith_: Array<{}>;
-    constructor(...args: Array<{}>) {
-      this.transportCalledWith_ = args;
-    }
-  }
-
-  const fakeWinston = {
-    transports: {},
-    Transport: FakeTransport,
+jest.mock('@google-cloud/logging', () => {
+  const actual = jest.requireActual('@google-cloud/logging');
+  return {
+    ...actual,
+    Logging: jest.fn().mockImplementation((options: Options) => {
+      fakeLoggingOptions_ = options;
+      return {
+        log: (logName: string, logOptions: object) => {
+          fakeLogName_ = logName;
+          fakeLogOptions_ = logOptions;
+          return fakeLogInstance;
+        },
+        logSync: (logName: string, _options: any, logSyncOptions: any) => {
+          return new actual.LogSync(
+            new actual.Logging(options),
+            logName,
+            _options,
+            logSyncOptions,
+          );
+        },
+      };
+    }),
   };
+});
 
-  const loggingCommonLib = proxyquire('../src/common', {
-    '@google-cloud/logging': {
-      Logging: fakeLogging,
-    },
-    winston: fakeWinston,
-  });
-
-  // loggingCommon is loggingCommon namespace which cannot be determined type.
+describe('logging-common', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let loggingCommon: any;
 
@@ -82,15 +77,25 @@ describe('logging-common', () => {
   };
 
   beforeEach(() => {
-    fakeLogInstance = {} as unknown as Logging;
+    fakeLogInstance = Object.create(Log.prototype);
     fakeLoggingOptions_ = null;
     fakeLogName_ = null;
-    loggingCommon = new loggingCommonLib.LoggingCommon(OPTIONS);
+    fakeLogOptions_ = null;
+    fakeLogInstance.entry = jest.fn();
+    fakeLogInstance.emergency = jest.fn();
+    fakeLogInstance.alert = jest.fn();
+    fakeLogInstance.critical = jest.fn();
+    fakeLogInstance.error = jest.fn();
+    fakeLogInstance.warning = jest.fn();
+    fakeLogInstance.notice = jest.fn();
+    fakeLogInstance.info = jest.fn();
+    fakeLogInstance.debug = jest.fn();
+    loggingCommon = new LoggingCommon(OPTIONS);
   });
 
   describe('instantiation', () => {
     it('should default to logging.write scope', () => {
-      assert.deepStrictEqual((fakeLoggingOptions_ as Options).scopes, [
+      expect((fakeLoggingOptions_ as Options).scopes).toEqual([
         'https://www.googleapis.com/auth/logging.write',
       ]);
     });
@@ -101,13 +106,13 @@ describe('logging-common', () => {
       const optionsWithScopes: Options = Object.assign({}, OPTIONS);
       optionsWithScopes.scopes = fakeScope;
 
-      new loggingCommonLib.LoggingCommon(optionsWithScopes);
+      new LoggingCommon(optionsWithScopes);
 
-      assert.deepStrictEqual(fakeLoggingOptions_, optionsWithScopes);
+      expect(fakeLoggingOptions_).toEqual(optionsWithScopes);
     });
 
     it('should localize inspectMetadata to default value', () => {
-      assert.strictEqual(loggingCommon.inspectMetadata, false);
+      expect((loggingCommon as any).inspectMetadata).toBe(false);
     });
 
     it('should localize the provided options.inspectMetadata', () => {
@@ -115,24 +120,24 @@ describe('logging-common', () => {
         inspectMetadata: true,
       });
 
-      const loggingCommon = new loggingCommonLib.LoggingCommon(
+      const lc = new LoggingCommon(
         optionsWithInspectMetadata,
       );
-      assert.strictEqual(loggingCommon.inspectMetadata, true);
+      expect((lc as any).inspectMetadata).toBe(true);
     });
 
     it('should localize provided levels', () => {
-      assert.strictEqual(loggingCommon.levels, OPTIONS.levels);
+      expect((loggingCommon as any).levels).toEqual(OPTIONS.levels);
     });
 
     it('should default to npm levels', () => {
       const optionsWithoutLevels = Object.assign({}, OPTIONS);
       delete optionsWithoutLevels.levels;
 
-      const loggingCommon = new loggingCommonLib.LoggingCommon(
+      const lc = new LoggingCommon(
         optionsWithoutLevels,
       );
-      assert.deepStrictEqual(loggingCommon.levels, {
+      expect((lc as any).levels).toEqual({
         error: 3,
         warn: 4,
         info: 6,
@@ -149,41 +154,41 @@ describe('logging-common', () => {
       const optionsWithLogName = Object.assign({}, OPTIONS);
       optionsWithLogName.logName = logName;
 
-      const loggingCommon = new loggingCommonLib.LoggingCommon(
+      const lc = new LoggingCommon(
         optionsWithLogName,
       );
 
       const loggingOptions = Object.assign({}, fakeLoggingOptions_);
       delete (loggingOptions as Options).scopes;
 
-      assert.deepStrictEqual(loggingOptions, optionsWithLogName);
-      assert.strictEqual(fakeLogName_, logName);
-      assert.strictEqual(loggingCommon.logName, logName);
+      expect(loggingOptions).toEqual(optionsWithLogName);
+      expect(fakeLogName_).toBe(logName);
+      expect(lc.logName).toBe(logName);
     });
 
     it('should set removeCircular to true', () => {
-      new loggingCommonLib.LoggingCommon(OPTIONS);
+      new LoggingCommon(OPTIONS);
 
-      assert.deepStrictEqual(fakeLogOptions_, {
+      expect(fakeLogOptions_).toEqual({
         removeCircular: true,
         maxEntrySize: 250000,
       });
     });
 
     it('should localize the provided resource', () => {
-      assert.strictEqual(loggingCommon.resource, OPTIONS.resource);
+      expect((loggingCommon as any).resource).toBe(OPTIONS.resource);
     });
 
     it('should localize the provided service context', () => {
-      assert.strictEqual(loggingCommon.serviceContext, OPTIONS.serviceContext);
+      expect((loggingCommon as any).serviceContext).toBe(OPTIONS.serviceContext);
     });
 
     it('should create LogCommon with LogSync', () => {
       const optionsWithRedirectToStdout = Object.assign({}, OPTIONS, {
         redirectToStdout: true,
       });
-      const loggingCommon = new LoggingCommon(optionsWithRedirectToStdout);
-      assert.ok(loggingCommon.cloudLog instanceof LogSync);
+      const lc = new LoggingCommon(optionsWithRedirectToStdout);
+      expect(lc.cloudLog instanceof LogSync).toBe(true);
     });
 
     it('should create LogCommon with LogSync and useMessage is on', () => {
@@ -195,16 +200,16 @@ describe('logging-common', () => {
           useMessageField: true,
         },
       );
-      const loggingCommon = new LoggingCommon(
+      const lc = new LoggingCommon(
         optionsWithRedirectToStdoutAndUseMessage,
       );
-      assert.ok(loggingCommon.cloudLog instanceof LogSync);
-      assert.ok(loggingCommon.cloudLog.useMessageField_ === true);
+      expect(lc.cloudLog instanceof LogSync).toBe(true);
+      expect((lc.cloudLog as any).useMessageField_).toBe(true);
     });
 
     it('should create LogCommon with Log', () => {
-      const loggingCommon = new LoggingCommon(OPTIONS);
-      assert.ok(loggingCommon.cloudLog instanceof Log);
+      const lc = new LoggingCommon(OPTIONS);
+      expect(lc.cloudLog instanceof Log).toBe(true);
     });
   });
 
@@ -225,14 +230,16 @@ describe('logging-common', () => {
     });
 
     it('should throw on a bad log level', () => {
-      assert.throws(() => {
+      expect(() => {
         loggingCommon.log(
           'non-existent-level',
           MESSAGE,
           METADATA,
-          assert.ifError,
+          (err: Error | null) => {
+            if (err) throw err;
+          },
         );
-      }, /Unknown log level: non-existent-level/);
+      }).toThrow(/Unknown log level: non-existent-level/);
     });
 
     it('should not throw on `0` log level', () => {
@@ -242,24 +249,32 @@ describe('logging-common', () => {
         },
       });
 
-      loggingCommon = new loggingCommonLib.LoggingCommon(options);
+      loggingCommon = new LoggingCommon(options);
 
-      loggingCommon.log('zero', 'test message');
+      expect(() => {
+        loggingCommon.log('zero', 'test message');
+      }).not.toThrow();
     });
 
     it('should properly create an entry', done => {
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should append stack when metadata is an error', done => {
@@ -268,15 +283,21 @@ describe('logging-common', () => {
       };
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(data, {
-          message: MESSAGE + ' ' + error.stack,
-          metadata: error,
-          serviceContext: OPTIONS.serviceContext,
-        });
-        done();
+        try {
+          expect(data).toEqual({
+            message: MESSAGE + ' ' + error.stack,
+            metadata: error,
+            serviceContext: OPTIONS.serviceContext,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      loggingCommon.log(LEVEL, MESSAGE, error, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, error, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should use stack when metadata is err without message', done => {
@@ -285,37 +306,48 @@ describe('logging-common', () => {
       };
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(data, {
-          message: error.stack,
-          metadata: error,
-          serviceContext: OPTIONS.serviceContext,
-        });
-        done();
+        try {
+          expect(data).toEqual({
+            message: error.stack,
+            metadata: error,
+            serviceContext: OPTIONS.serviceContext,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      loggingCommon.log(LEVEL, '', error, assert.ifError);
+      loggingCommon.log(LEVEL, '', error, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should inspect metadata when inspectMetadata is set', done => {
-      loggingCommon.inspectMetadata = true;
+      (loggingCommon as any).inspectMetadata = true;
 
       loggingCommon.cloudLog.entry = (_: {}, data: {}) => {
-        const expectedWinstonMetadata = {};
+        try {
+          const expectedWinstonMetadata: Record<string, any> = {};
 
-        for (const prop of Object.keys(METADATA)) {
-          // metadata does not have index signature.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (expectedWinstonMetadata as any)[prop] =
+          for (const prop of Object.keys(METADATA)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            nodeutil.inspect((METADATA as any)[prop]);
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert.deepStrictEqual((data as any).metadata, expectedWinstonMetadata);
+            (expectedWinstonMetadata as any)[prop] =
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              nodeutil.inspect((METADATA as any)[prop]);
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          expect((data as any).metadata).toEqual(expectedWinstonMetadata);
 
-        done();
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should promote httpRequest property to metadata', done => {
@@ -330,17 +362,23 @@ describe('logging-common', () => {
       );
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-          httpRequest: HTTP_REQUEST,
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+            httpRequest: HTTP_REQUEST,
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
-      loggingCommon.log(LEVEL, MESSAGE, metadataWithRequest, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, metadataWithRequest, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should promote timestamp property to metadata', done => {
@@ -353,17 +391,23 @@ describe('logging-common', () => {
       );
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-          timestamp: date,
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+            timestamp: date,
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
-      loggingCommon.log(LEVEL, MESSAGE, metadataWithRequest, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, metadataWithRequest, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should promote labels from metadata to log entry', done => {
@@ -371,25 +415,30 @@ describe('logging-common', () => {
       const metadataWithLabels = Object.assign({labels: LABELS}, METADATA);
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-          labels: LABELS,
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+            labels: LABELS,
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
-      loggingCommon.log(LEVEL, MESSAGE, metadataWithLabels, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, metadataWithLabels, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should promote prefixed trace properties to metadata', done => {
       const metadataWithTrace = Object.assign({}, METADATA);
-      const loggingTraceKey = loggingCommonLib.LOGGING_TRACE_KEY;
-      const loggingSpanKey = loggingCommonLib.LOGGING_SPAN_KEY;
-      const loggingSampledKey = loggingCommonLib.LOGGING_SAMPLED_KEY;
-      // metadataWithTrace does not have index signature.
+      const loggingTraceKey = LOGGING_TRACE_KEY;
+      const loggingSpanKey = LOGGING_SPAN_KEY;
+      const loggingSampledKey = LOGGING_SAMPLED_KEY;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (metadataWithTrace as any)[loggingTraceKey] = 'trace1';
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -398,40 +447,51 @@ describe('logging-common', () => {
       (metadataWithTrace as any)[loggingSampledKey] = true;
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-          trace: 'trace1',
-          spanId: 'span1',
-          traceSampled: true,
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+            trace: 'trace1',
+            spanId: 'span1',
+            traceSampled: true,
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
-      loggingCommon.log(LEVEL, MESSAGE, metadataWithTrace, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, metadataWithTrace, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should promote a false traceSampled value to metadata', done => {
       const metadataWithTrace = Object.assign({}, METADATA);
-      const loggingSampledKey = loggingCommonLib.LOGGING_SAMPLED_KEY;
-      // metadataWithTrace does not have index signature.
+      const loggingSampledKey = LOGGING_SAMPLED_KEY;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (metadataWithTrace as any)[loggingSampledKey] = '0';
 
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-          traceSampled: false,
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+            traceSampled: false,
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
-      loggingCommon.log(LEVEL, MESSAGE, metadataWithTrace, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, metadataWithTrace, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should set trace metadata from agent if available', done => {
@@ -445,28 +505,34 @@ describe('logging-common', () => {
         },
       };
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
-          trace: 'projects/project1/traces/trace1',
-        });
-        assert.deepStrictEqual(data, {
-          message: MESSAGE,
-          metadata: METADATA,
-        });
-        done();
+        try {
+          expect(entryMetadata).toEqual({
+            resource: (loggingCommon as any).resource,
+            trace: 'projects/project1/traces/trace1',
+          });
+          expect(data).toEqual({
+            message: MESSAGE,
+            metadata: METADATA,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        } finally {
+          global._google_trace_agent = oldTraceAgent;
+        }
       };
 
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
-
-      global._google_trace_agent = oldTraceAgent;
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
 
     it('should leave out trace metadata if trace unavailable', () => {
       loggingCommon.cloudLog.entry = (entryMetadata: {}, data: {}) => {
-        assert.deepStrictEqual(entryMetadata, {
-          resource: loggingCommon.resource,
+        expect(entryMetadata).toEqual({
+          resource: (loggingCommon as any).resource,
         });
-        assert.deepStrictEqual(data, {
+        expect(data).toEqual({
           message: MESSAGE,
           metadata: METADATA,
         });
@@ -475,7 +541,7 @@ describe('logging-common', () => {
       const oldTraceAgent = global._google_trace_agent;
 
       global._google_trace_agent = {};
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, () => {});
 
       global._google_trace_agent = {
         getCurrentContextId: () => {
@@ -485,7 +551,7 @@ describe('logging-common', () => {
           return null;
         },
       };
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, () => {});
 
       global._google_trace_agent = {
         getCurrentContextId: () => {
@@ -495,7 +561,7 @@ describe('logging-common', () => {
           return 'project1';
         },
       };
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, () => {});
 
       global._google_trace_agent = {
         getCurrentContextId: () => {
@@ -505,7 +571,7 @@ describe('logging-common', () => {
           return null;
         },
       };
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, () => {});
       global._google_trace_agent = oldTraceAgent;
     });
 
@@ -520,8 +586,12 @@ describe('logging-common', () => {
         entry_: Entry[],
         callback: () => void,
       ) => {
-        assert.deepEqual(entry_[0], entry);
-        callback(); // done()
+        try {
+          expect(entry_[0]).toEqual(entry);
+          callback(); // done()
+        } catch (e) {
+          done(e);
+        }
       };
 
       loggingCommon.log(LEVEL, MESSAGE, METADATA, done);
@@ -535,14 +605,17 @@ describe('logging-common', () => {
         entry_: Entry[],
         callback: () => void,
       ) => {
-        assert.equal(entry_.length, 2);
-        assert.equal(
-          entry_[1].data[instrumentation.DIAGNOSTIC_INFO_KEY][
-            instrumentation.INSTRUMENTATION_SOURCE_KEY
-          ][0].name,
-          'nodejs-winston',
-        );
-        callback(); // done()
+        try {
+          expect(entry_.length).toBe(2);
+          expect(
+            (entry_[1].data as any)[instrumentation.DIAGNOSTIC_INFO_KEY][
+              instrumentation.INSTRUMENTATION_SOURCE_KEY
+            ][0].name,
+          ).toBe('nodejs-winston');
+          callback(); // done()
+        } catch (e) {
+          done(e);
+        }
       };
       instrumentation.setInstrumentationStatus(false);
       loggingCommon.log(INFO, MESSAGE, METADATA, done);
@@ -553,17 +626,16 @@ describe('logging-common', () => {
         return new Entry(entryMetadata, data);
       };
       loggingCommon.cloudLog['info'] = (entry_: Entry[]) => {
-        assert.equal(entry_.length, 1);
-        assert.equal(
-          entry_[0].data[instrumentation.DIAGNOSTIC_INFO_KEY][
+        expect(entry_.length).toBe(1);
+        expect(
+          (entry_[0].data as any)[instrumentation.DIAGNOSTIC_INFO_KEY][
             instrumentation.INSTRUMENTATION_SOURCE_KEY
           ][0].name,
-          'nodejs-winston',
-        );
+        ).toBe('nodejs-winston');
       };
       loggingCommon.cloudLog[STACKDRIVER_LEVEL] = (entry_: Entry[]) => {
-        assert.equal(entry_.length, 1);
-        assert.deepStrictEqual(entry_[0].data, {
+        expect(entry_.length).toBe(1);
+        expect((entry_[0].data as any)).toEqual({
           message: MESSAGE,
           metadata: METADATA,
         });
@@ -587,50 +659,60 @@ describe('logging-common', () => {
         labels: LABELS,
       });
 
-      loggingCommon = new loggingCommonLib.LoggingCommon(opts);
+      loggingCommon = new LoggingCommon(opts);
     });
 
     it('should properly create an entry with labels and [prefix] message', done => {
       loggingCommon.cloudLog.entry = (entryMetadata1: {}, data1: {}) => {
-        assert.deepStrictEqual(entryMetadata1, {
-          resource: loggingCommon.resource,
-          // labels should have been merged.
-          labels: {
-            label1: 'value1',
-            label2: 'value2',
-          },
-        });
-        assert.deepStrictEqual(data1, {
-          message: `[${PREFIX}] ${MESSAGE}`,
-          metadata: METADATA,
-        });
+        try {
+          expect(entryMetadata1).toEqual({
+            resource: (loggingCommon as any).resource,
+            // labels should have been merged.
+            labels: {
+              label1: 'value1',
+              label2: 'value2',
+            },
+          });
+          expect(data1).toEqual({
+            message: `[${PREFIX}] ${MESSAGE}`,
+            metadata: METADATA,
+          });
+        } catch (e) {
+          return done(e);
+        }
 
         const metadataWithoutLabels = Object.assign({}, METADATA);
         delete metadataWithoutLabels.labels;
 
         loggingCommon.cloudLog.entry = (entryMetadata2: {}, data2: {}) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          console.log((entryMetadata2 as any).labels);
-          assert.deepStrictEqual(entryMetadata2, {
-            resource: loggingCommon.resource,
-            labels: {label1: 'value1'},
-          });
-          assert.deepStrictEqual(data2, {
-            message: `[${PREFIX}] ${MESSAGE}`,
-            metadata: METADATA,
-          });
-          done();
+          try {
+            expect(entryMetadata2).toEqual({
+              resource: (loggingCommon as any).resource,
+              labels: {label1: 'value1'},
+            });
+            expect(data2).toEqual({
+              message: `[${PREFIX}] ${MESSAGE}`,
+              metadata: METADATA,
+            });
+            done();
+          } catch (e) {
+            done(e);
+          }
         };
 
         loggingCommon.log(
           LEVEL,
           MESSAGE,
           metadataWithoutLabels,
-          assert.ifError,
+          (err: Error | null) => {
+            if (err) done(err);
+          },
         );
       };
 
-      loggingCommon.log(LEVEL, MESSAGE, METADATA, assert.ifError);
+      loggingCommon.log(LEVEL, MESSAGE, METADATA, (err: Error | null) => {
+        if (err) done(err);
+      });
     });
   });
 });

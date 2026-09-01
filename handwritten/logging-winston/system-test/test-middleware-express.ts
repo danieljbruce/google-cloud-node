@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as crypto from 'crypto';
 import {express as elb} from '../src/index';
 import * as winston from 'winston';
@@ -34,31 +33,35 @@ function delay(ms: number) {
 
 describe(__filename, () => {
   describe('global logger', () => {
-    it('should properly write log entries', async function () {
-      this.timeout(TEST_TIMEOUT);
-      const logger = winston.createLogger();
-      await elb.makeMiddleware(logger, {
-        logName: LOG_NAME,
-        level: 'info',
-      });
+    it(
+      'should properly write log entries',
+      async () => {
+        const logger = winston.createLogger();
+        await elb.makeMiddleware(logger, {
+          logName: LOG_NAME,
+          level: 'info',
+        });
 
-      const LOG_MESSAGE = `unique log message ${crypto.randomBytes(16).toString('hex')}`;
-      logger.info(LOG_MESSAGE);
+        const LOG_MESSAGE = `unique log message ${crypto.randomBytes(16).toString('hex')}`;
+        logger.info(LOG_MESSAGE);
 
-      await delay(WRITE_CONSISTENCY_DELAY_MS);
+        await delay(WRITE_CONSISTENCY_DELAY_MS);
 
-      const log = logging.log(LOG_NAME);
-      const entries = (await log.getEntries({pageSize: 1}))[0];
-      assert.strictEqual(entries.length, 1);
-      assert.strictEqual(LOG_MESSAGE, entries[0].data.message);
-    });
+        const log = logging.log(LOG_NAME);
+        const entries = (await log.getEntries({pageSize: 1}))[0];
+        assert.strictEqual(entries.length, 1);
+        assert.strictEqual(LOG_MESSAGE, entries[0].data.message);
+      },
+      TEST_TIMEOUT,
+    );
   });
 
   describe('request logging middleware', () => {
-    it('should write request correlated log entries', function () {
-      this.timeout(TEST_TIMEOUT);
-      // eslint-disable-next-line no-async-promise-executor
-      return new Promise<void>(async resolve => {
+    it(
+      'should write request correlated log entries',
+      () => {
+        // eslint-disable-next-line no-async-promise-executor
+        return new Promise<void>(async resolve => {
         const logger = winston.createLogger();
         const mw = await elb.makeMiddleware(logger, {
           logName: LOG_NAME,
@@ -121,6 +124,6 @@ describe(__filename, () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         mw(fakeRequest as any, fakeResponse as any, next);
       });
-    });
+    }, TEST_TIMEOUT);
   });
 });

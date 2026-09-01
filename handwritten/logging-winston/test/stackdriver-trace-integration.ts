@@ -12,13 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, after} from 'mocha';
-import * as proxyquire from 'proxyquire';
 import * as winston from 'winston';
-import * as loggingWinstonLibTypes from '../src/index';
+import * as loggingWinstonLib from '../src/index';
 
 declare const global: {[index: string]: {} | null};
+
+// Trace context IDs seen in logs so far in a test.
+const seenContextIds: string[] = [];
+
+jest.mock('@google-cloud/logging', () => {
+  const actual = jest.requireActual('@google-cloud/logging');
+  return {
+    ...actual,
+    Logging: class FakeLogging {
+      constructor() {}
+      log(data: never, callback: () => void) {
+        if (typeof callback === 'function') setImmediate(callback);
+        return this;
+      }
+      // Stub entry to record the incoming trace context ID.
+      entry(metadata: {trace: string}) {
+        if (metadata.trace) {
+          const traceId = metadata.trace.split('/')[3];
+          expect(traceId).toBeTruthy();
+          seenContextIds.push(traceId);
+        } else {
+          seenContextIds.push('');
+        }
+        return {};
+      }
+      info(data: never, callback: () => void) {
+        return this.log(data, callback);
+      }
+    },
+  };
+});
 
 /**
  * Tests that ensure that getDefaultMetadataForTracing can be used for
@@ -26,42 +54,10 @@ declare const global: {[index: string]: {} | null};
  * src/default-metadata.ts for an explanation on why this to exist.
  */
 describe('Cloud Trace Log Correlation', () => {
-  // Trace context IDs seen in logs so far in a test.
-  const seenContextIds: string[] = [];
   // Set a trace context ID for all succeeding Winston logs.
   let setCurrentContextId: (id: string) => void;
-  // The Cloud Logging Winston transport library.
-  let loggingWinstonLib: typeof loggingWinstonLibTypes;
   // The flag indicating if callback was called or not
   let isCallbackCalled: boolean;
-
-  class FakeLogging {
-    constructor() {}
-    log(data: never, callback: () => void) {
-      if (typeof callback === 'function') setImmediate(callback);
-      return this;
-    }
-    // Stub entry to record the incoming trace context ID.
-    entry(metadata: {trace: string}) {
-      if (metadata.trace) {
-        const traceId = metadata.trace.split('/')[3];
-        assert.ok(traceId);
-        seenContextIds.push(traceId);
-      } else {
-        seenContextIds.push('');
-      }
-      return {};
-    }
-    info(data: never, callback: () => void) {
-      return this.log(data, callback);
-    }
-  }
-
-  before(() => {
-    loggingWinstonLib = proxyquire('../src/index', {
-      '@google-cloud/logging': {'@global': true, Logging: FakeLogging},
-    });
-  });
 
   beforeEach(() => {
     seenContextIds.length = 0;
@@ -82,7 +78,7 @@ describe('Cloud Trace Log Correlation', () => {
     })();
   });
 
-  after(() => {
+  afterAll(() => {
     delete global._google_trace_agent;
   });
 
@@ -98,9 +94,13 @@ describe('Cloud Trace Log Correlation', () => {
     logger.log({level: 'info', message: 'hello'});
     setCurrentContextId('3');
     setImmediate(() => {
-      assert.strictEqual(seenContextIds.length, 3);
-      assert.deepStrictEqual(seenContextIds, ['1', '', '2']);
-      done();
+      try {
+        expect(seenContextIds.length).toBe(3);
+        expect(seenContextIds).toEqual(['1', '', '2']);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
   });
 
@@ -123,11 +123,15 @@ describe('Cloud Trace Log Correlation', () => {
     logger.log({level: 'info', message: 'hello'});
     setCurrentContextId('3');
     setImmediate(() => {
-      assert.strictEqual(seenContextIds.length, 2);
-      assert.throws(() => {
-        assert.deepStrictEqual(seenContextIds, ['1', '2']);
-      });
-      done();
+      try {
+        expect(seenContextIds.length).toBe(2);
+        expect(() => {
+          expect(seenContextIds).toEqual(['1', '2']);
+        }).toThrow();
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
   });
 
@@ -142,8 +146,12 @@ describe('Cloud Trace Log Correlation', () => {
     });
     logger.log({level: 'info', message: 'hello'});
     setImmediate(() => {
-      assert.strictEqual(isCallbackCalled, true);
-      done();
+      try {
+        expect(isCallbackCalled).toBe(true);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
   });
 
@@ -161,8 +169,12 @@ describe('Cloud Trace Log Correlation', () => {
       logger.log({level: 'info', message: 'hello'});
       setCurrentContextId('3');
       setImmediate(() => {
-        assert.strictEqual(seenContextIds.length, 2);
-        done();
+        try {
+          expect(seenContextIds.length).toBe(2);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
   });
@@ -190,8 +202,12 @@ describe('Cloud Trace Log Correlation', () => {
       logger.log({level: 'info', message: 'hello'});
       setCurrentContextId('3');
       setImmediate(() => {
-        assert.strictEqual(seenContextIds.length, 2);
-        done();
+        try {
+          expect(seenContextIds.length).toBe(2);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
   });

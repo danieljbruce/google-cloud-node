@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import {packNTest} from 'pack-n-play';
-import {describe, it} from 'mocha';
 
 describe('pack-n-play', () => {
   const TS_CODE_SAMPLES = [
@@ -142,18 +141,26 @@ new LoggingWinston({
   ];
 
   TS_CODE_SAMPLES.forEach(sample => {
-    it(sample.description, async () => {
-      await packNTest({
-        sample,
-      });
-    }).timeout(2 * 60 * 1000);
+    it(
+      sample.description,
+      async () => {
+        await packNTest({
+          sample,
+        });
+      },
+      2 * 60 * 1000,
+    );
   });
 
   JS_CODE_SAMPLES.forEach(sample => {
-    it(sample.description, async () => {
-      await packNTest({
-        sample,
-      });
-    }).timeout(2 * 60 * 1000);
+    it(
+      sample.description,
+      async () => {
+        await packNTest({
+          sample,
+        });
+      },
+      2 * 60 * 1000,
+    );
   });
 });
