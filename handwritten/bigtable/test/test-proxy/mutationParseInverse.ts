@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
 import {Mutation} from '../../src/mutation';
 import {mutationParseInverse} from '../../testproxy/services/utils/request/mutateInverse';
 
@@ -38,9 +37,8 @@ describe('Check mutation parse and mutationParseInverse are inverses', () => {
         },
       ],
     };
-    assert.deepStrictEqual(
+    expect(
       Mutation.parse(mutationParseInverse(gapicLayerRequest)),
-      gapicLayerRequest,
-    );
+    ).toEqual(gapicLayerRequest);
   });
 });

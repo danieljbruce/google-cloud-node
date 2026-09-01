@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-import * as sinon from 'sinon';
 import {protos} from '@google-cloud/bigtable-api';
 import google = protos.google;
 import {createProtoRows} from './utils/proto-bytes';
@@ -37,26 +34,25 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
 
   beforeEach(() => {
     checksumIsValid = true;
-    checksumValidStub = sinon
-      .stub(SqlValues, 'checksumValid')
-      .callsFake(() => checksumIsValid);
+    checksumValidStub = jest
+      .spyOn(SqlValues, 'checksumValid')
+      .mockImplementation(() => checksumIsValid);
     byteBuffer =
       new ByteBufferTransformer() as any as PublicByteBufferTransformer;
   });
 
   afterEach(() => {
-    checksumValidStub.restore();
+    checksumValidStub.mockRestore();
   });
 
   describe('processProtoRowsBatch', () => {
-    it('empty result', done => {
-      assert.throws(() => {
+    it('empty result', () => {
+      expect(() => {
         byteBuffer.processProtoRowsBatch({});
-      }, /Error: Response did not contain any results!/);
-      done();
+      }).toThrow(/Response did not contain any results!/);
     });
 
-    it('just checksum', done => {
+    it('just checksum', () => {
       const response1 = createProtoRows(undefined, undefined, undefined, {
         intValue: 1,
       });
@@ -66,10 +62,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(response1.results!);
 
       // check that the buffer is filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.strictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toBe(
         response1.results!.protoRowsBatch!.batchData!,
       );
 
@@ -77,18 +72,16 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(responseWithChecksum.results!);
 
       // check that the buffer is flushed and queue contains the new message
-      assert.strictEqual(byteBuffer.messageQueue.length, 1);
-      assert.deepStrictEqual(
-        byteBuffer.messageQueue[0],
+      expect(byteBuffer.messageQueue.length).toBe(1);
+      expect(byteBuffer.messageQueue[0]).toEqual(
         Buffer.concat([
           response1.results!.protoRowsBatch!.batchData! as Buffer,
         ]),
       );
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
-      done();
+      expect(byteBuffer.messageBuffer.length).toBe(0);
     });
 
-    it('checksum flushes the buffer', done => {
+    it('checksum flushes the buffer', () => {
       const response1 = createProtoRows(undefined, undefined, undefined, {
         intValue: 1,
       });
@@ -100,10 +93,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(response1.results!);
 
       // check that the buffer is filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.strictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toBe(
         response1.results!.protoRowsBatch!.batchData!,
       );
 
@@ -112,28 +104,24 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
 
       // check that the buffer is flushed and queue contains the new message
       // containing both values
-      assert.strictEqual(byteBuffer.messageQueue.length, 1);
-      assert.deepStrictEqual(
-        byteBuffer.messageQueue[0],
+      expect(byteBuffer.messageQueue.length).toBe(1);
+      expect(byteBuffer.messageQueue[0]).toEqual(
         Buffer.concat([
           response1.results!.protoRowsBatch!.batchData! as Buffer,
           responseWithChecksum.results!.protoRowsBatch!.batchData! as Buffer,
         ]),
       );
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
-      done();
+      expect(byteBuffer.messageBuffer.length).toBe(0);
     });
 
-    it('just reset', done => {
+    it('just reset', () => {
       const responseWithReset = createProtoRows(undefined, undefined, true);
 
       // send a reset
       byteBuffer.processProtoRowsBatch(responseWithReset.results!);
-
-      done();
     });
 
-    it('reset empties the buffer', done => {
+    it('reset empties the buffer', () => {
       // we first prepare the byteBuffer with a few messages
       // then we send a reset and observe that the queue and
       // buffer have been emptied and only the new message
@@ -148,10 +136,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(response1.results!);
 
       // check that the buffer is filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.strictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toBe(
         response1.results!.protoRowsBatch!.batchData!,
       );
 
@@ -160,16 +147,14 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
 
       // check that the buffer has been emptied and populated with
       // the new message after the reset
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.deepStrictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toEqual(
         responseWithReset.results!.protoRowsBatch!.batchData!,
       );
-      done();
     });
 
-    it('reset empties the queue and buffer', done => {
+    it('reset empties the queue and buffer', () => {
       // we first prepare the byteBuffer with a few messages
       // then we send a reset and observe that the queue and
       // buffer have been emptied and only the new message
@@ -189,17 +174,15 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       }
 
       // check that the buffer and queue are filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 1);
-      assert.deepStrictEqual(
-        byteBuffer.messageQueue[0],
+      expect(byteBuffer.messageQueue.length).toBe(1);
+      expect(byteBuffer.messageQueue[0]).toEqual(
         Buffer.concat([
           responses[0].results!.protoRowsBatch!.batchData! as Buffer,
           responses[1].results!.protoRowsBatch!.batchData! as Buffer,
         ]),
       );
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.strictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toBe(
         responses[2].results!.protoRowsBatch!.batchData!,
       );
 
@@ -208,16 +191,14 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
 
       // check that the buffer and queue have been emptied and populated with
       // the new message after the reset
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.deepStrictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toEqual(
         responseWithReset.results!.protoRowsBatch!.batchData!,
       );
-      done();
     });
 
-    it('token triggers push', done => {
+    it('token triggers push', () => {
       let pushedData = null;
       byteBuffer.push = (data: any) => {
         pushedData = data;
@@ -233,10 +214,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(response1.results!);
 
       // check that the buffer is filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.strictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toBe(
         response1.results!.protoRowsBatch!.batchData!,
       );
 
@@ -245,9 +225,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
 
       // check that the data was pushed and buffer and queue are empty
       // but pushed data contins the value from the 2nd message
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.deepStrictEqual(pushedData, [
+      expect(byteBuffer.messageBuffer.length).toBe(0);
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(pushedData).toEqual([
         [
           Buffer.concat([
             response1.results!.protoRowsBatch!.batchData! as Buffer,
@@ -256,10 +236,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
         ],
         Buffer.from('token'),
       ]);
-      done();
     });
 
-    it('separate token', done => {
+    it('separate token', () => {
       let pushedData = null;
       byteBuffer.push = (data: any) => {
         pushedData = data;
@@ -273,34 +252,31 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(response1.results!);
 
       // check that the buffer is filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 1);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
+      expect(byteBuffer.messageQueue.length).toBe(1);
+      expect(byteBuffer.messageBuffer.length).toBe(0);
 
       // send a token
       byteBuffer.processProtoRowsBatch(responseWithToken.results!);
 
       // check that the data was pushed and buffer and queue are empty
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.deepStrictEqual(pushedData, [
+      expect(byteBuffer.messageBuffer.length).toBe(0);
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(pushedData).toEqual([
         [response1.results!.protoRowsBatch!.batchData! as Buffer],
         Buffer.from('token'),
       ]);
-      done();
     });
 
-    it('checksum without data throws', done => {
+    it('checksum without data throws', () => {
       const responseWithChecksum = createProtoRows(undefined, 111, undefined);
 
       // send a checksum
-      assert.throws(() => {
+      expect(() => {
         byteBuffer.processProtoRowsBatch(responseWithChecksum.results!);
-      }, /Error: Recieved empty batch with non-zero checksum\./);
-
-      done();
+      }).toThrow(/Recieved empty batch with non-zero checksum\./);
     });
 
-    it('token without checksum throws', done => {
+    it('token without checksum throws', () => {
       let pushedData = null;
       byteBuffer.push = (data: any) => {
         pushedData = data;
@@ -314,22 +290,19 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       byteBuffer.processProtoRowsBatch(response1.results!);
 
       // check that the buffer is filled
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 1);
-      assert.strictEqual(
-        byteBuffer.messageBuffer[0],
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(1);
+      expect(byteBuffer.messageBuffer[0]).toBe(
         response1.results!.protoRowsBatch!.batchData!,
       );
 
       // send a token
-      assert.throws(() => {
+      expect(() => {
         byteBuffer.processProtoRowsBatch(responseWithToken.results!);
-      }, /Error: Recieved incomplete batch of rows\./);
-
-      done();
+      }).toThrow(/Recieved incomplete batch of rows\./);
     });
 
-    it('token without data', done => {
+    it('token without data', () => {
       let pushedData = null;
       byteBuffer.push = (data: any) => {
         pushedData = data;
@@ -337,21 +310,20 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
       const responseWithToken = createProtoRows('token', undefined, undefined);
 
       // check that the buffer and queue are empty
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(byteBuffer.messageBuffer.length).toBe(0);
 
       // send a token
       byteBuffer.processProtoRowsBatch(responseWithToken.results!);
 
       // check that the token was pushed even though the buffer and queue are empty
-      assert.strictEqual(byteBuffer.messageBuffer.length, 0);
-      assert.strictEqual(byteBuffer.messageQueue.length, 0);
-      assert.deepStrictEqual(pushedData, [[], Buffer.from('token')]);
-      done();
+      expect(byteBuffer.messageBuffer.length).toBe(0);
+      expect(byteBuffer.messageQueue.length).toBe(0);
+      expect(pushedData).toEqual([[], Buffer.from('token')]);
     });
 
-    it('cheksum properly calculated', done => {
-      checksumValidStub.restore();
+    it('cheksum properly calculated', () => {
+      checksumValidStub.mockRestore();
       const response = createProtoRows(
         'token1',
         2412835642,
@@ -360,11 +332,10 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
         {intValue: 2},
       );
       byteBuffer.processProtoRowsBatch(response.results!);
-      done();
     });
 
-    it('invalid cheksum throws', done => {
-      checksumValidStub.restore();
+    it('invalid cheksum throws', () => {
+      checksumValidStub.mockRestore();
       const response = createProtoRows(
         'token1',
         111,
@@ -372,10 +343,9 @@ describe('Bigtable/ExecuteQueryByteBufferTransformer', () => {
         {intValue: 1},
         {intValue: 2},
       );
-      assert.throws(() => {
+      expect(() => {
         byteBuffer.processProtoRowsBatch(response.results!);
-      }, /Error: Failed to validate next batch of results/);
-      done();
+      }).toThrow(/Failed to validate next batch of results/);
     });
   });
 });

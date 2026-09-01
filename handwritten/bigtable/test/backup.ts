@@ -13,37 +13,29 @@
 // limitations under the License.
 
 import {PreciseDate} from '@google-cloud/precise-date';
-import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {before, beforeEach, describe, it, afterEach} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as pumpify from 'pumpify';
 import {ServiceError} from 'google-gax';
-
 import * as clusterTypes from '../src/cluster';
 import * as backupTypes from '../src/backup';
 import * as instanceTypes from '../src/instance';
-import * as sinon from 'sinon';
-
 import {Bigtable, RequestOptions} from '../src';
 import {Table} from '../src/table';
 import {generateId} from '../system-test/common';
 import {Backup} from '../src/backup';
 
-let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  promisifyAll(klass: Function, options: any) {
+(global as any).mockPromisified = (global as any).mockPromisified || false;
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (klass: Function, options: any) => {
     if (klass.name === 'Backup') {
-      promisified = true;
-      assert.deepStrictEqual(options.exclude, [
+      (global as any).mockPromisified = true;
+      expect(options.exclude).toEqual([
         'endDate',
         'expireDate',
         'startDate',
       ]);
     }
   },
-});
+}));
 
 class FakeTable extends Table {
   calledWith_: Array<{}>;
@@ -54,9 +46,7 @@ class FakeTable extends Table {
 }
 
 class FakeInstance extends instanceTypes.Instance {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   calledWith_: Array<{}>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   constructor(...args: [Bigtable, string]) {
     super(...args);
     this.calledWith_ = args;
@@ -68,19 +58,10 @@ describe('Bigtable/Backup', () => {
   let CLUSTER: clusterTypes.Cluster;
   let BACKUP_NAME: string;
 
-  let Backup: typeof backupTypes.Backup;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let backup: any;
 
-  before(() => {
-    Backup = proxyquire('../src/backup.js', {
-      '@google-cloud/promisify': fakePromisify,
-      './table.js': {Table: FakeTable},
-      './instance.js': {Instance: FakeInstance},
-      pumpify,
-    }).Backup;
-  });
-
+  
   beforeEach(() => {
     CLUSTER = {
       bigtable: {} as Bigtable,
@@ -95,50 +76,44 @@ describe('Bigtable/Backup', () => {
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect((global as any).mockPromisified).toBeTruthy();
     });
 
     it('should localize Bigtable instance', () => {
-      assert.strictEqual(backup.bigtable, CLUSTER.bigtable);
+      expect(backup.bigtable).toBe(CLUSTER.bigtable);
     });
 
     it('should localize the Cluster instance', () => {
-      assert.strictEqual(backup.cluster, CLUSTER);
+      expect(backup.cluster).toBe(CLUSTER);
     });
 
     it('should localize name and id when provided with name', () => {
       const backup = new Backup(CLUSTER, BACKUP_NAME);
-      assert.strictEqual(backup.name, BACKUP_NAME);
-      assert.strictEqual(backup.id, BACKUP_ID);
+      expect(backup.name).toBe(BACKUP_NAME);
+      expect(backup.id).toBe(BACKUP_ID);
     });
 
     it('should throw if name is in wrong format', () => {
       const badName = '/other/cluster/backup/id';
-      assert.throws(() => {
-        new Backup(CLUSTER, badName);
-      }, /Backup id '\/other\/cluster\/backup\/id' is not formatted correctly.\nPlease use the format 'my-backup' or 'a\/b\/c\/d\/backups\/my-backup'\./);
+      expect(() => { new Backup(CLUSTER, badName); }).toThrow(/Backup id '\/other\/cluster\/backup\/id' is not formatted correctly.\nPlease use the format 'my-backup' or 'a\/b\/c\/d\/backups\/my-backup'\./);
     });
 
     it('should localize name and id when provided with id', () => {
       const backup = new Backup(CLUSTER, BACKUP_ID);
-      assert.strictEqual(backup.name, BACKUP_NAME);
-      assert.strictEqual(backup.id, BACKUP_ID);
+      expect(backup.name).toBe(BACKUP_NAME);
+      expect(backup.id).toBe(BACKUP_ID);
     });
   });
 
   describe('endDate accessor', () => {
     it('should throw if metadata is not set', () => {
-      assert.throws(() => {
-        backup.metadata = undefined;
-        backup.endDate;
-      }, /An endTime is required to convert to Date./);
+      expect(() => { backup.metadata = undefined;
+        backup.endDate; }).toThrow(/An endTime is required to convert to Date./);
     });
 
     it('should throw if endTime is not set on metadata', () => {
-      assert.throws(() => {
-        backup.metadata = {};
-        backup.endDate;
-      }, /An endTime is required to convert to Date./);
+      expect(() => { backup.metadata = {};
+        backup.endDate; }).toThrow(/An endTime is required to convert to Date./);
     });
 
     it('should return PreciseDate', () => {
@@ -149,23 +124,19 @@ describe('Bigtable/Backup', () => {
         endTime: {seconds, nanos},
       };
       const convertedEndDate = backup.endDate;
-      assert.deepStrictEqual(convertedEndDate, expectedEndDate);
+      expect(convertedEndDate).toEqual(expectedEndDate);
     });
   });
 
   describe('expireDate accessor', () => {
     it('should throw if metadata is not set', () => {
-      assert.throws(() => {
-        backup.metadata = undefined;
-        backup.expireDate;
-      }, /An expireTime is required to convert to Date./);
+      expect(() => { backup.metadata = undefined;
+        backup.expireDate; }).toThrow(/An expireTime is required to convert to Date./);
     });
 
     it('should throw if expireTime is not set on metadata', () => {
-      assert.throws(() => {
-        backup.metadata = {};
-        backup.expireDate;
-      }, /An expireTime is required to convert to Date./);
+      expect(() => { backup.metadata = {};
+        backup.expireDate; }).toThrow(/An expireTime is required to convert to Date./);
     });
 
     it('should return PreciseDate', () => {
@@ -176,23 +147,19 @@ describe('Bigtable/Backup', () => {
         expireTime: {seconds, nanos},
       };
       const convertedExpireDate = backup.expireDate;
-      assert.deepStrictEqual(convertedExpireDate, expectedExpireDate);
+      expect(convertedExpireDate).toEqual(expectedExpireDate);
     });
   });
 
   describe('startDate accessor', () => {
     it('should throw if metadata is not set', () => {
-      assert.throws(() => {
-        backup.metadata = undefined;
-        backup.startDate;
-      }, /A startTime is required to convert to Date./);
+      expect(() => { backup.metadata = undefined;
+        backup.startDate; }).toThrow(/A startTime is required to convert to Date./);
     });
 
     it('should throw if startTime is not set on metadata', () => {
-      assert.throws(() => {
-        backup.metadata = {};
-        backup.startDate;
-      }, /A startTime is required to convert to Date./);
+      expect(() => { backup.metadata = {};
+        backup.startDate; }).toThrow(/A startTime is required to convert to Date./);
     });
 
     it('should return PreciseDate', () => {
@@ -203,7 +170,7 @@ describe('Bigtable/Backup', () => {
         startTime: {seconds, nanos},
       };
       const convertedStartDate = backup.startDate;
-      assert.deepStrictEqual(convertedStartDate, expectedStartDate);
+      expect(convertedStartDate).toEqual(expectedStartDate);
     });
   });
 
@@ -216,8 +183,8 @@ describe('Bigtable/Backup', () => {
         _config: {},
         callback: Function,
       ) => {
-        assert.strictEqual(id, backup.id);
-        assert.strictEqual(_config, config);
+        expect(id).toBe(backup.id);
+        expect(_config).toBe(config);
         callback(); // done()
       };
 
@@ -261,13 +228,12 @@ describe('Bigtable/Backup', () => {
           backup?: Backup | null,
           config?: any,
         ) => {
-          assert.strictEqual(
-            backup?.name,
-            `projects/${destinationProjectId}/instances/${destinationInstanceId}/clusters/${destinationClusterId}/backups/${newBackupId}`,
+          expect(
+            backup?.name).toBe(`projects/${destinationProjectId}/instances/${destinationInstanceId}/clusters/${destinationClusterId}/backups/${newBackupId}`,
           );
-          assert.strictEqual(config?.client, 'BigtableTableAdminClient');
-          assert.strictEqual(config?.method, 'copyBackup');
-          assert.deepStrictEqual(config?.reqOpts, {
+          expect(config?.client).toBe('BigtableTableAdminClient');
+          expect(config?.method).toBe('copyBackup');
+          expect(config?.reqOpts).toEqual({
             parent: `projects/${destinationProjectId}/instances/${destinationInstanceId}/clusters/${destinationClusterId}`,
             backupId: newBackupId,
             sourceBackup: `a/b/c/d/backups/${backupId}`,
@@ -276,7 +242,7 @@ describe('Bigtable/Backup', () => {
               nanos: 177000000,
             },
           });
-          assert.deepStrictEqual(config?.gaxOpts, {
+          expect(config?.gaxOpts).toEqual({
             timeout: 139,
           });
           done();
@@ -289,12 +255,12 @@ describe('Bigtable/Backup', () => {
     it('should make the correct request', done => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any, callback: Function) => {
-        assert.strictEqual(config.client, 'BigtableTableAdminClient');
-        assert.strictEqual(config.method, 'deleteBackup');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('BigtableTableAdminClient');
+        expect(config.method).toBe('deleteBackup');
+        expect(config.reqOpts).toEqual({
           name: backup.name,
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         callback(); // done()
       };
 
@@ -305,30 +271,30 @@ describe('Bigtable/Backup', () => {
       const gaxOptions = {};
 
       backup.bigtable.request = (config: {gaxOpts: {}}) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
 
-      backup.delete(gaxOptions, assert.ifError);
+      backup.delete(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
   });
 
   describe('exists', () => {
     it('should not require gaxOptions', done => {
       backup.getMetadata = (options: {}) => {
-        assert.deepStrictEqual(options, {});
+        expect(options).toEqual({});
         done();
       };
-      backup.exists(assert.ifError);
+      backup.exists(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass gaxOptions to getMetadata', done => {
       const gaxOptions = {};
       backup.getMetadata = (options: {}) => {
-        assert.strictEqual(options, gaxOptions);
+        expect(options).toBe(gaxOptions);
         done();
       };
-      backup.exists(gaxOptions, assert.ifError);
+      backup.exists(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return false if error code is 5', done => {
@@ -338,8 +304,8 @@ describe('Bigtable/Backup', () => {
         callback(error);
       };
       backup.exists((err: Error | null, exists: boolean) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, false);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(false);
         done();
       });
     });
@@ -353,7 +319,7 @@ describe('Bigtable/Backup', () => {
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.exists((err: any) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -363,8 +329,8 @@ describe('Bigtable/Backup', () => {
         callback(null, {});
       };
       backup.exists((err: Error | null, exists: boolean) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, true);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(true);
         done();
       });
     });
@@ -374,18 +340,18 @@ describe('Bigtable/Backup', () => {
     it('should call getMetadata', done => {
       const gaxOptions = {};
       backup.getMetadata = (options: {}) => {
-        assert.strictEqual(options, gaxOptions);
+        expect(options).toBe(gaxOptions);
         done();
       };
-      backup.get(gaxOptions, assert.ifError);
+      backup.get(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require an options object', done => {
       backup.getMetadata = (options: {}) => {
-        assert.deepStrictEqual(options, {});
+        expect(options).toEqual({});
         done();
       };
-      backup.get(assert.ifError);
+      backup.get(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error from getMetadata', done => {
@@ -394,7 +360,7 @@ describe('Bigtable/Backup', () => {
         callback(error);
       };
       backup.get((err: Error | null) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -405,9 +371,9 @@ describe('Bigtable/Backup', () => {
         callback(null, apiResponse);
       };
       backup.get((err: Error | null, _backup: {}, _apiResponse: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(_backup, backup);
-        assert.strictEqual(_apiResponse, apiResponse);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(_backup).toBe(backup);
+        expect(_apiResponse).toBe(apiResponse);
         done();
       });
     });
@@ -415,12 +381,12 @@ describe('Bigtable/Backup', () => {
 
   describe('getIamPolicy', () => {
     afterEach(() => {
-      sinon.restore();
+      jest.restoreAllMocks();
     });
 
     it('should correctly call Table#getIamPolicy()', done => {
-      sinon.stub(Table.prototype, 'getIamPolicy').callsFake((opt, callback) => {
-        assert.deepStrictEqual(opt, {});
+      jest.spyOn(Table.prototype, 'getIamPolicy').mockImplementation((opt, callback) => {
+        expect(opt).toEqual({});
         callback(); // done()
       });
       backup.getIamPolicy(done);
@@ -429,8 +395,8 @@ describe('Bigtable/Backup', () => {
     it('should accept options', done => {
       const options = {gaxOptions: {}, requestedPolicyVersion: 1};
 
-      sinon.stub(Table.prototype, 'getIamPolicy').callsFake((opt, callback) => {
-        assert.strictEqual(opt, options);
+      jest.spyOn(Table.prototype, 'getIamPolicy').mockImplementation((opt, callback) => {
+        expect(opt).toBe(options);
         callback(); // done()
       });
       backup.getIamPolicy(options, done);
@@ -441,27 +407,27 @@ describe('Bigtable/Backup', () => {
     it('should make the correct request', done => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any) => {
-        assert.strictEqual(config.client, 'BigtableTableAdminClient');
-        assert.strictEqual(config.method, 'getBackup');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('BigtableTableAdminClient');
+        expect(config.method).toBe('getBackup');
+        expect(config.reqOpts).toEqual({
           name: backup.name,
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         done();
       };
 
-      backup.getMetadata(assert.ifError);
+      backup.getMetadata(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
 
       backup.bigtable.request = (config: {gaxOpts: {}}) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
 
-      backup.getMetadata(gaxOptions, assert.ifError);
+      backup.getMetadata(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should update the metadata', done => {
@@ -470,9 +436,9 @@ describe('Bigtable/Backup', () => {
         callback(null, response);
       };
       backup.getMetadata((err: Error | null, metadata: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, response);
-        assert.strictEqual(backup.metadata, response);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(metadata).toBe(response);
+        expect(backup.metadata).toBe(response);
         done();
       });
     });
@@ -481,16 +447,16 @@ describe('Bigtable/Backup', () => {
   describe('restore', () => {
     it('should delegate to Backup#restoreTo()', done => {
       const tableId = 'table-id';
-      const callback = assert.ifError;
+      const callback = ((err: any) => { expect(err).toBeFalsy(); });
 
       backup.restoreTo = (
         config: backupTypes.RestoreTableConfig,
         cb: backupTypes.RestoreTableCallback,
       ) => {
-        assert.strictEqual(config.tableId, tableId);
-        assert.strictEqual(config.instance, backup.cluster.instance);
-        assert.strictEqual(config.gaxOptions, undefined);
-        assert.strictEqual(cb, callback);
+        expect(config.tableId).toBe(tableId);
+        expect(config.instance).toBe(backup.cluster.instance);
+        expect(config.gaxOptions).toBe(undefined);
+        expect(cb).toBe(callback);
         done();
       };
 
@@ -502,13 +468,13 @@ describe('Bigtable/Backup', () => {
       const gaxOptions = {};
 
       backup.restoreTo = (config: backupTypes.RestoreTableConfig) => {
-        assert.strictEqual(config.tableId, tableId);
-        assert.strictEqual(config.instance, backup.cluster.instance);
-        assert.strictEqual(config.gaxOptions, gaxOptions);
+        expect(config.tableId).toBe(tableId);
+        expect(config.instance).toBe(backup.cluster.instance);
+        expect(config.gaxOptions).toBe(gaxOptions);
         done();
       };
 
-      backup.restore(tableId, gaxOptions, assert.ifError);
+      backup.restore(tableId, gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
   });
 
@@ -518,18 +484,18 @@ describe('Bigtable/Backup', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any) => {
-        assert.strictEqual(config.client, 'BigtableTableAdminClient');
-        assert.strictEqual(config.method, 'restoreTable');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('BigtableTableAdminClient');
+        expect(config.method).toBe('restoreTable');
+        expect(config.reqOpts).toEqual({
           parent: backup.cluster.instance.name,
           tableId,
           backup: backup.name,
         });
-        assert.strictEqual(config.gaxOpts, undefined);
+        expect(config.gaxOpts).toBe(undefined);
         done();
       };
 
-      (backup as backupTypes.Backup).restoreTo({tableId}, assert.ifError);
+      (backup as backupTypes.Backup).restoreTo({tableId}, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept instance as instanceId', done => {
@@ -538,9 +504,8 @@ describe('Bigtable/Backup', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any) => {
-        assert.deepStrictEqual(
-          config.reqOpts.parent.match(/instances\/([^/]+)/)![1],
-          instance,
+        expect(
+          config.reqOpts.parent.match(/instances\/([^/]+)/)![1]).toEqual(instance,
         );
         done();
       };
@@ -550,7 +515,7 @@ describe('Bigtable/Backup', () => {
 
       (backup as backupTypes.Backup).restoreTo(
         {tableId, instance},
-        assert.ifError,
+        ((err: any) => { expect(err).toBeFalsy(); }),
       );
     });
 
@@ -560,7 +525,7 @@ describe('Bigtable/Backup', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any) => {
-        assert.deepStrictEqual(config.reqOpts.parent, instance);
+        expect(config.reqOpts.parent).toEqual(instance);
         done();
       };
       backup.bigtable.instance = (name: string) => {
@@ -569,7 +534,7 @@ describe('Bigtable/Backup', () => {
 
       (backup as backupTypes.Backup).restoreTo(
         {tableId, instance},
-        assert.ifError,
+        ((err: any) => { expect(err).toBeFalsy(); }),
       );
     });
 
@@ -580,11 +545,11 @@ describe('Bigtable/Backup', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any) => {
-        assert.deepStrictEqual(config.reqOpts.parent, instance.name);
+        expect(config.reqOpts.parent).toEqual(instance.name);
         done();
       };
 
-      backup.restoreTo({tableId, instance}, assert.ifError);
+      backup.restoreTo({tableId, instance}, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept gaxOptions', done => {
@@ -592,13 +557,13 @@ describe('Bigtable/Backup', () => {
       const gaxOptions = {};
 
       backup.bigtable.request = (config: {gaxOpts: {}}) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
 
       (backup as backupTypes.Backup).restoreTo(
         {tableId, gaxOptions},
-        assert.ifError,
+        ((err: any) => { expect(err).toBeFalsy(); }),
       );
     });
 
@@ -615,9 +580,9 @@ describe('Bigtable/Backup', () => {
         {tableId},
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (err: Error | null, table: {}, ..._args: any[]) => {
-          assert.strictEqual(err, error);
-          assert.strictEqual(table, undefined);
-          assert.deepStrictEqual(_args, args);
+          expect(err).toBe(error);
+          expect(table).toBe(undefined);
+          expect(_args).toEqual(args);
           done();
         },
       );
@@ -630,7 +595,7 @@ describe('Bigtable/Backup', () => {
 
       backup.cluster.instance = {
         table: (_tableId: string) => {
-          assert.strictEqual(_tableId, tableId);
+          expect(_tableId).toBe(tableId);
           return tableInstance;
         },
       };
@@ -643,9 +608,9 @@ describe('Bigtable/Backup', () => {
         {tableId},
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (err: Error | null, table: {}, ..._args: any[]) => {
-          assert.ifError(err);
-          assert.strictEqual(table, tableInstance);
-          assert.deepStrictEqual(_args, args);
+          ((err: any) => { expect(err).toBeFalsy(); })(err);
+          expect(table).toBe(tableInstance);
+          expect(_args).toEqual(args);
           done();
         },
       );
@@ -660,9 +625,9 @@ describe('Bigtable/Backup', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any, callback: Function) => {
-        assert.strictEqual(config.client, 'BigtableTableAdminClient');
-        assert.strictEqual(config.method, 'updateBackup');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('BigtableTableAdminClient');
+        expect(config.method).toBe('updateBackup');
+        expect(config.reqOpts).toEqual({
           backup: {
             name: backup.name,
             ...metadata,
@@ -671,7 +636,7 @@ describe('Bigtable/Backup', () => {
             paths: ['test_property'],
           },
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         callback(); // done()
       };
 
@@ -683,11 +648,11 @@ describe('Bigtable/Backup', () => {
       const gaxOptions = {};
 
       backup.bigtable.request = (config: {gaxOpts: {}}) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
 
-      backup.setMetadata(metadata, gaxOptions, assert.ifError);
+      backup.setMetadata(metadata, gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should convert expireTime Date to struct', done => {
@@ -700,14 +665,13 @@ describe('Bigtable/Backup', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       backup.bigtable.request = (config: any) => {
-        assert.deepStrictEqual(
-          config.reqOpts.backup.expireTime,
-          expectedExpireTime,
+        expect(
+          config.reqOpts.backup.expireTime).toEqual(expectedExpireTime,
         );
         done();
       };
 
-      backup.setMetadata(metadata, assert.ifError);
+      backup.setMetadata(metadata, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should execute the callback and update the metadata', done => {
@@ -721,10 +685,10 @@ describe('Bigtable/Backup', () => {
       backup.setMetadata(
         metadata,
         (err: Error | null, metadata: {}, apiResponse: {}) => {
-          assert.ifError(err);
-          assert.strictEqual(metadata, response);
-          assert.strictEqual(backup.metadata, response);
-          assert.strictEqual(apiResponse, response);
+          ((err: any) => { expect(err).toBeFalsy(); })(err);
+          expect(metadata).toBe(response);
+          expect(backup.metadata).toBe(response);
+          expect(apiResponse).toBe(response);
           done();
         },
       );
@@ -733,15 +697,13 @@ describe('Bigtable/Backup', () => {
 
   describe('setIamPolicy', () => {
     afterEach(() => {
-      sinon.restore();
+      jest.restoreAllMocks();
     });
     const policy = {};
     it('should correctly call Table#setIamPolicy()', done => {
-      sinon
-        .stub(Table.prototype, 'setIamPolicy')
-        .callsFake((_policy, gaxOpts, callback) => {
-          assert.strictEqual(_policy, policy);
-          assert.deepStrictEqual(gaxOpts, {});
+      jest.spyOn(Table.prototype, 'setIamPolicy').mockImplementation((_policy, gaxOpts, callback) => {
+          expect(_policy).toBe(policy);
+          expect(gaxOpts).toEqual({});
           callback(); // done()
         });
       backup.setIamPolicy(policy, done);
@@ -750,11 +712,9 @@ describe('Bigtable/Backup', () => {
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
 
-      sinon
-        .stub(Table.prototype, 'setIamPolicy')
-        .callsFake((_policy, gaxOpts, callback) => {
-          assert.strictEqual(_policy, policy);
-          assert.strictEqual(gaxOpts, gaxOptions);
+      jest.spyOn(Table.prototype, 'setIamPolicy').mockImplementation((_policy, gaxOpts, callback) => {
+          expect(_policy).toBe(policy);
+          expect(gaxOpts).toBe(gaxOptions);
           callback(); // done()
         });
       backup.setIamPolicy(policy, gaxOptions, done);
@@ -763,16 +723,14 @@ describe('Bigtable/Backup', () => {
 
   describe('testIamPermissions', () => {
     afterEach(() => {
-      sinon.restore();
+      jest.restoreAllMocks();
     });
 
     const permissions = 'bigtable.backups.get';
     it('should properly call Table#testIamPermissions', done => {
-      sinon
-        .stub(Table.prototype, 'testIamPermissions')
-        .callsFake((_permissions, gaxOpts, callback) => {
-          assert.strictEqual(_permissions, permissions);
-          assert.deepStrictEqual(gaxOpts, {});
+      jest.spyOn(Table.prototype, 'testIamPermissions').mockImplementation((_permissions, gaxOpts, callback) => {
+          expect(_permissions).toBe(permissions);
+          expect(gaxOpts).toEqual({});
           callback(); // done()
         });
       backup.testIamPermissions(permissions, done);
@@ -785,11 +743,9 @@ describe('Bigtable/Backup', () => {
         'bigtable.backups.update',
         'bigtable.backups.restore',
       ];
-      sinon
-        .stub(Table.prototype, 'testIamPermissions')
-        .callsFake((_permissions, gaxOpts, callback) => {
-          assert.strictEqual(_permissions, permissions);
-          assert.deepStrictEqual(gaxOpts, {});
+      jest.spyOn(Table.prototype, 'testIamPermissions').mockImplementation((_permissions, gaxOpts, callback) => {
+          expect(_permissions).toBe(permissions);
+          expect(gaxOpts).toEqual({});
           callback(); // done()
         });
       backup.testIamPermissions(permissions, done);
@@ -797,11 +753,9 @@ describe('Bigtable/Backup', () => {
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
-      sinon
-        .stub(Table.prototype, 'testIamPermissions')
-        .callsFake((_permissions, gaxOpts, callback) => {
-          assert.strictEqual(_permissions, permissions);
-          assert.strictEqual(gaxOpts, gaxOptions);
+      jest.spyOn(Table.prototype, 'testIamPermissions').mockImplementation((_permissions, gaxOpts, callback) => {
+          expect(_permissions).toBe(permissions);
+          expect(gaxOpts).toBe(gaxOptions);
           callback(); // done()
         });
       backup.testIamPermissions(permissions, gaxOptions, done);

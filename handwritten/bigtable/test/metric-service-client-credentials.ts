@@ -12,110 +12,69 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as proxyquire from 'proxyquire';
-import {ClientOptions, grpc} from 'google-gax';
-import * as assert from 'assert';
-import {MetricServiceClient} from '@google-cloud/monitoring';
+import {grpc} from 'google-gax';
+import * as monitoring from '@google-cloud/monitoring';
+import * as exporterModule from '../src/client-side-metrics/exporter';
+import {Bigtable} from '../src';
 
 describe('Bigtable/MetricServiceClientCredentials', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('should pass the credentials and universe domain to the exporter', done => {
     const clientOptions = {
       metricsEnabled: true,
       sslCreds: grpc.credentials.createInsecure(),
       universeDomain: 'some-universe-domain.com',
     };
-    class FakeExporter {
-      constructor(options: ClientOptions) {
+    jest
+      .spyOn(exporterModule, 'CloudMonitoringExporter')
+      .mockImplementation((options: any) => {
         try {
-          assert.deepStrictEqual(options, clientOptions);
+          expect(options).toEqual(clientOptions);
           done();
         } catch (e) {
           done(e);
         }
-      }
-    }
-    const FakeCGPMetricsHandler = proxyquire(
-      '../src/client-side-metrics/gcp-metrics-handler.js',
-      {
-        './exporter': {
-          CloudMonitoringExporter: FakeExporter,
-        },
-      },
-    ).GCPMetricsHandler;
-    const FakeBigtable = proxyquire('../src/index.js', {
-      './client-side-metrics/gcp-metrics-handler': {
-        GCPMetricsHandler: FakeCGPMetricsHandler,
-      },
-    }).Bigtable;
-    new FakeBigtable(clientOptions);
+        return {} as any;
+      });
+    new Bigtable(clientOptions);
   });
+
   it('should use second project for the metric service client', async () => {
     const SECOND_PROJECT_ID = 'second-project-id';
     const clientOptions = {metricsEnabled: true, projectId: SECOND_PROJECT_ID};
-    let savedOptions: ClientOptions = {};
-    class FakeExporter {
-      constructor(options: ClientOptions) {
+    let savedOptions: any = {};
+    jest
+      .spyOn(exporterModule, 'CloudMonitoringExporter')
+      .mockImplementation((options: any) => {
         savedOptions = options;
-      }
-    }
-    const FakeCGPMetricsHandler = proxyquire(
-      '../src/client-side-metrics/gcp-metrics-handler.js',
-      {
-        './exporter': {
-          CloudMonitoringExporter: FakeExporter,
-        },
-      },
-    ).GCPMetricsHandler;
-    const FakeBigtable = proxyquire('../src/index.js', {
-      './client-side-metrics/gcp-metrics-handler': {
-        GCPMetricsHandler: FakeCGPMetricsHandler,
-      },
-    }).Bigtable;
-    new FakeBigtable(clientOptions);
-    // savedOptions are the options passed down to the exporter
-    // we want to ensure that when the second project id is provided to the
-    // fake client that this sends savedOptions to the exporter that then
-    // fetches the right projectId when the saved options are provided to the
-    // MetricsServiceClient as this is required to save the metrics to the right
-    // project.
-    const client = new MetricServiceClient(savedOptions);
+        return {} as any;
+      });
+    new Bigtable(clientOptions);
+    const client = new monitoring.MetricServiceClient(savedOptions);
     const projectIdUsed = await client.getProjectId();
-    assert.strictEqual(projectIdUsed, SECOND_PROJECT_ID);
+    expect(projectIdUsed).toBe(SECOND_PROJECT_ID);
   });
+
   it('should pass the credentials and universe domain to the metric service client', done => {
     const clientOptions = {
       metricsEnabled: true,
       sslCreds: grpc.credentials.createInsecure(),
       universeDomain: 'some-universe-domain.com',
     };
-    class FakeMetricServiceClient {
-      constructor(options: ClientOptions) {
+    jest
+      .spyOn(monitoring, 'MetricServiceClient')
+      .mockImplementation((options: any) => {
         try {
-          assert.deepStrictEqual(options, clientOptions);
+          expect(options).toEqual(clientOptions);
           done();
         } catch (e) {
           done(e);
         }
-      }
-    }
-    const FakeExporter = proxyquire('../src/client-side-metrics/exporter.js', {
-      '@google-cloud/monitoring': {
-        MetricServiceClient: FakeMetricServiceClient,
-      },
-    }).CloudMonitoringExporter;
-    const FakeCGPMetricsHandler = proxyquire(
-      '../src/client-side-metrics/gcp-metrics-handler.js',
-      {
-        './exporter': {
-          CloudMonitoringExporter: FakeExporter,
-        },
-      },
-    ).GCPMetricsHandler;
-    const FakeBigtable = proxyquire('../src/index.js', {
-      './client-side-metrics/gcp-metrics-handler': {
-        GCPMetricsHandler: FakeCGPMetricsHandler,
-      },
-    }).Bigtable;
-    new FakeBigtable(clientOptions);
+        return {} as any;
+      });
+    new Bigtable(clientOptions);
   });
 });

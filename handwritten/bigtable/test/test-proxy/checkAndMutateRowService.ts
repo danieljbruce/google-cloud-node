@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-
-import {describe} from 'mocha';
 import {protos} from '../../src';
 import {BigtableClient} from '../../src/v2';
 import type {Callback, CallOptions} from 'google-gax';
@@ -94,91 +91,76 @@ describe('TestProxy/CheckAndMutateRow', () => {
   describe('Ensure the proper request is passed to the Gapic Layer', () => {
     const clientId = 'TestCheckAndMutateRow_NoRetry_TransientError';
     testCases.forEach((checkAndMutateRowRequest, index) => {
-      it(`Run test ${index}`, done => {
-        (async () => {
-          const clientMap = new Map();
-          const createClientFunction = createClient({clientMap});
-          await new Promise((resolve, reject) => {
-            createClientFunction(
-              {
-                request: {
-                  clientId,
-                  dataTarget: 'localhost:1234',
-                  projectId: 'projectId',
-                  instanceId: 'instance',
-                  appProfileId: '',
-                },
+      it(`Run test ${index}`, async () => {
+        const clientMap = new Map();
+        const createClientFunction = createClient({clientMap});
+        await new Promise((resolve, reject) => {
+          createClientFunction(
+            {
+              request: {
+                clientId,
+                dataTarget: 'localhost:1234',
+                projectId: 'projectId',
+                instanceId: 'instance',
+                appProfileId: '',
               },
-              (error: Error | null, response: {} | null) => {
-                if (error) {
-                  reject(error);
-                }
-                resolve(response);
-              },
-            );
-          });
-          {
-            // Mock out the Gapic layer so we can see requests coming into it
-            const bigtable = clientMap.get(clientId);
-            const bigtableClient = new BigtableClient(
-              bigtable.options.BigtableClient,
-            );
-            bigtable.api['BigtableClient'] = bigtableClient;
-            bigtableClient.checkAndMutateRow = (
-              request?: protos.google.bigtable.v2.ICheckAndMutateRowRequest,
-              optionsOrCallback?:
-                | CallOptions
-                | Callback<
-                    protos.google.bigtable.v2.ICheckAndMutateRowResponse,
-                    | protos.google.bigtable.v2.ICheckAndMutateRowRequest
-                    | null
-                    | undefined,
-                    {} | null | undefined
-                  >,
-              callback?: Callback<
-                protos.google.bigtable.v2.ICheckAndMutateRowResponse,
-                | protos.google.bigtable.v2.ICheckAndMutateRowRequest
-                | null
-                | undefined,
-                {} | null | undefined
-              >,
-            ) => {
-              try {
-                // If the Gapic request is correct then the test passes.
-                assert.deepStrictEqual(request, checkAndMutateRowRequest);
-              } catch (e) {
-                // If the Gapic request is incorrect then the test fails with an error.
-                done(e);
+            },
+            (error: Error | null, response: {} | null) => {
+              if (error) {
+                reject(error);
               }
-              if (callback) {
-                callback(null, {});
+              resolve(response);
+            },
+          );
+        });
+        {
+          // Mock out the Gapic layer so we can see requests coming into it
+          const bigtable = clientMap.get(clientId);
+          const bigtableClient = new BigtableClient(
+            bigtable.options.BigtableClient,
+          );
+          bigtable.api['BigtableClient'] = bigtableClient;
+          bigtableClient.checkAndMutateRow = (
+            request?: protos.google.bigtable.v2.ICheckAndMutateRowRequest,
+            optionsOrCallback?:
+              | CallOptions
+              | Callback<
+                  protos.google.bigtable.v2.ICheckAndMutateRowResponse,
+                  | protos.google.bigtable.v2.ICheckAndMutateRowRequest
+                  | null
+                  | undefined,
+                  {} | null | undefined
+                >,
+            callback?: Callback<
+              protos.google.bigtable.v2.ICheckAndMutateRowResponse,
+              | protos.google.bigtable.v2.ICheckAndMutateRowRequest
+              | null
+              | undefined,
+              {} | null | undefined
+            >,
+          ) => {
+            expect(request).toEqual(checkAndMutateRowRequest);
+            if (callback) {
+              callback(null, {});
+            }
+            return Promise.resolve([{}, {}, undefined]) as any;
+          };
+        }
+        await new Promise((resolve, reject) => {
+          checkAndMutateRow({clientMap})(
+            {
+              request: {
+                clientId,
+                request: checkAndMutateRowRequest,
+              },
+            },
+            (error: Error | null, response: {} | null) => {
+              if (error) {
+                reject(error);
               }
-              return new Promise(resolve => {
-                const response: protos.google.bigtable.v2.ICheckAndMutateRowResponse =
-                  {};
-                resolve([response, {}, undefined]);
-              });
-            };
-          }
-          await new Promise((resolve, reject) => {
-            checkAndMutateRow({clientMap})(
-              {
-                request: {
-                  clientId,
-                  request: checkAndMutateRowRequest,
-                },
-              },
-              (error: Error | null, response: {} | null) => {
-                if (error) {
-                  reject(error);
-                }
-                resolve(response);
-              },
-            );
-          });
-          done();
-        })().catch(err => {
-          throw err;
+              resolve(response);
+            },
+          );
         });
       });
     });

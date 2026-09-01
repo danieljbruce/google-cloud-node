@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {beforeEach, describe} from 'mocha';
+
 import {AbortableDuplex, Bigtable, RawFilter, RequestCallback} from '../src';
 import {PassThrough} from 'stream';
-import * as assert from 'assert';
+
 import {Mutation} from '../src/mutation';
-import * as mocha from 'mocha';
+
 import {Row} from '../src';
 
 describe('Bigtable/AuthorizedViews', () => {
@@ -38,7 +38,7 @@ describe('Bigtable/AuthorizedViews', () => {
      * request that we would expect to be passed into `request`.
      */
     function mockCallbackRequest(
-      done: mocha.Done,
+      done: (err?: any) => void,
       compareFn: (requestCount: number) => unknown,
       resp?: {},
     ) {
@@ -58,7 +58,7 @@ describe('Bigtable/AuthorizedViews', () => {
           ) {
             delete config.gaxOpts.otherArgs['options'];
           }
-          assert.deepStrictEqual(config, compareFn(requestCount));
+          expect(config).toEqual(compareFn(requestCount));
         } catch (err: unknown) {
           done(err);
         }
@@ -103,7 +103,7 @@ describe('Bigtable/AuthorizedViews', () => {
          *
          * @param done The function to call when ending the mocha test
          */
-        function setupReadRows(done: mocha.Done) {
+        function setupReadRows(done: (err?: any) => void) {
           mockCallbackRequest(done, requestCount => {
             return {
               client: 'BigtableClient',
@@ -187,7 +187,7 @@ describe('Bigtable/AuthorizedViews', () => {
          *
          * @param done The function to call when ending the mocha test
          */
-        function setupMutateRows(done: mocha.Done) {
+        function setupMutateRows(done: (err?: any) => void) {
           mockCallbackRequest(done, requestCount => {
             return {
               client: 'BigtableClient',
@@ -283,7 +283,7 @@ describe('Bigtable/AuthorizedViews', () => {
          *
          * @param done The function to call when ending the mocha test
          */
-        function setupSampleRowKeys(done: mocha.Done) {
+        function setupSampleRowKeys(done: (err?: any) => void) {
           mockCallbackRequest(done, requestCount => {
             return {
               client: 'BigtableClient',
@@ -338,7 +338,7 @@ describe('Bigtable/AuthorizedViews', () => {
          *
          * @param done The function to call when ending the mocha test
          */
-        function setupReadModifyWriteRow(done: mocha.Done) {
+        function setupReadModifyWriteRow(done: (err?: any) => void) {
           mockCallbackRequest(
             done,
             requestCount => {
@@ -425,7 +425,7 @@ describe('Bigtable/AuthorizedViews', () => {
          *
          * @param done The function to call when ending the mocha test
          */
-        function setupCheckAndMutateRow(done: mocha.Done) {
+        function setupCheckAndMutateRow(done: (err?: any) => void) {
           mockCallbackRequest(
             done,
             requestCount => {

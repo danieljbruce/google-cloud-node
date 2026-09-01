@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {before, describe, it} from 'mocha';
 import {Bigtable, Row, Table} from '../src';
-import * as assert from 'assert';
 import {Transform, PassThrough, pipeline} from 'stream';
 
 import {GoogleError} from 'google-gax';
@@ -27,7 +25,6 @@ import {
   ReadRowsServiceParameters,
   ReadRowsWritableStream,
 } from '../test/utils/readRowsServiceParameters';
-import * as mocha from 'mocha';
 
 const DEBUG = process.env.BIGTABLE_TEST_DEBUG === 'true';
 
@@ -65,7 +62,7 @@ describe('Bigtable/ReadRows', () => {
   let bigtable: Bigtable;
   let table: Table;
 
-  before(async () => {
+  beforeAll(async () => {
     // make sure we have everything initialized before starting tests
     const port = await new Promise<string>(resolve => {
       server = new MockServer(resolve);
@@ -77,17 +74,7 @@ describe('Bigtable/ReadRows', () => {
     service = new BigtableClientMockService(server);
   });
 
-  // helper function because some tests run slower
-  // on Windows and need a longer timeout
-  function setWindowsTestTimeout(test: mocha.Context) {
-    if (process.platform === 'win32') {
-      test.timeout(60000); // it runs much slower on Windows!
-    }
-  }
-
-  it('should create read stream and read synchronously', function (done) {
-    setWindowsTestTimeout(this);
-
+  it('should create read stream and read synchronously', done => {
     service.setService({
       ReadRows: ReadRowsImpl.createService(
         STANDARD_SERVICE_WITHOUT_ERRORS,
@@ -111,9 +98,13 @@ describe('Bigtable/ReadRows', () => {
       debugLog(`received row key ${key}`);
     });
     readStream.on('end', () => {
-      assert.strictEqual(receivedRowCount, STANDARD_KEY_TO - STANDARD_KEY_FROM);
-      assert.strictEqual(lastKeyReceived, STANDARD_KEY_TO - 1);
-      done();
+      try {
+        expect(receivedRowCount).toBe(STANDARD_KEY_TO - STANDARD_KEY_FROM);
+        expect(lastKeyReceived).toBe(STANDARD_KEY_TO - 1);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
   });
 
@@ -156,16 +147,19 @@ describe('Bigtable/ReadRows', () => {
       debugLog(`received row key ${key}`);
     });
     passThrough.on('end', () => {
-      assert.strictEqual(receivedRowCount, STANDARD_KEY_TO - STANDARD_KEY_FROM);
-      assert.strictEqual(lastKeyReceived, STANDARD_KEY_TO - 1);
-      done();
+      try {
+        expect(receivedRowCount).toBe(STANDARD_KEY_TO - STANDARD_KEY_FROM);
+        expect(lastKeyReceived).toBe(STANDARD_KEY_TO - 1);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
 
     pipeline(readStream, transform, passThrough, () => {});
   });
 
-  it('should create read stream and read asynchronously using Transform stream', function (done) {
-    setWindowsTestTimeout(this);
+  it('should create read stream and read asynchronously using Transform stream', done => {
     service.setService({
       ReadRows: ReadRowsImpl.createService(
         STANDARD_SERVICE_WITHOUT_ERRORS,
@@ -206,9 +200,13 @@ describe('Bigtable/ReadRows', () => {
       debugLog(`received row key ${key}`);
     });
     passThrough.on('end', () => {
-      assert.strictEqual(receivedRowCount, STANDARD_KEY_TO - STANDARD_KEY_FROM);
-      assert.strictEqual(lastKeyReceived, STANDARD_KEY_TO - 1);
-      done();
+      try {
+        expect(receivedRowCount).toBe(STANDARD_KEY_TO - STANDARD_KEY_FROM);
+        expect(lastKeyReceived).toBe(STANDARD_KEY_TO - 1);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
 
     pipeline(readStream, transform, passThrough, () => {});
@@ -246,15 +244,18 @@ describe('Bigtable/ReadRows', () => {
       }
     });
     readStream.on('end', () => {
-      assert.strictEqual(receivedRowCount, stopAfter);
-      assert.strictEqual(lastKeyReceived, stopAfter - 1);
-      done();
+      try {
+        expect(receivedRowCount).toBe(stopAfter);
+        expect(lastKeyReceived).toBe(stopAfter - 1);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
   });
 
   // TODO: enable after https://github.com/googleapis/nodejs-bigtable/issues/1286 is fixed
-  it('should be able to stop reading from the read stream when reading asynchronously', function (done) {
-    setWindowsTestTimeout(this);
+  it('should be able to stop reading from the read stream when reading asynchronously', done => {
     // pick any key to stop after
     const stopAfter = 420;
 
@@ -304,16 +305,20 @@ describe('Bigtable/ReadRows', () => {
       }
     });
     passThrough.on('end', () => {
-      assert.strictEqual(receivedRowCount, stopAfter);
-      assert.strictEqual(lastKeyReceived, stopAfter - 1);
-      done();
+      try {
+        expect(receivedRowCount).toBe(stopAfter);
+        expect(lastKeyReceived).toBe(stopAfter - 1);
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
 
     pipeline(readStream, transform, passThrough, () => {});
   });
 
   describe('should silently resume after server or network error', () => {
-    function runTest(done: Mocha.Done, errorAfterChunkNo: number) {
+    function runTest(done: (err?: any) => void, errorAfterChunkNo: number) {
       service.setService({
         ReadRows: ReadRowsImpl.createService({
           keyFrom: STANDARD_KEY_FROM,
@@ -342,29 +347,29 @@ describe('Bigtable/ReadRows', () => {
         debugLog(`received row key ${key}`);
       });
       readStream.on('end', () => {
-        assert.strictEqual(
-          receivedRowCount,
-          STANDARD_KEY_TO - STANDARD_KEY_FROM,
-        );
-        assert.strictEqual(lastKeyReceived, STANDARD_KEY_TO - 1);
-        done();
+        try {
+          expect(receivedRowCount).toBe(
+            STANDARD_KEY_TO - STANDARD_KEY_FROM,
+          );
+          expect(lastKeyReceived).toBe(STANDARD_KEY_TO - 1);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     }
-    it('with an error at a fixed position', function (done) {
-      setWindowsTestTimeout(this);
+    it('with an error at a fixed position', done => {
       // Emits an error after enough chunks have been pushed to create back pressure
       runTest(done, 423);
     });
-    it('with an error at a random position', function (done) {
-      this.timeout(200000);
+    it('with an error at a random position', done => {
       // Emits an error after a random number of chunks.
       const errorAfterChunkNo = Math.floor(500 + Math.random() * 500);
       runTest(done, errorAfterChunkNo);
     });
   });
-  it('should return row data in the right order', function (done) {
-    setWindowsTestTimeout(this);
-    const dataResults = [];
+  it('should return row data in the right order', done => {
+    const dataResults: string[] = [];
 
     // keyTo and keyFrom are not provided so they will be determined from
     // the request that is passed in.
@@ -395,22 +400,17 @@ describe('Bigtable/ReadRows', () => {
         const expectedResults = Array.from(Array(150).keys())
           .map(i => '00000000' + i.toString())
           .map(i => i.slice(-8));
-        assert.deepStrictEqual(dataResults, expectedResults);
+        expect(dataResults).toEqual(expectedResults);
         done();
       } catch (error) {
         done(error);
       }
     })().catch(err => {
-      throw err;
+      done(err);
     });
   });
-  it('should return row data in the right order with a predictable sleep function', function (done) {
-    this.timeout(600000);
-    const keyFrom = undefined;
-    const keyTo = undefined;
-    // the server will error after sending this chunk (not row)
-    const errorAfterChunkNo = 100;
-    const dataResults = [];
+  it('should return row data in the right order with a predictable sleep function', done => {
+    const dataResults: string[] = [];
 
     // keyTo and keyFrom are not provided so they will be determined from
     // the request that is passed in.
@@ -455,18 +455,18 @@ describe('Bigtable/ReadRows', () => {
         const expectedResults = Array.from(Array(150).keys())
           .map(i => '00000000' + i.toString())
           .map(i => i.slice(-8));
-        assert.deepStrictEqual(dataResults, expectedResults);
+        expect(dataResults).toEqual(expectedResults);
         done();
       } catch (error) {
         done(error);
       }
     })().catch(err => {
-      throw err;
+      done(err);
     });
   });
 
   it.skip('pitfall: should not request full table scan during a retry on a transient error', async () => {
-    const requests = [];
+    const requests: any[] = [];
 
     const TRANSIENT_ERROR_SERVICE: ReadRowsServiceParameters = {
       chunkSize: CHUNK_SIZE,
@@ -494,18 +494,18 @@ describe('Bigtable/ReadRows', () => {
 
     try {
       await readRowsWithDeadline();
-      assert.fail('Should have thrown error');
-    } catch (err) {
+      throw new Error('Should have thrown error');
+    } catch (err: any) {
       if (err instanceof GoogleError) {
-        assert.equal(err.code, 'DEADLINE_EXCEEDED');
+        expect(err.code).toBe('DEADLINE_EXCEEDED');
       }
 
       // Assert that no retry attempted.
-      assert.strictEqual(requests.length, 1);
+      expect(requests.length).toBe(1);
     }
   });
 
-  after(async () => {
+  afterAll(async () => {
     server.shutdown(() => {});
   });
 });

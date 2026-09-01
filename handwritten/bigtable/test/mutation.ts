@@ -12,18 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {beforeEach, describe, it, afterEach} from 'mocha';
 import * as Long from 'long';
-import * as sinon from 'sinon';
 
 import {IMutateRowRequest, Mutation, IMutation} from '../src/mutation.js';
 
-const sandbox = sinon.createSandbox();
 
 describe('Bigtable/Mutation', () => {
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
   describe('instantiation', () => {
@@ -36,9 +32,9 @@ describe('Bigtable/Mutation', () => {
     it('should localize all the mutation properties', () => {
       const mutation = new Mutation(fakeData);
 
-      assert.strictEqual(mutation.key, fakeData.key);
-      assert.strictEqual(mutation.method, fakeData.method);
-      assert.strictEqual(mutation.data, fakeData.data);
+      expect(mutation.key).toBe(fakeData.key);
+      expect(mutation.method).toBe(fakeData.method);
+      expect(mutation.data).toBe(fakeData.data);
     });
   });
 
@@ -53,7 +49,7 @@ describe('Bigtable/Mutation', () => {
           isPossibleNumber: true,
         });
 
-        assert.strictEqual(num, decoded);
+        expect(num).toBe(decoded);
       });
 
       it('should convert a base64 encoded MIN_SAFE_INTEGER number when true', () => {
@@ -65,7 +61,7 @@ describe('Bigtable/Mutation', () => {
           isPossibleNumber: true,
         });
 
-        assert.strictEqual(num, decoded);
+        expect(num).toBe(decoded);
       });
 
       it('should convert a base64 encoded MAX_SAFE_INTEGER number when true', () => {
@@ -77,7 +73,7 @@ describe('Bigtable/Mutation', () => {
           isPossibleNumber: true,
         });
 
-        assert.strictEqual(num, decoded);
+        expect(num).toBe(decoded);
       });
 
       it('should not convert a base64 encoded smaller than MIN_SAFE_INTEGER number when true', () => {
@@ -89,7 +85,7 @@ describe('Bigtable/Mutation', () => {
           isPossibleNumber: true,
         });
 
-        assert.notStrictEqual(num, decoded);
+        expect(num).not.toBe(decoded);
       });
 
       it('should not convert a base64 encoded larger than MAX_SAFE_INTEGER number when true', () => {
@@ -101,7 +97,7 @@ describe('Bigtable/Mutation', () => {
           isPossibleNumber: true,
         });
 
-        assert.notStrictEqual(num, decoded);
+        expect(num).not.toBe(decoded);
       });
 
       it('should not convert a base64 encoded number when false', () => {
@@ -111,7 +107,7 @@ describe('Bigtable/Mutation', () => {
         );
         const decoded = Mutation.convertFromBytes(encoded);
 
-        assert.notStrictEqual(num, decoded);
+        expect(num).not.toBe(decoded);
       });
     });
 
@@ -120,7 +116,7 @@ describe('Bigtable/Mutation', () => {
       const encoded = Buffer.from(message).toString('base64');
       const decoded = Mutation.convertFromBytes(encoded);
 
-      assert.strictEqual(message, decoded);
+      expect(message).toBe(decoded);
     });
 
     it('should allow using a custom encoding scheme', () => {
@@ -130,7 +126,7 @@ describe('Bigtable/Mutation', () => {
         userOptions: {encoding: 'binary'},
       });
 
-      assert.strictEqual(message, decoded);
+      expect(message).toBe(decoded);
     });
 
     it('should return a buffer if decode is set to false', () => {
@@ -141,22 +137,17 @@ describe('Bigtable/Mutation', () => {
         userOptions,
       });
 
-      assert(decoded instanceof Buffer);
-      assert.strictEqual(decoded.toString(), message);
+      expect(decoded instanceof Buffer).toBeTruthy();
+      expect(decoded.toString()).toBe(message);
     });
 
-    it('should not create a new Buffer needlessly', function () {
-      if (process.platform === 'win32') {
-        // stubbing Buffer.from does not work on Windows since sinon 15.1.0
-        // TODO(@alexander-fenster): investigate and report or fix
-        this.skip();
-      }
+    it('should not create a new Buffer needlessly', () => {
       const message = 'Hello!';
       const encoded = Buffer.from(message);
-      const stub = sandbox.stub(Buffer, 'from');
+      const stub = jest.spyOn(Buffer, 'from');
       const decoded = Mutation.convertFromBytes(encoded);
-      assert.strictEqual(stub.called, false);
-      assert.strictEqual(decoded.toString(), message);
+      expect(stub).not.toHaveBeenCalled();
+      expect(decoded.toString()).toBe(message);
     });
   });
 
@@ -165,7 +156,7 @@ describe('Bigtable/Mutation', () => {
       const buf = Buffer.from('hello');
       const encoded = Mutation.convertToBytes(buf);
 
-      assert.strictEqual(buf, encoded);
+      expect(buf).toBe(encoded);
     });
 
     it('should pack numbers into int64 values', () => {
@@ -173,23 +164,23 @@ describe('Bigtable/Mutation', () => {
       const encoded = Mutation.convertToBytes(num);
       const decoded = Long.fromBytes(encoded as number[]).toNumber();
 
-      assert.strictEqual(num, decoded);
+      expect(num).toBe(decoded);
     });
 
     it('should wrap the value in a buffer', () => {
       const message = 'Hello!';
       const encoded = Mutation.convertToBytes(message);
 
-      assert(encoded instanceof Buffer);
-      assert.strictEqual(encoded.toString(), message);
+      expect(encoded instanceof Buffer).toBeTruthy();
+      expect(encoded.toString()).toBe(message);
     });
 
     it('should simply return the value if it cannot wrap it', () => {
       const message = true;
       const notEncoded = Mutation.convertToBytes(message);
 
-      assert(!(notEncoded instanceof Buffer));
-      assert.strictEqual(message, notEncoded);
+      expect(!(notEncoded instanceof Buffer)).toBe(true);
+      expect(message).toBe(notEncoded);
     });
   });
 
@@ -198,8 +189,8 @@ describe('Bigtable/Mutation', () => {
       const timestamp = Date.now();
       const dateObj = new Date(timestamp);
       const range = Mutation.createTimeRange(dateObj, dateObj);
-      assert.strictEqual(range.startTimestampMicros, timestamp * 1000);
-      assert.strictEqual(range.endTimestampMicros, timestamp * 1000);
+      expect(range.startTimestampMicros).toBe(timestamp * 1000);
+      expect(range.endTimestampMicros).toBe(timestamp * 1000);
     });
   });
 
@@ -212,9 +203,9 @@ describe('Bigtable/Mutation', () => {
     const realTimestamp = new Date() as any;
 
     beforeEach(() => {
-      sandbox.stub(global, 'Date').returns(fakeTime);
+      jest.spyOn(global, 'Date').mockImplementation(() => fakeTime);
       convertCalls = [];
-      sandbox.stub(Mutation, 'convertToBytes').callsFake(value => {
+      jest.spyOn(Mutation, 'convertToBytes').mockImplementation(value => {
         convertCalls.push(value);
         return value;
       });
@@ -230,9 +221,9 @@ describe('Bigtable/Mutation', () => {
 
       const cells = Mutation.encodeSetCell(fakeMutation);
 
-      assert.strictEqual(cells.length, 2);
+      expect(cells.length).toBe(2);
 
-      assert.deepStrictEqual(cells, [
+      expect(cells).toEqual([
         {
           setCell: {
             familyName: 'follows',
@@ -251,8 +242,8 @@ describe('Bigtable/Mutation', () => {
         },
       ]);
 
-      assert.strictEqual(convertCalls.length, 4);
-      assert.deepStrictEqual(convertCalls, ['gwashington', 1, 'alincoln', 1]);
+      expect(convertCalls.length).toBe(4);
+      expect(convertCalls).toEqual(['gwashington', 1, 'alincoln', 1]);
     });
 
     it('should optionally accept a timestamp', () => {
@@ -267,7 +258,7 @@ describe('Bigtable/Mutation', () => {
 
       const cells = Mutation.encodeSetCell(fakeMutation);
 
-      assert.deepStrictEqual(cells, [
+      expect(cells).toEqual([
         {
           setCell: {
             familyName: 'follows',
@@ -278,8 +269,8 @@ describe('Bigtable/Mutation', () => {
         },
       ]);
 
-      assert.strictEqual(convertCalls.length, 2);
-      assert.deepStrictEqual(convertCalls, ['gwashington', 1]);
+      expect(convertCalls.length).toBe(2);
+      expect(convertCalls).toEqual(['gwashington', 1]);
     });
 
     it('should accept buffers', () => {
@@ -292,7 +283,7 @@ describe('Bigtable/Mutation', () => {
 
       const cells = Mutation.encodeSetCell(fakeMutation);
 
-      assert.deepStrictEqual(cells, [
+      expect(cells).toEqual([
         {
           setCell: {
             familyName: 'follows',
@@ -303,8 +294,8 @@ describe('Bigtable/Mutation', () => {
         },
       ]);
 
-      assert.strictEqual(convertCalls.length, 2);
-      assert.deepStrictEqual(convertCalls, ['gwashington', val]);
+      expect(convertCalls.length).toBe(2);
+      expect(convertCalls).toEqual(['gwashington', val]);
     });
   });
 
@@ -314,7 +305,7 @@ describe('Bigtable/Mutation', () => {
 
     beforeEach(() => {
       convertCalls = [];
-      sandbox.stub(Mutation, 'convertToBytes').callsFake(value => {
+      jest.spyOn(Mutation, 'convertToBytes').mockImplementation(value => {
         convertCalls.push(value);
         return value;
       });
@@ -322,7 +313,7 @@ describe('Bigtable/Mutation', () => {
 
     it('should create a delete row mutation', () => {
       const mutation = Mutation.encodeDelete();
-      assert.deepStrictEqual(mutation, [
+      expect(mutation).toEqual([
         {
           deleteFromRow: {},
         },
@@ -333,7 +324,7 @@ describe('Bigtable/Mutation', () => {
       const fakeKey = 'follows';
       const mutation = Mutation.encodeDelete(fakeKey);
 
-      assert.deepStrictEqual(mutation, [
+      expect(mutation).toEqual([
         {
           deleteFromFamily: {
             familyName: fakeKey,
@@ -347,9 +338,9 @@ describe('Bigtable/Mutation', () => {
         family: 'followed',
         qualifier: null,
       };
-      sandbox.stub(Mutation, 'parseColumnName').returns(fakeColumnName);
+      jest.spyOn(Mutation, 'parseColumnName').mockReturnValue(fakeColumnName);
       const mutation = Mutation.encodeDelete(['follows']);
-      assert.deepStrictEqual(mutation, [
+      expect(mutation).toEqual([
         {
           deleteFromFamily: {
             familyName: fakeColumnName.family,
@@ -360,7 +351,7 @@ describe('Bigtable/Mutation', () => {
 
     it('should create a delete column mutation', () => {
       const mutation = Mutation.encodeDelete(['follows:gwashington']);
-      assert.deepStrictEqual(mutation, [
+      expect(mutation).toEqual([
         {
           deleteFromColumn: {
             familyName: 'follows',
@@ -370,8 +361,8 @@ describe('Bigtable/Mutation', () => {
         },
       ]);
 
-      assert.strictEqual(convertCalls.length, 1);
-      assert.strictEqual(convertCalls[0], 'gwashington');
+      expect(convertCalls.length).toBe(1);
+      expect(convertCalls[0]).toBe('gwashington');
     });
 
     it('should optionally accept a timerange for column requests', () => {
@@ -398,7 +389,7 @@ describe('Bigtable/Mutation', () => {
 
       const mutation = Mutation.encodeDelete(fakeMutationData);
 
-      assert.deepStrictEqual(mutation, [
+      expect(mutation).toEqual([
         {
           deleteFromColumn: {
             familyName: 'follows',
@@ -408,8 +399,8 @@ describe('Bigtable/Mutation', () => {
         },
       ]);
 
-      assert.strictEqual(timeCalls.length, 1);
-      assert.deepStrictEqual(timeCalls[0], fakeMutationData.time);
+      expect(timeCalls.length).toBe(1);
+      expect(timeCalls[0]).toEqual(fakeMutationData.time);
 
       Mutation.createTimeRange = createTimeRange;
     });
@@ -420,7 +411,7 @@ describe('Bigtable/Mutation', () => {
     const fakeData = {a: 'a'} as IMutateRowRequest;
 
     beforeEach(() => {
-      sandbox.stub(Mutation.prototype, 'toProto').callsFake(() => {
+      jest.spyOn(Mutation.prototype, 'toProto').mockImplementation(() => {
         toProtoCalled = true;
         return fakeData;
       });
@@ -433,8 +424,8 @@ describe('Bigtable/Mutation', () => {
         data: 'c',
       } as Mutation;
       const mutation = Mutation.parse(fakeMutationData);
-      assert.strictEqual(toProtoCalled, true);
-      assert.strictEqual(mutation, fakeData);
+      expect(toProtoCalled).toBe(true);
+      expect(mutation).toBe(fakeData);
     });
 
     it('should parse a pre-existing mutation object', () => {
@@ -446,8 +437,8 @@ describe('Bigtable/Mutation', () => {
 
       const mutation = Mutation.parse(data);
 
-      assert.strictEqual(toProtoCalled, true);
-      assert.strictEqual(mutation, fakeData);
+      expect(toProtoCalled).toBe(true);
+      expect(mutation).toBe(fakeData);
     });
   });
 
@@ -455,22 +446,22 @@ describe('Bigtable/Mutation', () => {
     it('should parse a column name', () => {
       const parsed = Mutation.parseColumnName('a:b');
 
-      assert.strictEqual(parsed.family, 'a');
-      assert.strictEqual(parsed.qualifier, 'b');
+      expect(parsed.family).toBe('a');
+      expect(parsed.qualifier).toBe('b');
     });
 
     it('should parse a family name', () => {
       const parsed = Mutation.parseColumnName('a');
 
-      assert.strictEqual(parsed.family, 'a');
-      assert.strictEqual(parsed.qualifier, undefined);
+      expect(parsed.family).toBe('a');
+      expect(parsed.qualifier).toBe(undefined);
     });
 
     it('should parse a qualifier name with colons', () => {
       const parsed = Mutation.parseColumnName('a:b:c');
 
-      assert.strictEqual(parsed.family, 'a');
-      assert.strictEqual(parsed.qualifier, 'b:c');
+      expect(parsed.family).toBe('a');
+      expect(parsed.qualifier).toBe('b:c');
     });
   });
 
@@ -479,7 +470,7 @@ describe('Bigtable/Mutation', () => {
     let convertCalls: any[] = [];
 
     beforeEach(() => {
-      sandbox.stub(Mutation, 'convertToBytes').callsFake(value => {
+      jest.spyOn(Mutation, 'convertToBytes').mockImplementation(value => {
         convertCalls.push(value);
         return value;
       });
@@ -494,14 +485,14 @@ describe('Bigtable/Mutation', () => {
         data: [],
       };
       const mutation = new Mutation(data);
-      sandbox.stub(Mutation, 'encodeSetCell').callsFake(_data => {
-        assert.strictEqual(_data, data.data);
+      jest.spyOn(Mutation, 'encodeSetCell').mockImplementation(_data => {
+        expect(_data).toBe(data.data);
         return fakeEncoded;
       });
       const mutationProto = mutation.toProto();
-      assert.strictEqual(mutationProto.mutations, fakeEncoded);
-      assert.strictEqual(mutationProto.rowKey, data.key);
-      assert.strictEqual(convertCalls[0], data.key);
+      expect(mutationProto.mutations).toBe(fakeEncoded);
+      expect(mutationProto.rowKey).toBe(data.key);
+      expect(convertCalls[0]).toBe(data.key);
     });
 
     it('should encode delete mutations when method is delete', () => {
@@ -511,14 +502,14 @@ describe('Bigtable/Mutation', () => {
         method: 'delete',
         data: [],
       };
-      sandbox.stub(Mutation, 'encodeDelete').callsFake(_data => {
-        assert.strictEqual(_data, data.data);
+      jest.spyOn(Mutation, 'encodeDelete').mockImplementation(_data => {
+        expect(_data).toBe(data.data);
         return fakeEncoded;
       });
       const mutation = new Mutation(data).toProto();
-      assert.strictEqual(mutation.mutations, fakeEncoded);
-      assert.strictEqual(mutation.rowKey, data.key);
-      assert.strictEqual(convertCalls[0], data.key);
+      expect(mutation.mutations).toBe(fakeEncoded);
+      expect(mutation.rowKey).toBe(data.key);
+      expect(convertCalls[0]).toBe(data.key);
     });
   });
 });

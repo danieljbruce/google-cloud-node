@@ -17,7 +17,6 @@ import {
   getRMWRRequestInverse,
 } from '../../testproxy/services/utils/request/readModifyWriteRow';
 import {protos} from '../../src';
-import * as assert from 'assert';
 
 describe('Check getRMWRRequest and getRMWRRequestInverse are inverses', () => {
   const testCases: protos.google.bigtable.v2.IReadModifyWriteRowRequest[] = [
@@ -92,7 +91,7 @@ describe('Check getRMWRRequest and getRMWRRequestInverse are inverses', () => {
     it(`Run test ${index}`, () => {
       const inverseResult = getRMWRRequestInverse(test);
       const result = getRMWRRequest(inverseResult);
-      assert.deepStrictEqual(result, test);
+      expect(result).toEqual(test);
     });
   });
 });
