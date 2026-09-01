@@ -12,16 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach} from 'mocha';
 import {randomBytes} from 'crypto';
-import * as sinon from 'sinon';
 import * as b from '../src/rowBatch';
 
 describe('RowBatch', () => {
   let batch: b.RowBatch;
-
-  const sandbox = sinon.createSandbox();
 
   const options = {
     maxBytes: 1000,
@@ -34,50 +29,50 @@ describe('RowBatch', () => {
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
   describe('initialization', () => {
     it('should localize options', () => {
-      assert.deepStrictEqual(batch.batchOptions, options);
+      expect(batch.batchOptions).toEqual(options);
     });
 
     it('should create a row array', () => {
-      assert.deepStrictEqual(batch.rows, []);
+      expect(batch.rows).toEqual([]);
     });
 
     it('should create a callback array', () => {
-      assert.deepStrictEqual(batch.callbacks, []);
+      expect(batch.callbacks).toEqual([]);
     });
 
     it('should capture the creation time', () => {
       const now = Date.now();
 
-      sandbox.stub(Date, 'now').returns(now);
+      jest.spyOn(Date, 'now').mockReturnValue(now);
       batch = new b.RowBatch(options);
 
-      assert.strictEqual(batch.created, now);
+      expect(batch.created).toBe(now);
     });
 
     it('should initialize bytes to 0', () => {
-      assert.strictEqual(batch.bytes, 0);
+      expect(batch.bytes).toBe(0);
     });
   });
 
   describe('add', () => {
-    const callback = sandbox.spy();
+    const callback = jest.fn();
     const row = {
       name: 'Turing',
     };
 
     it('should add the row to the row array', () => {
       batch.add(row, callback);
-      assert.deepStrictEqual(batch.rows, [row]);
+      expect(batch.rows).toEqual([row]);
     });
 
     it('should add the callback to the callback array', () => {
       batch.add(row, callback);
-      assert.deepStrictEqual(batch.callbacks, [callback]);
+      expect(batch.callbacks).toEqual([callback]);
     });
   });
 
@@ -89,12 +84,12 @@ describe('RowBatch', () => {
     it('should return false if too many rows', () => {
       batch.batchOptions.maxRows = 0;
       const canFit = batch.canFit(row);
-      assert.strictEqual(canFit, false);
+      expect(canFit).toBe(false);
     });
 
     it('should return true if it can fit', () => {
       const canFit = batch.canFit(row);
-      assert.strictEqual(canFit, true);
+      expect(canFit).toBe(true);
     });
   });
 
@@ -109,7 +104,7 @@ describe('RowBatch', () => {
         });
 
       const isAtMax = batch.isAtMax();
-      assert.strictEqual(isAtMax, true);
+      expect(isAtMax).toBe(true);
     });
 
     it('should return true if at max byte limit', () => {
@@ -117,10 +112,10 @@ describe('RowBatch', () => {
         name: randomBytes(Math.pow(1024, 2) * 9),
       };
 
-      batch.add(row, sandbox.spy());
+      batch.add(row, jest.fn());
 
       const isAtMax = batch.isAtMax();
-      assert.strictEqual(isAtMax, true);
+      expect(isAtMax).toBe(true);
     });
 
     it('should return false if it is not full', () => {
@@ -128,10 +123,10 @@ describe('RowBatch', () => {
         name: randomBytes(500),
       };
 
-      batch.add(row, sandbox.spy());
+      batch.add(row, jest.fn());
 
       const isAtMax = batch.isAtMax();
-      assert.strictEqual(isAtMax, false);
+      expect(isAtMax).toBe(false);
     });
   });
 
@@ -142,22 +137,22 @@ describe('RowBatch', () => {
 
     it('should return true if at max row limit', () => {
       batch.batchOptions.maxRows = 1;
-      batch.add(row, sandbox.spy());
+      batch.add(row, jest.fn());
       const isFull = batch.isFull();
-      assert.strictEqual(isFull, true);
+      expect(isFull).toBe(true);
     });
 
     it('should return true if at max byte limit', () => {
       batch.batchOptions.maxBytes = row.name.length;
-      batch.add(row, sandbox.spy());
+      batch.add(row, jest.fn());
       const isFull = batch.isFull();
-      assert.strictEqual(isFull, true);
+      expect(isFull).toBe(true);
     });
 
     it('should return false if it is not full', () => {
-      batch.add(row, sandbox.spy());
+      batch.add(row, jest.fn());
       const isFull = batch.isFull();
-      assert.strictEqual(isFull, false);
+      expect(isFull).toBe(false);
     });
   });
 });

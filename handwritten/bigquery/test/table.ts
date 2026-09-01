@@ -15,34 +15,94 @@
 import {
   DecorateRequestOptions,
   ServiceObject,
-  ServiceObjectConfig,
   util,
 } from '@google-cloud/common';
 import {GoogleErrorBody} from '@google-cloud/common/build/src/util';
-import * as pfy from '@google-cloud/promisify';
 import {File} from '@google-cloud/storage';
-import * as assert from 'assert';
-import {describe, it, afterEach, beforeEach, before, after} from 'mocha';
 import * as Big from 'big.js';
 import {EventEmitter} from 'events';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import * as stream from 'stream';
 import * as crypto from 'crypto';
+import {Duplex} from 'stream';
+
+let promisified = false;
+let extended = false;
+let makeWritableStreamOverride: Function | null = null;
+let isCustomTypeOverride: Function | null = null;
+
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll: (c: Function, options: any) => {
+      if (c.name === 'Table') {
+        promisified = true;
+      }
+      return actual.promisifyAll(c, options);
+    },
+  };
+});
+
+jest.mock('@google-cloud/paginator', () => {
+  const actual = jest.requireActual('@google-cloud/paginator');
+  return {
+    ...actual,
+    paginator: {
+      ...actual.paginator,
+      extend: (c: Function, methods: string[]) => {
+        if (c.name !== 'Table') {
+          return;
+        }
+
+        const methodsArr = Array.isArray(methods) ? methods : [methods];
+        if (methodsArr.length === 1 && methodsArr[0] === 'getRows') {
+          extended = true;
+        }
+      },
+      streamify: (methodName: string) => {
+        return methodName;
+      },
+    },
+  };
+});
+
+jest.mock('@google-cloud/common', () => {
+  const actual = jest.requireActual('@google-cloud/common');
+  class FakeServiceObject extends actual.ServiceObject {
+    calledWith_: IArguments;
+    constructor(config: any) {
+      super(config);
+      // eslint-disable-next-line prefer-rest-params
+      this.calledWith_ = arguments;
+    }
+  }
+  return {
+    ...actual,
+    ServiceObject: FakeServiceObject,
+    util: {
+      ...actual.util,
+      isCustomType: (...args: Array<{}>) => {
+        return (isCustomTypeOverride || actual.util.isCustomType)(...args);
+      },
+      makeWritableStream: (...args: Array<{}>) => {
+        return (makeWritableStreamOverride || actual.util.makeWritableStream)(...args);
+      },
+      noop: () => {},
+    },
+  };
+});
 
 import {BigQuery, Query} from '../src/bigquery';
-import {toArray} from '../src/util';
 import {Job, JobOptions} from '../src/job';
 import {
   CopyTableMetadata,
   JobLoadMetadata,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Table,
   ViewDefinition,
+  FormattedMetadata,
 } from '../src/table';
 import bigquery from '../src/types';
-import {Duplex} from 'stream';
 import {RowQueue} from '../src/rowQueue';
 
 interface CalledWithTable extends ServiceObject {
@@ -50,30 +110,14 @@ interface CalledWithTable extends ServiceObject {
     parent: {};
     baseUrl: string;
     id: string;
-    methods: string[];
+    methods: Record<string, any>;
   }>;
 }
 
-let promisified = false;
-let makeWritableStreamOverride: Function | null;
-let isCustomTypeOverride: Function | null;
-const fakeUtil = Object.assign({}, util, {
-  isCustomType: (...args: Array<{}>) => {
-    return (isCustomTypeOverride || util.isCustomType)(...args);
-  },
-  makeWritableStream: (...args: Array<{}>) => {
-    (makeWritableStreamOverride || util.makeWritableStream)(...args);
-  },
-  noop: () => {},
-});
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll: (c: Function) => {
-    if (c.name === 'Table') {
-      promisified = true;
-    }
-    pfy.promisifyAll(c);
-  },
-});
+interface MakeWritableStreamOptions {
+  metadata: bigquery.IJob;
+  request: {uri: string};
+}
 
 async function pReflect<T>(promise: Promise<T>) {
   try {
@@ -92,54 +136,9 @@ async function pReflect<T>(promise: Promise<T>) {
   }
 }
 
-let extended = false;
-const fakePaginator = {
-  paginator: {
-    extend: (c: Function, methods: string[]) => {
-      if (c.name !== 'Table') {
-        return;
-      }
-
-      methods = toArray(methods);
-      assert.strictEqual(c.name, 'Table');
-      assert.deepStrictEqual(methods, ['getRows']);
-      extended = true;
-    },
-    streamify: (methodName: string) => {
-      return methodName;
-    },
-  },
-};
-
-let fakeCrypto = extend(true, {}, crypto);
-
-class FakeServiceObject extends ServiceObject {
-  calledWith_: IArguments;
-  constructor(config: ServiceObjectConfig) {
-    super(config);
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
-}
-
-interface MakeWritableStreamOptions {
-  metadata: bigquery.IJob;
-  request: {uri: string};
-}
-
-const sandbox = sinon.createSandbox();
-
 describe('BigQuery/Table', () => {
-  before(() => {
-    Table = proxyquire('../src/table.js', {
-      crypto: fakeCrypto,
-      '@google-cloud/common': {
-        ServiceObject: FakeServiceObject,
-        util: fakeUtil,
-      },
-      '@google-cloud/paginator': fakePaginator,
-      '@google-cloud/promisify': fakePfy,
-    }).Table;
+  beforeAll(() => {
+    Table = require('../src/table').Table;
 
     const tableCached = extend(true, {}, Table);
 
@@ -159,17 +158,18 @@ describe('BigQuery/Table', () => {
   });
 
   beforeEach(() => {
-    fakeCrypto = Object.assign(fakeCrypto, crypto);
     isCustomTypeOverride = null;
     makeWritableStreamOverride = null;
     tableOverrides = {};
     table = new Table(DATASET, TABLE_ID);
     table.bigQuery.request = util.noop;
     table.bigQuery.createJob = util.noop;
-    sandbox.stub(BigQuery, 'mergeSchemaWithRows_').returnsArg(1);
+    jest.spyOn(BigQuery, 'mergeSchemaWithRows_').mockImplementation((schema: any, rows: any) => rows);
   });
 
-  afterEach(() => sandbox.restore());
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   const DATASET = {
     id: 'dataset-id',
@@ -216,36 +216,36 @@ describe('BigQuery/Table', () => {
 
   describe('instantiation', () => {
     it('should extend the correct methods', () => {
-      assert(extended); // See `fakePaginator.extend`
+      expect(extended).toBe(true); // See `fakePaginator.extend`
     });
 
     it('should streamify the correct methods', () => {
-      assert.strictEqual(table.createReadStream, 'getRows');
+      expect(table.createReadStream).toBe('getRows');
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
 
     it('should inherit from ServiceObject', done => {
       const datasetInstance = Object.assign({}, DATASET, {
         createTable: {
           bind: (context: {}) => {
-            assert.strictEqual(context, datasetInstance);
+            expect(context).toBe(datasetInstance);
             done();
           },
         },
       });
 
       const table = new Table(datasetInstance, TABLE_ID);
-      assert(table instanceof ServiceObject);
+      expect(table instanceof ServiceObject).toBe(true);
 
       const calledWith = (table as CalledWithTable).calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, datasetInstance);
-      assert.strictEqual(calledWith.baseUrl, '/tables');
-      assert.strictEqual(calledWith.id, TABLE_ID);
-      assert.deepStrictEqual(calledWith.methods, {
+      expect(calledWith.parent).toBe(datasetInstance);
+      expect(calledWith.baseUrl).toBe('/tables');
+      expect(calledWith.id).toBe(TABLE_ID);
+      expect(calledWith.methods).toEqual({
         create: true,
         delete: true,
         exists: true,
@@ -258,7 +258,7 @@ describe('BigQuery/Table', () => {
       const options = {location: LOCATION};
       const table = new Table(DATASET, TABLE_ID, options);
 
-      assert.strictEqual(table.location, LOCATION);
+      expect(table.location).toBe(LOCATION);
     });
 
     describe('etag interceptor', () => {
@@ -275,7 +275,7 @@ describe('BigQuery/Table', () => {
         };
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.headers, {'If-Match': FAKE_ETAG});
+        expect(reqOpts.headers).toEqual({'If-Match': FAKE_ETAG});
       });
 
       it('should respect already existing headers', () => {
@@ -296,7 +296,7 @@ describe('BigQuery/Table', () => {
         });
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.headers, expectedHeaders);
+        expect(reqOpts.headers).toEqual(expectedHeaders);
       });
 
       it('should not apply the header if method is not patch', () => {
@@ -310,48 +310,45 @@ describe('BigQuery/Table', () => {
         };
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.headers, undefined);
+        expect(reqOpts.headers).toEqual(undefined);
       });
     });
   });
 
   describe('createSchemaFromString_', () => {
     it('should create a schema object from a string', () => {
-      assert.deepStrictEqual(
-        Table.createSchemaFromString_(SCHEMA_STRING),
-        SCHEMA_OBJECT,
-      );
+      expect(Table.createSchemaFromString_(SCHEMA_STRING)).toEqual(SCHEMA_OBJECT);
     });
 
     it('should trim names', () => {
       const schema = Table.createSchemaFromString_(' name :type');
-      assert.strictEqual(schema.fields[0].name, 'name');
+      expect(schema.fields[0].name).toBe('name');
     });
 
     it('should trim types', () => {
       const schema = Table.createSchemaFromString_('name: type ');
-      assert.strictEqual(schema.fields[0].type, 'TYPE');
+      expect(schema.fields[0].type).toBe('TYPE');
     });
   });
 
   describe('encodeValue_', () => {
     it('should return null if null or undefined', () => {
-      assert.strictEqual(Table.encodeValue_(null), null);
-      assert.strictEqual(Table.encodeValue_(undefined), null);
+      expect(Table.encodeValue_(null)).toBe(null);
+      expect(Table.encodeValue_(undefined)).toBe(null);
     });
 
     it('should properly encode values', () => {
       const buffer = Buffer.from('test');
-      assert.strictEqual(Table.encodeValue_(buffer), buffer.toString('base64'));
+      expect(Table.encodeValue_(buffer)).toBe(buffer.toString('base64'));
 
       const date = new Date();
-      assert.strictEqual(Table.encodeValue_(date), date.toJSON());
+      expect(Table.encodeValue_(date)).toBe(date.toJSON());
 
       const range = BigQuery.range(
         '[2020-10-01 12:00:00+08, 2020-12-31 12:00:00+08)',
         'TIMESTAMP',
       );
-      assert.deepEqual(Table.encodeValue_(range), {
+      expect(Table.encodeValue_(range)).toEqual({
         start: '2020-10-01T04:00:00.000Z',
         end: '2020-12-31T04:00:00.000Z',
       });
@@ -395,11 +392,11 @@ describe('BigQuery/Table', () => {
       const timestamp = new BigQueryTimestamp('timestamp');
       const integer = new BigQueryInt('integer');
 
-      assert.strictEqual(Table.encodeValue_(date), 'date');
-      assert.strictEqual(Table.encodeValue_(datetime), 'datetime');
-      assert.strictEqual(Table.encodeValue_(time), 'time');
-      assert.strictEqual(Table.encodeValue_(timestamp), 'timestamp');
-      assert.strictEqual(Table.encodeValue_(integer), 'integer');
+      expect(Table.encodeValue_(date)).toBe('date');
+      expect(Table.encodeValue_(datetime)).toBe('datetime');
+      expect(Table.encodeValue_(time)).toBe('time');
+      expect(Table.encodeValue_(timestamp)).toBe('timestamp');
+      expect(Table.encodeValue_(integer)).toBe('integer');
     });
 
     it('should properly encode arrays', () => {
@@ -408,7 +405,7 @@ describe('BigQuery/Table', () => {
 
       const array = [buffer, date];
 
-      assert.deepStrictEqual(Table.encodeValue_(array), [
+      expect(Table.encodeValue_(array)).toEqual([
         buffer.toString('base64'),
         date.toJSON(),
       ]);
@@ -424,7 +421,7 @@ describe('BigQuery/Table', () => {
         },
       };
 
-      assert.deepStrictEqual(Table.encodeValue_(object), {
+      expect(Table.encodeValue_(object)).toEqual({
         nested: {
           array: [buffer.toString('base64'), date.toJSON()],
         },
@@ -432,22 +429,16 @@ describe('BigQuery/Table', () => {
     });
 
     it('should properly encode numerics', () => {
-      assert.strictEqual(Table.encodeValue_(new Big('123.456')), '123.456');
-      assert.strictEqual(Table.encodeValue_(new Big('-123.456')), '-123.456');
-      assert.strictEqual(
-        Table.encodeValue_(new Big('99999999999999999999999999999.999999999')),
-        '99999999999999999999999999999.999999999',
-      );
-      assert.strictEqual(
-        Table.encodeValue_(new Big('-99999999999999999999999999999.999999999')),
-        '-99999999999999999999999999999.999999999',
-      );
+      expect(Table.encodeValue_(new Big('123.456'))).toBe('123.456');
+      expect(Table.encodeValue_(new Big('-123.456'))).toBe('-123.456');
+      expect(Table.encodeValue_(new Big('99999999999999999999999999999.999999999'))).toBe('99999999999999999999999999999.999999999');
+      expect(Table.encodeValue_(new Big('-99999999999999999999999999999.999999999'))).toBe('-99999999999999999999999999999.999999999');
     });
 
     it('should return properly encode objects with null prototype', () => {
       const obj = Object.create(null);
       obj['name'] = 'Test';
-      assert.deepStrictEqual(Table.encodeValue_(obj), {
+      expect(Table.encodeValue_(obj)).toEqual({
         name: 'Test',
       });
     });
@@ -463,8 +454,8 @@ describe('BigQuery/Table', () => {
 
       const formatted = Table.formatMetadata_(metadata);
 
-      assert.deepStrictEqual(metadata, formatted);
-      assert.notStrictEqual(metadata, formatted);
+      expect(metadata).toEqual(formatted);
+      expect(metadata).not.toBe(formatted);
     });
 
     it('should format the name option', () => {
@@ -472,21 +463,21 @@ describe('BigQuery/Table', () => {
 
       const formatted = Table.formatMetadata_({name: NAME});
 
-      assert.strictEqual(formatted.name, undefined);
-      assert.strictEqual(formatted.friendlyName, NAME);
+      expect(formatted.name).toBe(undefined);
+      expect(formatted.friendlyName).toBe(NAME);
     });
 
     it('should format the schema string option', () => {
       const fakeSchema = {};
 
       Table.createSchemaFromString_ = (schema: string) => {
-        assert.strictEqual(schema, SCHEMA_STRING);
+        expect(schema).toBe(SCHEMA_STRING);
         return fakeSchema;
       };
 
       const formatted = Table.formatMetadata_({schema: SCHEMA_STRING});
 
-      assert.strictEqual(formatted.schema, fakeSchema);
+      expect(formatted.schema).toBe(fakeSchema);
     });
 
     it('should accept an array of schema fields', () => {
@@ -494,7 +485,7 @@ describe('BigQuery/Table', () => {
 
       const formatted = Table.formatMetadata_({schema: fields});
 
-      assert.deepStrictEqual(formatted.schema.fields, fields);
+      expect(formatted.schema.fields).toEqual(fields);
     });
 
     it('should format the schema fields option', () => {
@@ -507,13 +498,13 @@ describe('BigQuery/Table', () => {
       const expectedFields = ['a', {fields: [], type: 'RECORD'}, 'b'];
       const formatted = Table.formatMetadata_(metadata);
 
-      assert.deepStrictEqual(formatted.schema.fields, expectedFields);
+      expect(formatted.schema.fields).toEqual(expectedFields);
     });
 
     it('should format the time partitioning option', () => {
       const formatted = Table.formatMetadata_({partitioning: 'abc'});
 
-      assert.strictEqual(formatted.timePartitioning.type, 'ABC');
+      expect(formatted.timePartitioning.type).toBe('ABC');
     });
 
     it('should format the table view option', () => {
@@ -521,8 +512,8 @@ describe('BigQuery/Table', () => {
 
       const formatted = Table.formatMetadata_({view: VIEW});
 
-      assert.strictEqual(formatted.view.query, VIEW);
-      assert.strictEqual(formatted.view.useLegacySql, false);
+      expect(formatted.view.query).toBe(VIEW);
+      expect(formatted.view.useLegacySql).toBe(false);
     });
 
     it('should allow the view option to be passed as a pre-formatted object', () => {
@@ -530,7 +521,7 @@ describe('BigQuery/Table', () => {
 
       const {view: formattedView} = Table.formatMetadata_({view});
 
-      assert.deepStrictEqual(formattedView, view);
+      expect(formattedView).toEqual(view);
     });
   });
 
@@ -557,21 +548,21 @@ describe('BigQuery/Table', () => {
       };
 
       table.createCopyJob = (destination: {}, metadata: {}) => {
-        assert.strictEqual(destination, fakeDestination);
-        assert.strictEqual(metadata, fakeMetadata);
+        expect(destination).toBe(fakeDestination);
+        expect(metadata).toBe(fakeMetadata);
         done();
       };
 
-      table.copy(fakeDestination, fakeMetadata, assert.ifError);
+      table.copy(fakeDestination, fakeMetadata, (err: any) => { if (err) done(err); });
     });
 
     it('should optionally accept metadata', done => {
       table.createCopyJob = (destination: {}, metadata: {}) => {
-        assert.deepStrictEqual(metadata, {});
+        expect(metadata).toEqual({});
         done();
       };
 
-      table.copy({}, assert.ifError);
+      table.copy({}, (err: any) => { if (err) done(err); });
     });
 
     it('should return any createCopyJob errors', done => {
@@ -587,8 +578,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.copy({}, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, response);
+        expect(err).toBe(error);
+        expect(resp).toBe(response);
         done();
       });
     });
@@ -597,7 +588,7 @@ describe('BigQuery/Table', () => {
       const error = new Error('err');
 
       table.copy({}, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
 
@@ -608,8 +599,8 @@ describe('BigQuery/Table', () => {
       const metadata = {};
 
       table.copy({}, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, metadata);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(metadata);
         done();
       });
 
@@ -637,21 +628,21 @@ describe('BigQuery/Table', () => {
       const fakeMetadata = {};
 
       table.createCopyFromJob = (sourceTables: {}, metadata: {}) => {
-        assert.strictEqual(sourceTables, fakeSourceTables);
-        assert.strictEqual(metadata, fakeMetadata);
+        expect(sourceTables).toBe(fakeSourceTables);
+        expect(metadata).toBe(fakeMetadata);
         done();
       };
 
-      table.copyFrom(fakeSourceTables, fakeMetadata, assert.ifError);
+      table.copyFrom(fakeSourceTables, fakeMetadata, (err: any) => { if (err) done(err); });
     });
 
     it('should optionally accept metadata', done => {
       table.createCopyFromJob = (sourceTables: {}, metadata: {}) => {
-        assert.deepStrictEqual(metadata, {});
+        expect(metadata).toEqual({});
         done();
       };
 
-      table.copyFrom({}, assert.ifError);
+      table.copyFrom({}, (err: any) => { if (err) done(err); });
     });
 
     it('should return any createCopyFromJob errors', done => {
@@ -667,8 +658,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.copyFrom({}, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, response);
+        expect(err).toBe(error);
+        expect(resp).toBe(response);
         done();
       });
     });
@@ -677,7 +668,7 @@ describe('BigQuery/Table', () => {
       const error = new Error('err');
 
       table.copyFrom({}, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
 
@@ -688,8 +679,8 @@ describe('BigQuery/Table', () => {
       const metadata = {};
 
       table.copyFrom({}, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, metadata);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(metadata);
         done();
       });
 
@@ -700,30 +691,21 @@ describe('BigQuery/Table', () => {
   describe('createCopyJob', () => {
     let DEST_TABLE: Table;
 
-    before(() => {
+    beforeAll(() => {
       DEST_TABLE = new Table(DATASET, 'destination-table');
     });
 
     it('should throw if a destination is not a Table', async () => {
-      await assert.rejects(
-        async () => table.createCopyJob(),
-        /Destination must be a Table/,
-      );
+      await expect(async () => table.createCopyJob()).rejects.toThrow(/Destination must be a Table/);
 
-      await assert.rejects(
-        async () => table.createCopyJob({}),
-        /Destination must be a Table/,
-      );
+      await expect(async () => table.createCopyJob({})).rejects.toThrow(/Destination must be a Table/);
 
-      await assert.rejects(
-        async () => table.createCopyJob(() => {}),
-        /Destination must be a Table/,
-      );
+      await expect(async () => table.createCopyJob(() => {})).rejects.toThrow(/Destination must be a Table/);
     });
 
     it('should send correct request to the API', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.deepStrictEqual(reqOpts, {
+        expect(reqOpts).toEqual({
           configuration: {
             copy: {
               a: 'b',
@@ -745,7 +727,7 @@ describe('BigQuery/Table', () => {
         done();
       };
 
-      table.createCopyJob(DEST_TABLE, {a: 'b', c: 'd'}, assert.ifError);
+      table.createCopyJob(DEST_TABLE, {a: 'b', c: 'd'}, (err: any) => { if (err) done(err); });
     });
 
     it('should accept a job prefix', done => {
@@ -755,12 +737,9 @@ describe('BigQuery/Table', () => {
       };
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.jobPrefix, fakeJobPrefix);
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.copy as any).jobPrefix,
-          undefined,
-        );
+        expect(reqOpts.jobPrefix).toBe(fakeJobPrefix);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.copy as any).jobPrefix).toBe(undefined);
         callback(); // the done fn
       };
 
@@ -773,7 +752,7 @@ describe('BigQuery/Table', () => {
       };
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.configuration?.reservation, 'reservation/1');
+        expect(reqOpts.configuration?.reservation).toBe('reservation/1');
         callback(); // the done fn
       };
 
@@ -782,7 +761,7 @@ describe('BigQuery/Table', () => {
 
     it('should use the default location', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.location, LOCATION);
+        expect(reqOpts.location).toBe(LOCATION);
         callback(); // the done fn
       };
 
@@ -795,12 +774,9 @@ describe('BigQuery/Table', () => {
       const options = {jobId};
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.jobId, jobId);
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.copy as any).jobId,
-          undefined,
-        );
+        expect(reqOpts.jobId).toBe(jobId);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.copy as any).jobId).toBe(undefined);
         callback(); // the done fn
       };
 
@@ -809,7 +785,7 @@ describe('BigQuery/Table', () => {
 
     it('should pass the callback to createJob', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(done, callback);
+        expect(done).toBe(callback);
         callback(); // the done fn
       };
 
@@ -818,7 +794,7 @@ describe('BigQuery/Table', () => {
 
     it('should optionally accept metadata', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(done, callback);
+        expect(done).toBe(callback);
         callback(); // the done fn
       };
 
@@ -829,35 +805,23 @@ describe('BigQuery/Table', () => {
   describe('createCopyFromJob', () => {
     let SOURCE_TABLE: Table;
 
-    before(() => {
+    beforeAll(() => {
       SOURCE_TABLE = new Table(DATASET, 'source-table');
     });
 
     it('should throw if a source is not a Table', async () => {
-      await assert.rejects(
-        async () => table.createCopyFromJob(['table']),
-        /Source must be a Table/,
-      );
+      await expect(async () => table.createCopyFromJob(['table'])).rejects.toThrow(/Source must be a Table/);
 
-      await assert.rejects(
-        async () => table.createCopyFromJob([SOURCE_TABLE, 'table']),
-        /Source must be a Table/,
-      );
+      await expect(async () => table.createCopyFromJob([SOURCE_TABLE, 'table'])).rejects.toThrow(/Source must be a Table/);
 
-      await assert.rejects(
-        async () => table.createCopyFromJob({}),
-        /Source must be a Table/,
-      );
+      await expect(async () => table.createCopyFromJob({})).rejects.toThrow(/Source must be a Table/);
 
-      await assert.rejects(
-        async () => table.createCopyFromJob(() => {}),
-        /Source must be a Table/,
-      );
+      await expect(async () => table.createCopyFromJob(() => {})).rejects.toThrow(/Source must be a Table/);
     });
 
     it('should send correct request to the API', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.deepStrictEqual(reqOpts, {
+        expect(reqOpts).toEqual({
           configuration: {
             copy: {
               a: 'b',
@@ -881,12 +845,12 @@ describe('BigQuery/Table', () => {
         done();
       };
 
-      table.createCopyFromJob(SOURCE_TABLE, {a: 'b', c: 'd'}, assert.ifError);
+      table.createCopyFromJob(SOURCE_TABLE, {a: 'b', c: 'd'}, (err: any) => { if (err) done(err); });
     });
 
     it('should accept multiple source tables', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.deepStrictEqual(reqOpts.configuration!.copy!.sourceTables, [
+        expect(reqOpts.configuration!.copy!.sourceTables).toEqual([
           {
             datasetId: SOURCE_TABLE.dataset.id,
             projectId: SOURCE_TABLE.dataset.projectId,
@@ -902,7 +866,7 @@ describe('BigQuery/Table', () => {
         done();
       };
 
-      table.createCopyFromJob([SOURCE_TABLE, SOURCE_TABLE], assert.ifError);
+      table.createCopyFromJob([SOURCE_TABLE, SOURCE_TABLE], (err: any) => { if (err) done(err); });
     });
 
     it('should accept a job prefix', done => {
@@ -912,12 +876,9 @@ describe('BigQuery/Table', () => {
       };
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.jobPrefix, fakeJobPrefix);
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.copy as any).jobPrefix,
-          undefined,
-        );
+        expect(reqOpts.jobPrefix).toBe(fakeJobPrefix);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.copy as any).jobPrefix).toBe(undefined);
         callback(); // the done fn
       };
 
@@ -930,7 +891,7 @@ describe('BigQuery/Table', () => {
       };
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.configuration?.reservation, 'reservation/1');
+        expect(reqOpts.configuration?.reservation).toBe('reservation/1');
         callback(); // the done fn
       };
 
@@ -939,7 +900,7 @@ describe('BigQuery/Table', () => {
 
     it('should use the default location', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.location, LOCATION);
+        expect(reqOpts.location).toBe(LOCATION);
         callback(); // the done fn
       };
 
@@ -952,12 +913,9 @@ describe('BigQuery/Table', () => {
       const options = {jobId};
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.jobId, jobId);
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.copy as any).jobId,
-          undefined,
-        );
+        expect(reqOpts.jobId).toBe(jobId);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.copy as any).jobId).toBe(undefined);
         callback(); // the done fn
       };
 
@@ -966,7 +924,7 @@ describe('BigQuery/Table', () => {
 
     it('should pass the callback to createJob', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(done, callback);
+        expect(done).toBe(callback);
         callback(); // the done fn
       };
 
@@ -975,7 +933,7 @@ describe('BigQuery/Table', () => {
 
     it('should optionally accept options', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(done, callback);
+        expect(done).toBe(callback);
         callback(); // the done fn
       };
 
@@ -986,30 +944,30 @@ describe('BigQuery/Table', () => {
   describe('createInsertStream', () => {
     it('should create a row queue', async () => {
       await table.createInsertStream();
-      assert(table.rowQueue instanceof RowQueue);
+      expect(table.rowQueue instanceof RowQueue).toBe(true);
     });
 
     it('should create a row queue with options', async () => {
       const opts = {insertRowsOptions: {raw: false}};
       await table.createInsertStream(opts);
       const queue = table.rowQueue;
-      assert.deepStrictEqual(queue.insertRowsOptions, opts.insertRowsOptions);
+      expect(queue.insertRowsOptions).toEqual(opts.insertRowsOptions);
     });
 
     it('should return a stream', () => {
       const stream = table.createInsertStream();
-      assert(stream instanceof Duplex);
+      expect(stream instanceof Duplex).toBe(true);
     });
 
     it('should add a row to the queue', () => {
-      const cb = sinon.stub();
+      const cb = jest.fn();
       const chunk = {name: 'turing'};
       const stream = table.createInsertStream();
       const rowQueue = table.rowQueue;
-      const stub = sandbox.stub(rowQueue, 'add');
+      const stub = jest.spyOn(rowQueue, 'add');
       stream._write(chunk, {}, cb);
-      assert.ok(stub.calledOnceWith(chunk));
-      assert.strictEqual(cb.callCount, 1);
+      expect(stub).toHaveBeenCalledTimes(1); expect(stub).toHaveBeenCalledWith(chunk, expect.any(Function));
+      expect(cb).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1035,7 +993,7 @@ describe('BigQuery/Table', () => {
 
     it('should call createJob correctly', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.deepStrictEqual(reqOpts.configuration!.extract!.sourceTable, {
+        expect(reqOpts.configuration!.extract!.sourceTable).toEqual({
           datasetId: table.dataset.id,
           projectId: table.dataset.projectId,
           tableId: table.id,
@@ -1044,7 +1002,7 @@ describe('BigQuery/Table', () => {
         done();
       };
 
-      table.createExtractJob(FILE, assert.ifError);
+      table.createExtractJob(FILE, (err: any) => { if (err) done(err); });
     });
 
     it('should accept just a destination and a callback', done => {
@@ -1059,91 +1017,85 @@ describe('BigQuery/Table', () => {
       it('should accept csv', done => {
         table.bigQuery.createJob = (reqOpts: JobOptions) => {
           const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'CSV');
+          expect(extract.destinationFormat).toBe('CSV');
           done();
         };
 
-        table.createExtractJob(FILE, {format: 'csv'}, assert.ifError);
+        table.createExtractJob(FILE, {format: 'csv'}, (err: any) => { if (err) done(err); });
       });
 
       it('should accept json', done => {
         table.bigQuery.createJob = (reqOpts: JobOptions) => {
           const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(
-            extract.destinationFormat,
-            'NEWLINE_DELIMITED_JSON',
-          );
+          expect(extract.destinationFormat).toBe('NEWLINE_DELIMITED_JSON');
           done();
         };
 
-        table.createExtractJob(FILE, {format: 'json'}, assert.ifError);
+        table.createExtractJob(FILE, {format: 'json'}, (err: any) => { if (err) done(err); });
       });
 
       it('should accept avro', done => {
         table.bigQuery.createJob = (reqOpts: JobOptions) => {
           const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'AVRO');
+          expect(extract.destinationFormat).toBe('AVRO');
           done();
         };
 
-        table.createExtractJob(FILE, {format: 'avro'}, assert.ifError);
+        table.createExtractJob(FILE, {format: 'avro'}, (err: any) => { if (err) done(err); });
       });
 
       it('should accept orc', done => {
         table.bigQuery.createJob = (reqOpts: JobOptions) => {
           const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'ORC');
+          expect(extract.destinationFormat).toBe('ORC');
           done();
         };
 
-        table.createExtractJob(FILE, {format: 'orc'}, assert.ifError);
+        table.createExtractJob(FILE, {format: 'orc'}, (err: any) => { if (err) done(err); });
       });
 
       it('should accept parquet', done => {
         table.bigQuery.createJob = (reqOpts: JobOptions) => {
           const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'PARQUET');
+          expect(extract.destinationFormat).toBe('PARQUET');
           done();
         };
 
-        table.createExtractJob(FILE, {format: 'parquet'}, assert.ifError);
+        table.createExtractJob(FILE, {format: 'parquet'}, (err: any) => { if (err) done(err); });
       });
 
       it('should accept Firestore backup', done => {
         table.bigQuery.createJob = (reqOpts: JobOptions) => {
           const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'DATASTORE_BACKUP');
+          expect(extract.destinationFormat).toBe('DATASTORE_BACKUP');
           done();
         };
 
         table.createExtractJob(
           FILE,
           {format: 'export_metadata'},
-          assert.ifError,
+          (err: any) => { if (err) done(err); },
         );
       });
     });
     it('should parse out full gs:// urls from files', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.deepStrictEqual(
-          reqOpts.configuration!.extract!.destinationUris,
-          ['gs://' + FILE.bucket.name + '/' + FILE.name],
-        );
+        expect(reqOpts.configuration!.extract!.destinationUris).toEqual(['gs://' + FILE.bucket.name + '/' + FILE.name]);
         done();
       };
 
-      table.createExtractJob(FILE, assert.ifError);
+      table.createExtractJob(FILE, (err: any) => { if (err) done(err); });
     });
 
     it('should check if a destination is a File', done => {
       isCustomTypeOverride = (dest: {}, type: string) => {
-        assert.strictEqual(dest, FILE);
-        assert.strictEqual(type, 'storage/file');
+        expect(dest).toBe(FILE);
+        expect(type).toBe('storage/file');
         setImmediate(done);
         return true;
       };
 
-      table.createExtractJob(FILE, assert.ifError);
+      table.createExtractJob(FILE, (err: any) => { if (err) done(err); });
     });
 
     it('should throw if a destination is not a File', () => {
@@ -1151,51 +1103,48 @@ describe('BigQuery/Table', () => {
         return false;
       };
 
-      assert.throws(() => {
+      expect(() => {
         table.createExtractJob({}, util.noop);
-      }, /Destination must be a File object/);
+      }).toThrow(/Destination must be a File object/);
 
-      assert.throws(() => {
+      expect(() => {
         table.createExtractJob([FILE, {}], util.noop);
-      }, /Destination must be a File object/);
+      }).toThrow(/Destination must be a File object/);
     });
 
     it('should detect file format if a format is not provided', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
         const destFormat = reqOpts.configuration!.extract!.destinationFormat;
-        assert.strictEqual(destFormat, 'NEWLINE_DELIMITED_JSON');
+        expect(destFormat).toBe('NEWLINE_DELIMITED_JSON');
         done();
       };
 
-      table.createExtractJob(FILE, assert.ifError);
+      table.createExtractJob(FILE, (err: any) => { if (err) done(err); });
     });
 
     it('should assign the provided format if matched', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
         const extract = reqOpts.configuration!.extract!;
-        assert.strictEqual(extract.destinationFormat, 'CSV');
+        expect(extract.destinationFormat).toBe('CSV');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert.strictEqual((extract as any).format, undefined);
+        expect((extract as any).format).toBe(undefined);
         done();
       };
 
-      table.createExtractJob(FILE, {format: 'csv'}, assert.ifError);
+      table.createExtractJob(FILE, {format: 'csv'}, (err: any) => { if (err) done(err); });
     });
 
     it('should throw if a provided format is not recognized', () => {
-      assert.throws(() => {
+      expect(() => {
         table.createExtractJob(FILE, {format: 'zip'}, util.noop);
-      }, /Destination format not recognized/);
+      }).toThrow(/Destination format not recognized/);
     });
 
     it('should assign GZIP compression with gzip: true', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(reqOpts.configuration!.extract!.compression, 'GZIP');
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.extract as any).gzip,
-          undefined,
-        );
+        expect(reqOpts.configuration!.extract!.compression).toBe('GZIP');
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.extract as any).gzip).toBe(undefined);
         done();
       };
 
@@ -1209,12 +1158,9 @@ describe('BigQuery/Table', () => {
       };
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.jobPrefix, fakeJobPrefix);
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.extract as any).jobPrefix,
-          undefined,
-        );
+        expect(reqOpts.jobPrefix).toBe(fakeJobPrefix);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.extract as any).jobPrefix).toBe(undefined);
         callback(); // the done fn
       };
 
@@ -1227,7 +1173,7 @@ describe('BigQuery/Table', () => {
       };
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.configuration?.reservation, 'reservation/1');
+        expect(reqOpts.configuration?.reservation).toBe('reservation/1');
         callback(); // the done fn
       };
 
@@ -1238,7 +1184,7 @@ describe('BigQuery/Table', () => {
       const table = new Table(DATASET, TABLE_ID, {location: LOCATION});
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.location, LOCATION);
+        expect(reqOpts.location).toBe(LOCATION);
         callback(); // the done fn
       };
 
@@ -1250,12 +1196,9 @@ describe('BigQuery/Table', () => {
       const options = {jobId};
 
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.jobId, jobId);
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.extract as any).jobId,
-          undefined,
-        );
+        expect(reqOpts.jobId).toBe(jobId);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.extract as any).jobId).toBe(undefined);
         callback(); // the done fn
       };
 
@@ -1264,7 +1207,7 @@ describe('BigQuery/Table', () => {
 
     it('should pass the callback to createJob', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(done, callback);
+        expect(done).toBe(callback);
         callback(); // the done fn
       };
 
@@ -1273,7 +1216,7 @@ describe('BigQuery/Table', () => {
 
     it('should optionally accept options', done => {
       table.bigQuery.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert.strictEqual(done, callback);
+        expect(done).toBe(callback);
         callback(); // the done fn
       };
 
@@ -1282,7 +1225,7 @@ describe('BigQuery/Table', () => {
   });
 
   describe('createLoadJob', () => {
-    const FILEPATH = require.resolve('../../test/testdata/testfile.json');
+    const FILEPATH = require.resolve('./testdata/testfile.json');
     const FILE = {
       name: 'file-name.json',
       bucket: {
@@ -1295,19 +1238,19 @@ describe('BigQuery/Table', () => {
       metadata: {},
     };
 
-    let bqCreateJobStub: sinon.SinonStub;
+    let bqCreateJobStub: jest.SpyInstance;
 
     beforeEach(() => {
-      bqCreateJobStub = sinon
-        .stub(table.bigQuery, 'createJob')
-        .resolves([JOB, JOB.metadata]);
+      bqCreateJobStub = jest
+        .spyOn(table.bigQuery, 'createJob')
+        .mockResolvedValue([JOB, JOB.metadata]);
       isCustomTypeOverride = () => {
         return true;
       };
     });
 
     afterEach(() => {
-      bqCreateJobStub.restore();
+      bqCreateJobStub.mockRestore();
     });
 
     it('should accept just a File and a callback', done => {
@@ -1321,16 +1264,16 @@ describe('BigQuery/Table', () => {
       };
 
       table.createLoadJob(FILEPATH, (err: Error, job: Job, resp: {}) => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(job, JOB);
-        assert.strictEqual(resp, JOB.metadata);
+        expect(err).toBe(null);
+        expect(job).toBe(JOB);
+        expect(resp).toBe(JOB.metadata);
         done();
       });
     });
 
     it('should infer the file format from the given filepath', done => {
       table.createWriteStream_ = (metadata: JobLoadMetadata) => {
-        assert.strictEqual(metadata.sourceFormat, 'NEWLINE_DELIMITED_JSON');
+        expect(metadata.sourceFormat).toBe('NEWLINE_DELIMITED_JSON');
         const ws = new stream.Writable();
         setImmediate(() => {
           ws.emit('job', JOB);
@@ -1346,7 +1289,7 @@ describe('BigQuery/Table', () => {
       const error = new Error('Error.');
 
       table.createWriteStream_ = (metadata: JobLoadMetadata) => {
-        assert.strictEqual(metadata.sourceFormat, 'NEWLINE_DELIMITED_JSON');
+        expect(metadata.sourceFormat).toBe('NEWLINE_DELIMITED_JSON');
         const ws = new stream.Writable();
         setImmediate(() => {
           ws.emit('error', error);
@@ -1356,14 +1299,14 @@ describe('BigQuery/Table', () => {
       };
 
       table.createLoadJob(FILEPATH, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should not infer the file format if one is given', done => {
       table.createWriteStream_ = (metadata: JobLoadMetadata) => {
-        assert.strictEqual(metadata.sourceFormat, 'CSV');
+        expect(metadata.sourceFormat).toBe('CSV');
         const ws = new stream.Writable();
         setImmediate(() => {
           ws.emit('job', JOB);
@@ -1377,183 +1320,154 @@ describe('BigQuery/Table', () => {
 
     it('should check if a destination is a File', done => {
       isCustomTypeOverride = (dest: File, type: string) => {
-        assert.strictEqual(dest, FILE);
-        assert.strictEqual(type, 'storage/file');
+        expect(dest).toBe(FILE);
+        expect(type).toBe('storage/file');
         setImmediate(done);
         return true;
       };
 
-      table.createLoadJob(FILE, assert.ifError);
+      table.createLoadJob(FILE, (err: any) => { if (err) done(err); });
     });
 
     it('should throw if a File object is not provided', async () => {
       isCustomTypeOverride = () => {
         return false;
       };
-      await assert.rejects(
-        async () => table.createLoadJob({}),
-        /Source must be a File object/,
-      );
+      await expect(async () => table.createLoadJob({})).rejects.toThrow(/Source must be a File object/);
     });
 
     it('should convert File objects to gs:// urls', async () => {
       await table.createLoadJob(FILE);
-      assert(bqCreateJobStub.calledOnce);
-      assert(
-        bqCreateJobStub.calledWithMatch({
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+      expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
           configuration: {
             load: {
               sourceUris: ['gs://' + FILE.bucket.name + '/' + FILE.name],
             },
           },
-        }),
-      );
+        });
     });
 
     it('should infer the file format from a File object', async () => {
       await table.createLoadJob(FILE);
-      assert(bqCreateJobStub.calledOnce);
-      assert(
-        bqCreateJobStub.calledWithMatch({
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+      expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
           configuration: {
             load: {
               sourceFormat: 'NEWLINE_DELIMITED_JSON',
             },
           },
-        }),
-      );
+        });
     });
 
     it('should not override a provided format with a File', async () => {
       await table.createLoadJob(FILE, {sourceFormat: 'AVRO'});
-      assert(bqCreateJobStub.calledOnce);
-      assert(
-        bqCreateJobStub.calledWithMatch({
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+      expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
           configuration: {
             load: {
               sourceFormat: 'AVRO',
             },
           },
-        }),
-      );
+        });
     });
 
     it('should use bigQuery.createJob', async () => {
       await table.createLoadJob(FILE, {});
-      assert(bqCreateJobStub.calledOnce);
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
     });
 
     it('should optionally accept options', async () => {
       await table.createLoadJob(FILE);
-      assert(bqCreateJobStub.calledOnce);
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
     });
 
     it('should set the job prefix', async () => {
       const jobPrefix = 'abc';
       await table.createLoadJob(FILE, {jobPrefix});
-      assert(bqCreateJobStub.calledOnce);
-      assert(
-        bqCreateJobStub.calledWithMatch({
-          jobPrefix,
-          configuration: {
-            load: {
-              jobPrefix: undefined,
-            },
-          },
-        }),
-      );
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+      expect(bqCreateJobStub.mock.calls[0][0].jobPrefix).toBe(jobPrefix);
+      expect(
+        bqCreateJobStub.mock.calls[0][0].configuration.load.jobPrefix,
+      ).toBeUndefined();
     });
 
     it('should set the job reservation', async () => {
       const reservation = 'reservation/1';
       await table.createLoadJob(FILE, {reservation});
-      assert(bqCreateJobStub.calledOnce);
-      assert(
-        bqCreateJobStub.calledWithMatch({
-          configuration: {
-            reservation,
-          },
-        }),
-      );
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+      expect(
+        bqCreateJobStub.mock.calls[0][0].configuration.reservation,
+      ).toBe(reservation);
     });
 
     it('should use the default location', async () => {
       const table = new Table(DATASET, TABLE_ID, {location: LOCATION});
       await table.createLoadJob(FILE);
-      assert(bqCreateJobStub.calledWithMatch({location: LOCATION}));
+      expect(
+        bqCreateJobStub.mock.calls.some(
+          ([arg]: any) => arg && arg.location === LOCATION,
+        ),
+      ).toBe(true);
     });
 
     it('should accept a job id', async () => {
       const jobId = 'job-id';
       await table.createLoadJob(FILE, {jobId});
-      assert(bqCreateJobStub.calledOnce);
-      assert(
-        bqCreateJobStub.calledWithMatch({
-          jobId,
-          configuration: {
-            load: {
-              jobId: undefined,
-            },
-          },
-        }),
-      );
+      expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+      expect(bqCreateJobStub.mock.calls[0][0].jobId).toBe(jobId);
+      expect(
+        bqCreateJobStub.mock.calls[0][0].configuration.load.jobId,
+      ).toBeUndefined();
     });
 
     describe('formats', () => {
       it('should accept csv', async () => {
         await table.createLoadJob(FILE, {format: 'csv'});
-        assert(bqCreateJobStub.calledOnce);
-        assert(
-          bqCreateJobStub.calledWithMatch({
+        expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+        expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
             configuration: {
               load: {
                 sourceFormat: 'CSV',
               },
             },
-          }),
-        );
+          });
       });
 
       it('should accept json', async () => {
         await table.createLoadJob(FILE, {format: 'json'});
-        assert(bqCreateJobStub.calledOnce);
-        assert(
-          bqCreateJobStub.calledWithMatch({
+        expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+        expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
             configuration: {
               load: {
                 sourceFormat: 'NEWLINE_DELIMITED_JSON',
               },
             },
-          }),
-        );
+          });
       });
 
       it('should accept avro', async () => {
         await table.createLoadJob(FILE, {format: 'avro'});
-        assert(bqCreateJobStub.calledOnce);
-        assert(
-          bqCreateJobStub.calledWithMatch({
+        expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+        expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
             configuration: {
               load: {
                 sourceFormat: 'AVRO',
               },
             },
-          }),
-        );
+          });
       });
 
       it('should accept export_metadata', async () => {
         await table.createLoadJob(FILE, {format: 'export_metadata'});
-        assert(bqCreateJobStub.calledOnce);
-        assert(
-          bqCreateJobStub.calledWithMatch({
+        expect(bqCreateJobStub).toHaveBeenCalledTimes(1);
+        expect(bqCreateJobStub.mock.calls[0][0]).toMatchObject({
             configuration: {
               load: {
                 sourceFormat: 'DATASTORE_BACKUP',
               },
             },
-          }),
-        );
+          });
       });
     });
   });
@@ -1564,21 +1478,21 @@ describe('BigQuery/Table', () => {
       const fakeReturnValue = {};
 
       table.dataset.createQueryJob = (options: Query, callback: Function) => {
-        assert.strictEqual(options, fakeOptions);
+        expect(options).toBe(fakeOptions);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setImmediate(callback as any);
         return fakeReturnValue;
       };
 
       const returnVal = table.createQueryJob(fakeOptions, done);
-      assert.strictEqual(returnVal, fakeReturnValue);
+      expect(returnVal).toBe(fakeReturnValue);
     });
   });
 
   describe('createQueryStream', () => {
     it('should call datasetInstance.createQueryStream()', done => {
       table.dataset.createQueryStream = (a: {}) => {
-        assert.strictEqual(a, 'a');
+        expect(a).toBe('a');
         done();
       };
 
@@ -1591,7 +1505,7 @@ describe('BigQuery/Table', () => {
         return fakeValue;
       };
       const val = table.createQueryStream();
-      assert.strictEqual(val, fakeValue);
+      expect(val).toBe(fakeValue);
     });
   });
 
@@ -1603,7 +1517,7 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const load = options.metadata.configuration!.load!;
-          assert.strictEqual(load.sourceFormat, 'DATASTORE_BACKUP');
+          expect(load.sourceFormat).toBe('DATASTORE_BACKUP');
           done();
         };
 
@@ -1616,7 +1530,7 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const load = options.metadata.configuration!.load!;
-          assert.strictEqual(load.sourceFormat, 'CSV');
+          expect(load.sourceFormat).toBe('CSV');
           done();
         };
 
@@ -1629,7 +1543,7 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const load = options.metadata.configuration!.load!;
-          assert.strictEqual(load.sourceFormat, 'NEWLINE_DELIMITED_JSON');
+          expect(load.sourceFormat).toBe('NEWLINE_DELIMITED_JSON');
           done();
         };
 
@@ -1642,7 +1556,7 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const load = options.metadata.configuration!.load!;
-          assert.strictEqual(load.sourceFormat, 'AVRO');
+          expect(load.sourceFormat).toBe('AVRO');
           done();
         };
 
@@ -1655,7 +1569,7 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const load = options.metadata.configuration!.load!;
-          assert.strictEqual(load.sourceFormat, 'DATASTORE_BACKUP');
+          expect(load.sourceFormat).toBe('DATASTORE_BACKUP');
           done();
         };
 
@@ -1666,7 +1580,7 @@ describe('BigQuery/Table', () => {
     it('should format a schema', done => {
       const expectedSchema = {};
       tableOverrides.createSchemaFromString_ = (s: string) => {
-        assert.strictEqual(s, SCHEMA_STRING);
+        expect(s).toBe(SCHEMA_STRING);
         return expectedSchema;
       };
 
@@ -1675,7 +1589,7 @@ describe('BigQuery/Table', () => {
         options: MakeWritableStreamOptions,
       ) => {
         const load = options.metadata.configuration!.load!;
-        assert.deepStrictEqual(load.schema, expectedSchema);
+        expect(load.schema).toEqual(expectedSchema);
         done();
       };
 
@@ -1694,10 +1608,7 @@ describe('BigQuery/Table', () => {
         stream: stream.Stream,
         options: MakeWritableStreamOptions,
       ) => {
-        assert.deepStrictEqual(
-          options.metadata.configuration?.load?.destinationTable,
-          expectedMetadata.destinationTable,
-        );
+        expect(options.metadata.configuration?.load?.destinationTable).toEqual(expectedMetadata.destinationTable);
         done();
       };
 
@@ -1713,7 +1624,7 @@ describe('BigQuery/Table', () => {
     });
 
     it('should return a stream', () => {
-      assert(table.createWriteStream_() instanceof stream.Stream);
+      expect(table.createWriteStream_() instanceof stream.Stream).toBe(true);
     });
 
     describe('writable stream', () => {
@@ -1723,14 +1634,12 @@ describe('BigQuery/Table', () => {
       beforeEach(() => {
         fakeJob = new EventEmitter();
         fakeJobId = crypto.randomUUID();
-        sandbox
-          .stub(fakeCrypto, 'randomUUID')
-          .returns(fakeJobId as crypto.UUID);
+        jest.spyOn(crypto, 'randomUUID').mockReturnValue(fakeJobId as crypto.UUID);
       });
 
       it('should make a writable stream when written to', done => {
         makeWritableStreamOverride = (s: {}) => {
-          assert.strictEqual(s, stream);
+          expect(s).toBe(stream);
           done();
         };
         const stream = table.createWriteStream_();
@@ -1742,7 +1651,7 @@ describe('BigQuery/Table', () => {
           stream: stream.Stream,
           options: MakeWritableStreamOptions,
         ) => {
-          assert.deepStrictEqual(options.metadata, {
+          expect(options.metadata).toEqual({
             configuration: {
               load: {
                 a: 'b',
@@ -1776,7 +1685,7 @@ describe('BigQuery/Table', () => {
             '/upload/bigquery/v2/projects/' +
             table.dataset.projectId +
             '/jobs';
-          assert.strictEqual(options.request.uri, uri);
+          expect(options.request.uri).toBe(uri);
           done();
         };
 
@@ -1792,11 +1701,11 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const jobId = options.metadata.jobReference!.jobId;
-          assert.strictEqual(jobId, expectedJobId);
+          expect(jobId).toBe(expectedJobId);
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const config = options.metadata.configuration!.load as any;
-          assert.strictEqual(config.jobPrefix, undefined);
+          expect(config.jobPrefix).toBe(undefined);
 
           done();
         };
@@ -1812,7 +1721,7 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const location = options.metadata.jobReference!.location;
-          assert.strictEqual(location, LOCATION);
+          expect(location).toBe(LOCATION);
 
           done();
         };
@@ -1829,11 +1738,11 @@ describe('BigQuery/Table', () => {
           options: MakeWritableStreamOptions,
         ) => {
           const jobReference = options.metadata.jobReference!;
-          assert.strictEqual(jobReference.jobId, jobId);
+          expect(jobReference.jobId).toBe(jobId);
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const config = options.metadata.configuration!.load as any;
-          assert.strictEqual(config.jobId, undefined);
+          expect(config.jobId).toBe(undefined);
 
           done();
         };
@@ -1853,8 +1762,8 @@ describe('BigQuery/Table', () => {
         };
 
         table.bigQuery.job = (id: string, options: {}) => {
-          assert.strictEqual(id, metadata.jobReference!.jobId);
-          assert.deepStrictEqual(options, {
+          expect(id).toBe(metadata.jobReference!.jobId);
+          expect(options).toEqual({
             location: metadata.jobReference!.location,
             projectId: metadata.jobReference!.projectId,
           });
@@ -1872,8 +1781,8 @@ describe('BigQuery/Table', () => {
         table
           .createWriteStream_()
           .on('job', (job: Job) => {
-            assert.strictEqual(job, fakeJob);
-            assert.deepStrictEqual(job.metadata, metadata);
+            expect(job).toBe(fakeJob);
+            expect(job.metadata).toEqual(metadata);
             done();
           })
           .emit('writing');
@@ -1896,7 +1805,7 @@ describe('BigQuery/Table', () => {
       const fakeMetadata = {};
 
       table.createWriteStream_ = (metadata: {}) => {
-        assert.strictEqual(metadata, fakeMetadata);
+        expect(metadata).toBe(fakeMetadata);
         setImmediate(done);
         return new EventEmitter();
       };
@@ -1913,14 +1822,14 @@ describe('BigQuery/Table', () => {
 
       table.createWriteStream().emit('prefinish');
 
-      assert.strictEqual(corked, true);
+      expect(corked).toBe(true);
     });
 
     it('should destroy the stream on job error', done => {
       const error = new Error('error');
 
       fakeStream.destroy = (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       };
 
@@ -1938,10 +1847,10 @@ describe('BigQuery/Table', () => {
       };
 
       stream.on('complete', (job: {}) => {
-        assert.strictEqual(job, fakeJob);
+        expect(job).toBe(fakeJob);
 
         setImmediate(() => {
-          assert.strictEqual(uncorked, true);
+          expect(uncorked).toBe(true);
           done();
         });
       });
@@ -1971,21 +1880,21 @@ describe('BigQuery/Table', () => {
       const fakeMetadata = {};
 
       table.createExtractJob = (destination: {}, metadata: {}) => {
-        assert.strictEqual(destination, fakeDestination);
-        assert.strictEqual(metadata, fakeMetadata);
+        expect(destination).toBe(fakeDestination);
+        expect(metadata).toBe(fakeMetadata);
         done();
       };
 
-      table.extract(fakeDestination, fakeMetadata, assert.ifError);
+      table.extract(fakeDestination, fakeMetadata, (err: any) => { if (err) done(err); });
     });
 
     it('should optionally accept metadata', done => {
       table.createExtractJob = (destination: {}, metadata: {}) => {
-        assert.deepStrictEqual(metadata, {});
+        expect(metadata).toEqual({});
         done();
       };
 
-      table.extract({}, assert.ifError);
+      table.extract({}, (err: any) => { if (err) done(err); });
     });
 
     it('should return any createExtractJob errors', done => {
@@ -2001,8 +1910,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.extract({}, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, response);
+        expect(err).toBe(error);
+        expect(resp).toBe(response);
         done();
       });
     });
@@ -2011,7 +1920,7 @@ describe('BigQuery/Table', () => {
       const error = new Error('err');
 
       table.extract({}, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
 
@@ -2022,8 +1931,8 @@ describe('BigQuery/Table', () => {
       const metadata = {};
 
       table.extract({}, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, metadata);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(metadata);
         done();
       });
 
@@ -2051,8 +1960,8 @@ describe('BigQuery/Table', () => {
             };
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.uri, '/data');
-        assert.deepStrictEqual(reqOpts.qs, {
+        expect(reqOpts.uri).toBe('/data');
+        expect(reqOpts.qs).toEqual({
           ...options,
           ...formatOptions,
         });
@@ -2071,10 +1980,10 @@ describe('BigQuery/Table', () => {
       };
 
       table.getRows((err: Error, rows: {}, nextQuery: {}, apiResponse_: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(rows, null);
-        assert.strictEqual(nextQuery, null);
-        assert.strictEqual(apiResponse_, apiResponse);
+        expect(err).toBe(error);
+        expect(rows).toBe(null);
+        expect(nextQuery).toBe(null);
+        expect(apiResponse_).toBe(apiResponse);
 
         done();
       });
@@ -2095,13 +2004,13 @@ describe('BigQuery/Table', () => {
           setImmediate(callback, null, {rows});
         };
 
-        sandbox.restore();
-        sandbox
-          .stub(BigQuery, 'mergeSchemaWithRows_')
-          .callsFake((schema_, rows_, options_) => {
-            assert.strictEqual(schema_, schema);
-            assert.strictEqual(rows_, rows);
-            assert.strictEqual(options_.wrapIntegers, wrapIntegers);
+        jest.restoreAllMocks();
+        jest
+          .spyOn(BigQuery, 'mergeSchemaWithRows_')
+          .mockImplementation((schema_: any, rows_: any, options_: any) => {
+            expect(schema_).toBe(schema);
+            expect(rows_).toBe(rows);
+            expect(options_.wrapIntegers).toBe(wrapIntegers);
             return mergedRows;
           });
       });
@@ -2118,8 +2027,8 @@ describe('BigQuery/Table', () => {
 
         // Step 3: execute original complete handler with schema-merged rows.
         function responseHandler(err: Error, rows: {}) {
-          assert.ifError(err);
-          assert.strictEqual(rows, mergedRows);
+          expect(err).toBeFalsy();
+          expect(rows).toBe(mergedRows);
           done();
         }
       });
@@ -2143,10 +2052,10 @@ describe('BigQuery/Table', () => {
           nextQuery: {},
           apiResponse_: {},
         ) {
-          assert.strictEqual(err, error);
-          assert.strictEqual(rows, null);
-          assert.strictEqual(nextQuery, null);
-          assert.strictEqual(apiResponse_, apiResponse);
+          expect(err).toBe(error);
+          expect(rows).toBe(null);
+          expect(nextQuery).toBe(null);
+          expect(apiResponse_).toBe(apiResponse);
           done();
         }
       });
@@ -2164,19 +2073,19 @@ describe('BigQuery/Table', () => {
         callback(null, {rows});
       };
 
-      sandbox.restore();
-      sandbox
-        .stub(BigQuery, 'mergeSchemaWithRows_')
-        .callsFake((schema_, rows_, options_) => {
-          assert.strictEqual(schema_, schema);
-          assert.strictEqual(rows_, rows);
-          assert.strictEqual(options_.wrapIntegers, wrapIntegers);
+      jest.restoreAllMocks();
+      jest
+        .spyOn(BigQuery, 'mergeSchemaWithRows_')
+        .mockImplementation((schema_: any, rows_: any, options_: any) => {
+          expect(schema_).toBe(schema);
+          expect(rows_).toBe(rows);
+          expect(options_.wrapIntegers).toBe(wrapIntegers);
           return merged;
         });
 
       table.getRows((err: Error, rows: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(rows, merged);
+        expect(err).toBeFalsy();
+        expect(rows).toBe(merged);
         done();
       });
     });
@@ -2191,8 +2100,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.getRows((err: Error, rows: {}, nextQuery: {}, apiResponse: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(apiResponse, {rows: [{f: [{v: 'stephen'}]}]});
+        expect(err).toBeFalsy();
+        expect(apiResponse).toEqual({rows: [{f: [{v: 'stephen'}]}]});
         done();
       });
     });
@@ -2206,16 +2115,16 @@ describe('BigQuery/Table', () => {
         callback(null, {rows});
       };
 
-      sandbox.restore();
-      const mergeStub = sandbox.stub(BigQuery, 'mergeSchemaWithRows_');
+      jest.restoreAllMocks();
+      const mergeStub = jest.spyOn(BigQuery, 'mergeSchemaWithRows_');
 
       table.getRows(
         {skipParsing: true},
         (err: Error, rows_: {}[], nextQuery: {}, apiResponse: any) => {
-          assert.ifError(err);
-          assert.strictEqual(rows_, rows);
-          assert.strictEqual(mergeStub.called, false);
-          assert.deepStrictEqual(apiResponse.rows, rows);
+          expect(err).toBeFalsy();
+          expect(rows_).toBe(rows);
+          expect(mergeStub).not.toHaveBeenCalled();
+          expect(apiResponse.rows).toEqual(rows);
           done();
         },
       );
@@ -2250,15 +2159,15 @@ describe('BigQuery/Table', () => {
             };
 
       table.getRows(options, (err: Error, rows: {}, nextQuery: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(nextQuery, {
+        expect(err).toBeFalsy();
+        expect(nextQuery).toEqual({
           a: 'b',
           c: 'd',
           ...formatOptions,
           pageToken,
         });
         // Original object isn't affected.
-        assert.deepStrictEqual(options, {a: 'b', c: 'd'});
+        expect(options).toEqual({a: 'b', c: 'd'});
         done();
       });
     });
@@ -2276,16 +2185,16 @@ describe('BigQuery/Table', () => {
 
       table.metadata = {schema};
 
-      sandbox.restore();
+      jest.restoreAllMocks();
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert(reqOpts.qs.selectedFields, selectedFields);
+        expect(reqOpts.qs.selectedFields).toBe(selectedFields);
         callback(null, {rows});
       };
 
       table.getRows({selectedFields}, (err: Error, rows: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(rows, result);
+        expect(err).toBeFalsy();
+        expect(rows).toEqual(result);
         done();
       });
     });
@@ -2362,7 +2271,7 @@ describe('BigQuery/Table', () => {
 
       table.metadata = {schema};
 
-      sandbox.restore();
+      jest.restoreAllMocks();
 
       for (const [i, call] of callSequence.entries()) {
         table.request = (
@@ -2374,8 +2283,8 @@ describe('BigQuery/Table', () => {
         table.getRows(
           {selectedFields: call.selectedFields.join(',')},
           (err: Error, rows: {}) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(rows, call.expected);
+            expect(err).toBeFalsy();
+            expect(rows).toEqual(call.expected);
             if (i === callSequence.length - 1) {
               done();
             }
@@ -2451,21 +2360,21 @@ describe('BigQuery/Table', () => {
 
       table.metadata = {schema};
 
-      sandbox.restore();
+      jest.restoreAllMocks();
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
         callback(null, {rows});
       };
 
       table.getRows({selectedFields}, (err: Error, rows: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(rows, result);
+        expect(err).toBeFalsy();
+        expect(rows).toEqual(result);
         done();
       });
     });
 
     it('should wrap integers', done => {
-      const wrapIntegers = {integerTypeCastFunction: sinon.stub()};
+      const wrapIntegers = {integerTypeCastFunction: jest.fn()};
       const options = {wrapIntegers};
       const merged = [{name: 'stephen'}];
       const formatOptions =
@@ -2478,17 +2387,17 @@ describe('BigQuery/Table', () => {
             };
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert.deepStrictEqual(reqOpts.qs, {
+        expect(reqOpts.qs).toEqual({
           ...formatOptions,
         });
         callback(null, {});
       };
 
-      sandbox.restore();
-      sandbox
-        .stub(BigQuery, 'mergeSchemaWithRows_')
-        .callsFake((schema_, rows_, options_) => {
-          assert.strictEqual(options_.wrapIntegers, wrapIntegers);
+      jest.restoreAllMocks();
+      jest
+        .spyOn(BigQuery, 'mergeSchemaWithRows_')
+        .mockImplementation((schema_: any, rows_: any, options_: any) => {
+          expect(options_.wrapIntegers).toBe(wrapIntegers);
           return merged;
         });
 
@@ -2510,17 +2419,17 @@ describe('BigQuery/Table', () => {
             };
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert.deepStrictEqual(reqOpts.qs, {
+        expect(reqOpts.qs).toEqual({
           ...formatOptions,
         });
         callback(null, {});
       };
 
-      sandbox.restore();
-      sandbox
-        .stub(BigQuery, 'mergeSchemaWithRows_')
-        .callsFake((schema_, rows_, options_) => {
-          assert.strictEqual(options_.parseJSON, true);
+      jest.restoreAllMocks();
+      jest
+        .spyOn(BigQuery, 'mergeSchemaWithRows_')
+        .mockImplementation((schema_: any, rows_: any, options_: any) => {
+          expect(options_.parseJSON).toBe(true);
           return merged;
         });
 
@@ -2560,29 +2469,27 @@ describe('BigQuery/Table', () => {
       schema: SCHEMA_STRING,
     };
 
-    let clock: sinon.SinonFakeTimers;
-    let insertSpy: sinon.SinonSpy;
-    let requestStub: sinon.SinonStub;
+    let insertSpy: jest.SpyInstance;
+    let requestStub: jest.SpyInstance;
 
-    before(() => {
-      clock = sinon.useFakeTimers() as sinon.SinonFakeTimers;
+    beforeAll(() => {
+      jest.useFakeTimers();
     });
 
     beforeEach(() => {
-      insertSpy = sinon.spy(table, '_insert');
-      requestStub = sinon.stub(table, 'request').resolves([{}]);
-      sandbox
-        .stub(fakeCrypto, 'randomUUID')
-        .returns(fakeInsertId as crypto.UUID);
+      insertSpy = jest.spyOn(table, '_insert');
+      requestStub = jest.spyOn(table, 'request').mockResolvedValue([{}]);
+      jest
+        .spyOn(crypto, 'randomUUID')
+        .mockReturnValue(fakeInsertId as crypto.UUID);
     });
 
     afterEach(() => {
-      clock.reset();
-      insertSpy.restore();
+      insertSpy.mockRestore();
     });
 
-    after(() => {
-      clock.restore();
+    afterAll(() => {
+      jest.useRealTimers();
     });
 
     /**
@@ -2602,91 +2509,78 @@ describe('BigQuery/Table', () => {
 
       const fnPromise: Promise<FnReturn> = fn();
       const reflectedPromise = pReflect(fnPromise);
-      await clock.runAllAsync();
+      await jest.runAllTimersAsync();
       return reflectedPromise;
     }
 
     it('should throw an error if rows is empty', async () => {
-      await assert.rejects(
-        async () => table.insert([]),
-        /You must provide at least 1 row to be inserted/,
-      );
+      await expect(async () => table.insert([])).rejects.toThrow(/You must provide at least 1 row to be inserted/);
     });
 
     it('should save data', async () => {
       await table.insert(data);
-      assert(
-        requestStub.calledOnceWithExactly({
+      expect(requestStub).toHaveBeenCalledTimes(1); expect(requestStub).toHaveBeenCalledWith({
           method: 'POST',
           uri: '/insertAll',
           json: dataApiFormat,
-        }),
-      );
+        });
     });
 
     it('should return a promise if no callback is provided', () => {
       const promise = table.insert(data);
-      assert(promise instanceof Promise);
+      expect(promise instanceof Promise).toBe(true);
     });
 
     it('should resolve to an array on success', async () => {
       const resp = await table.insert(data);
-      assert(Array.isArray(resp));
+      expect(Array.isArray(resp)).toBe(true);
     });
 
     it('should generate insertId', async () => {
       await table.insert([data[0]]);
-      assert(
-        requestStub.calledOnceWith(
-          sinon.match.hasNested('json.rows[0].insertId', fakeInsertId),
-        ),
-      );
+      expect(requestStub).toHaveBeenCalledTimes(1);
+      expect(requestStub.mock.calls[0][0].json.rows[0].insertId).toBe(fakeInsertId);
     });
 
     it('should omit the insertId if createInsertId is false', async () => {
       await table.insert([data[0]], {createInsertId: false});
-      assert(requestStub.calledOnce);
-      assert(
-        requestStub.calledWithMatch(
-          ({json}: DecorateRequestOptions) =>
-            json.rows[0].insertId === undefined &&
-            json.createInsertId === undefined,
-        ),
-      );
+      expect(requestStub).toHaveBeenCalledTimes(1);
+      expect(requestStub.mock.calls[0][0].json.rows[0].insertId).toBeUndefined();
+      expect(requestStub.mock.calls[0][0].json.createInsertId).toBeUndefined();
     });
 
     it('should execute callback with API response', done => {
       const apiResponse = {insertErrors: []};
-      requestStub.resolves([apiResponse]);
+      requestStub.mockResolvedValue([apiResponse]);
 
       table.insert(data, (err: Error, apiResponse_: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(apiResponse_, apiResponse);
+        expect(err).toBeFalsy();
+        expect(apiResponse_).toBe(apiResponse);
         done();
       });
     });
 
     it('should execute callback with error & API response', done => {
       const error = new Error('Error.');
-      requestStub.rejects(error);
+      requestStub.mockRejectedValue(error);
 
       table.insert(data, (err: Error, apiResponse_: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(apiResponse_, null);
+        expect(err).toBe(error);
+        expect(apiResponse_).toBe(null);
         done();
       });
     });
 
     it('should reject with API error', async () => {
       const error = new Error('Error.');
-      requestStub.rejects(error);
-      await assert.rejects(async () => table.insert(data), error);
+      requestStub.mockRejectedValue(error);
+      await expect(async () => table.insert(data)).rejects.toThrow(error);
     });
 
     it('should return partial failures', async () => {
       const row0Error = {message: 'Error.', reason: 'notFound'};
       const row1Error = {message: 'Error.', reason: 'notFound'};
-      requestStub.resolves([
+      requestStub.mockResolvedValue([
         {
           insertErrors: [
             {index: 0, errors: [row0Error]},
@@ -2696,9 +2590,9 @@ describe('BigQuery/Table', () => {
       ]);
 
       const reflection = await reflectAfterTimer(() => table.insert(data));
-      assert(reflection.isRejected);
+      expect(reflection.isRejected).toBe(true);
       const {reason} = reflection;
-      assert.deepStrictEqual((reason as GoogleErrorBody).errors, [
+      expect((reason as GoogleErrorBody).errors).toEqual([
         {
           row: dataApiFormat.rows[0].json,
           errors: [row0Error],
@@ -2712,8 +2606,8 @@ describe('BigQuery/Table', () => {
 
     it('should retry partials default max 3', async () => {
       const rowError = {message: 'Error.', reason: 'try again plz'};
-      requestStub.resetBehavior();
-      requestStub.resolves([
+      requestStub.mockReset();
+      requestStub.mockResolvedValue([
         {
           insertErrors: [
             {index: 0, errors: [rowError]},
@@ -2727,15 +2621,15 @@ describe('BigQuery/Table', () => {
       const reflection = await reflectAfterTimer(() =>
         table.insert(data, OPTIONS),
       );
-      assert(reflection.isRejected);
-      assert.strictEqual(insertSpy.callCount, 4);
+      expect(reflection.isRejected).toBe(true);
+      expect(insertSpy).toHaveBeenCalledTimes(4);
     });
 
     it('should retry partials with optional max', async () => {
       const partialRetries = 6;
       const rowError = {message: 'Error.', reason: 'try again plz'};
-      requestStub.resetBehavior();
-      requestStub.resolves([
+      requestStub.mockReset();
+      requestStub.mockResolvedValue([
         {
           insertErrors: [
             {index: 0, errors: [rowError]},
@@ -2749,14 +2643,14 @@ describe('BigQuery/Table', () => {
       const reflection = await reflectAfterTimer(() =>
         table.insert(data, {...OPTIONS, partialRetries}),
       );
-      assert(reflection.isRejected);
-      assert.strictEqual(insertSpy.callCount, partialRetries + 1);
+      expect(reflection.isRejected).toBe(true);
+      expect(insertSpy).toHaveBeenCalledTimes(partialRetries + 1);
     });
 
     it('should allow 0 partial retries, but still do it once', async () => {
       const rowError = {message: 'Error.', reason: 'try again plz'};
-      requestStub.resetBehavior();
-      requestStub.resolves([
+      requestStub.mockReset();
+      requestStub.mockResolvedValue([
         {
           insertErrors: [
             {index: 0, errors: [rowError]},
@@ -2770,14 +2664,14 @@ describe('BigQuery/Table', () => {
       const reflection = await reflectAfterTimer(() =>
         table.insert(data, {...OPTIONS, partialRetries: 0}),
       );
-      assert(reflection.isRejected);
-      assert.strictEqual(insertSpy.callCount, 1);
+      expect(reflection.isRejected).toBe(true);
+      expect(insertSpy).toHaveBeenCalledTimes(1);
     });
 
     it('should keep partial retries option non-negative', async () => {
       const rowError = {message: 'Error.', reason: 'try again plz'};
-      requestStub.resetBehavior();
-      requestStub.resolves([
+      requestStub.mockReset();
+      requestStub.mockResolvedValue([
         {
           insertErrors: [
             {index: 0, errors: [rowError]},
@@ -2791,84 +2685,72 @@ describe('BigQuery/Table', () => {
       const reflection = await reflectAfterTimer(() =>
         table.insert(data, {...OPTIONS, partialRetries: -1}),
       );
-      assert(reflection.isRejected);
-      assert.strictEqual(insertSpy.callCount, 1);
+      expect(reflection.isRejected).toBe(true);
+      expect(insertSpy).toHaveBeenCalledTimes(1);
     });
 
     it('should retry partial inserts deltas', async () => {
       const rowError = {message: 'Error.', reason: 'try again plz'};
-      requestStub.resetBehavior();
-      requestStub.onCall(0).resolves([
-        {
-          insertErrors: [
-            {index: 0, errors: [rowError]},
-            {index: 1, errors: [rowError]},
-            {index: 2, errors: [rowError]},
-            {index: 3, errors: [rowError]},
-          ],
-        },
-      ]);
-
-      requestStub.onCall(1).resolves([
-        {
-          insertErrors: [
-            {index: 0, errors: [rowError]},
-            {index: 1, errors: [rowError]},
-            {index: 2, errors: [rowError]},
-          ],
-        },
-      ]);
-
-      requestStub.onCall(2).resolves([
-        {
-          insertErrors: [
-            {index: 1, errors: [rowError]},
-            {index: 2, errors: [rowError]},
-          ],
-        },
-      ]);
+      requestStub
+        .mockResolvedValueOnce([
+          {
+            insertErrors: [
+              {index: 0, errors: [rowError]},
+              {index: 1, errors: [rowError]},
+              {index: 2, errors: [rowError]},
+              {index: 3, errors: [rowError]},
+            ],
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            insertErrors: [
+              {index: 0, errors: [rowError]},
+              {index: 1, errors: [rowError]},
+              {index: 2, errors: [rowError]},
+            ],
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            insertErrors: [
+              {index: 1, errors: [rowError]},
+              {index: 2, errors: [rowError]},
+            ],
+          },
+        ]);
 
       const goodResponse = [{foo: 'bar'}];
-      requestStub.onCall(3).resolves(goodResponse);
+      requestStub.mockResolvedValue(goodResponse);
 
       const reflection = await reflectAfterTimer(() =>
         table.insert(data, OPTIONS),
       );
-      assert(reflection.isFulfilled);
+      expect(reflection.isFulfilled).toBe(true);
 
-      assert.deepStrictEqual(
-        requestStub.getCall(0).args[0].json,
-        dataApiFormat,
-        'first call: try all 5',
-      );
-      assert.deepStrictEqual(
-        requestStub.getCall(1).args[0].json,
-        {rows: dataApiFormat.rows.slice(0, 4)},
-        'second call: previous failures were 4/5',
-      );
-      assert.deepStrictEqual(
-        requestStub.getCall(2).args[0].json,
-        {rows: dataApiFormat.rows.slice(0, 3)},
-        'third call: previous failures were 3/5',
-      );
-      assert.deepStrictEqual(
-        requestStub.getCall(3).args[0].json,
-        {rows: dataApiFormat.rows.slice(1, 3)},
-        'fourth call: previous failures were 2/5',
-      );
-      assert(!requestStub.getCall(4), 'fifth call: should not have happened');
-      assert.ok(reflection.value);
+      expect(requestStub.mock.calls[0][0].json).toEqual(dataApiFormat);
+      expect(requestStub.mock.calls[1][0].json).toEqual({
+        rows: dataApiFormat.rows.slice(0, 4),
+      });
+      expect(requestStub.mock.calls[2][0].json).toEqual({
+        rows: dataApiFormat.rows.slice(0, 3),
+      });
+      expect(requestStub.mock.calls[3][0].json).toEqual({
+        rows: dataApiFormat.rows.slice(1, 3),
+      });
+      expect(requestStub.mock.calls.length).toBeLessThanOrEqual(4);
+      expect(reflection.value).toBeTruthy();
     });
 
     it('should insert raw data', async () => {
       const opts = {raw: true};
       await table.insert(rawData, opts);
-      assert(requestStub.calledOnce);
+      expect(requestStub).toHaveBeenCalledTimes(1);
 
-      const [reqOpts]: DecorateRequestOptions[] = requestStub.firstCall.args;
-      assert.strictEqual(reqOpts.method, 'POST');
-      assert.strictEqual(reqOpts.uri, '/insertAll');
-      assert.deepStrictEqual(reqOpts.json, {rows: rawData});
+      const [reqOpts]: DecorateRequestOptions[] = requestStub.mock.calls[0];
+      expect(reqOpts.method).toBe('POST');
+      expect(reqOpts.uri).toBe('/insertAll');
+      expect(reqOpts.json).toEqual({rows: rawData});
     });
 
     it('should accept options', async () => {
@@ -2879,56 +2761,50 @@ describe('BigQuery/Table', () => {
       };
 
       await table.insert(data, opts);
-      assert(requestStub.calledOnce);
+      expect(requestStub).toHaveBeenCalledTimes(1);
 
-      const [reqOpts]: DecorateRequestOptions[] = requestStub.firstCall.args;
-      assert.strictEqual(reqOpts.method, 'POST');
-      assert.strictEqual(reqOpts.uri, '/insertAll');
+      const [reqOpts]: DecorateRequestOptions[] = requestStub.mock.calls[0];
+      expect(reqOpts.method).toBe('POST');
+      expect(reqOpts.uri).toBe('/insertAll');
 
-      assert.strictEqual(
-        reqOpts.json.ignoreUnknownValues,
-        opts.ignoreUnknownValues,
-      );
-      assert.strictEqual(reqOpts.json.skipInvalidRows, opts.skipInvalidRows);
-      assert.strictEqual(reqOpts.json.templateSuffix, opts.templateSuffix);
+      expect(reqOpts.json.ignoreUnknownValues).toBe(opts.ignoreUnknownValues);
+      expect(reqOpts.json.skipInvalidRows).toBe(opts.skipInvalidRows);
+      expect(reqOpts.json.templateSuffix).toBe(opts.templateSuffix);
 
-      assert.deepStrictEqual(reqOpts.json.rows, dataApiFormat.rows);
+      expect(reqOpts.json.rows).toEqual(dataApiFormat.rows);
     });
 
     describe('create table and retry', () => {
-      let createStub: sinon.SinonStub;
-      let insertCreateSpy: sinon.SinonSpy;
+      let createStub: jest.SpyInstance;
+      let insertCreateSpy: jest.SpyInstance;
 
       beforeEach(() => {
-        insertCreateSpy = sinon.spy(table, '_insertAndCreateTable');
-        createStub = sinon.stub(table, 'create').resolves([{}]);
-        requestStub.onFirstCall().rejects({code: 404});
+        insertCreateSpy = jest.spyOn(table, '_insertAndCreateTable');
+        createStub = jest.spyOn(table, 'create').mockResolvedValue([{}]);
+        requestStub.mockRejectedValueOnce({code: 404});
       });
 
       afterEach(() => {
-        insertCreateSpy.restore();
-        createStub.restore();
+        insertCreateSpy.mockRestore();
+        createStub.mockRestore();
       });
 
       it('should not include the schema in the insert request', async () => {
-        requestStub.reset();
-        requestStub.resolves([{}]);
+        requestStub.mockReset();
+        requestStub.mockResolvedValue([{}]);
 
         await table.insert(data, OPTIONS);
-        assert(requestStub.calledOnce);
-        assert.strictEqual(
-          requestStub.firstCall.lastArg.json.schema,
-          undefined,
-        );
+        expect(requestStub).toHaveBeenCalledTimes(1);
+        expect(requestStub.mock.calls[0][0].json.schema).toBeUndefined();
       });
 
       it('should attempt to create table if not created', async () => {
         const reflection = await reflectAfterTimer(() =>
           table.insert(data, OPTIONS),
         );
-        assert(reflection.isFulfilled);
-        assert(createStub.calledOnce);
-        assert.strictEqual(createStub.firstCall.lastArg.schema, SCHEMA_STRING);
+        expect(reflection.isFulfilled).toBe(true);
+        expect(createStub).toHaveBeenCalledTimes(1);
+        expect(createStub.mock.calls[0][0].schema).toBe(SCHEMA_STRING);
       });
 
       it('should set a timeout to insert rows in the created table', async () => {
@@ -2939,69 +2815,68 @@ describe('BigQuery/Table', () => {
         const remainingCheckDelay = expectedDelay - firstCheckDelay;
 
         void pReflect(table.insert(data, OPTIONS)); // gracefully handle async errors
-        assert(insertCreateSpy.calledOnce); // just called `insert`, that's 1 so far
+        expect(insertCreateSpy).toHaveBeenCalledTimes(1); // just called `insert`, that's 1 so far
 
-        await clock.tickAsync(firstCheckDelay); // first 50s
-        assert(insertCreateSpy.calledOnce);
-        assert(createStub.calledOnce, 'must create table before inserting');
+        await jest.advanceTimersByTimeAsync(firstCheckDelay); // first 50s
+        expect(insertCreateSpy).toHaveBeenCalledTimes(1);
+        expect(createStub).toHaveBeenCalledTimes(1);
 
-        await clock.tickAsync(remainingCheckDelay); // first 50s + 10s = 60s
-        assert(insertCreateSpy.calledTwice);
-        assert.strictEqual(insertCreateSpy.secondCall.args[0], data);
-        assert.strictEqual(insertCreateSpy.secondCall.args[1], OPTIONS);
+        await jest.advanceTimersByTimeAsync(remainingCheckDelay); // first 50s + 10s = 60s
+        expect(insertCreateSpy).toHaveBeenCalledTimes(2);
+        expect(insertCreateSpy.mock.calls[1][0]).toBe(data);
+        expect(insertCreateSpy.mock.calls[1][1]).toBe(OPTIONS);
 
-        await clock.runAllAsync(); // for good measure
-        assert(
-          insertCreateSpy.calledTwice,
-          'should not have called insert again',
-        );
+        await jest.runAllTimersAsync(); // for good measure
+        expect(insertCreateSpy).toHaveBeenCalledTimes(2);
       });
 
       it('should reject on table creation errors', async () => {
         const error = new Error('err.');
-        createStub.rejects(error);
+        createStub.mockRejectedValue(error);
 
         const reflection = await reflectAfterTimer(() =>
           table.insert(data, OPTIONS),
         );
-        assert(reflection.isRejected);
-        assert.strictEqual(reflection.reason, error);
+        expect(reflection.isRejected).toBe(true);
+        expect(reflection.reason).toBe(error);
       });
 
       it('should ignore 409 errors', async () => {
-        createStub.rejects({code: 409});
+        createStub.mockRejectedValue({code: 409});
 
         const reflection = await reflectAfterTimer(() =>
           table.insert(data, OPTIONS),
         );
-        assert(reflection.isFulfilled);
-        assert(createStub.calledOnce);
-        assert(insertCreateSpy.calledTwice);
-        assert.strictEqual(insertCreateSpy.secondCall.args[0], data);
-        assert.strictEqual(insertCreateSpy.secondCall.args[1], OPTIONS);
+        expect(reflection.isFulfilled).toBe(true);
+        expect(createStub).toHaveBeenCalledTimes(1);
+        expect(insertCreateSpy).toHaveBeenCalledTimes(2);
+        expect(insertCreateSpy.mock.calls[1][0]).toBe(data);
+        expect(insertCreateSpy.mock.calls[1][1]).toBe(OPTIONS);
       });
 
       it('should retry the insert', async () => {
         const errorResponse = {code: 404};
-        requestStub.onFirstCall().rejects(errorResponse);
-        requestStub.onSecondCall().rejects(errorResponse);
+        requestStub.mockReset();
+        requestStub
+          .mockRejectedValueOnce(errorResponse)
+          .mockRejectedValueOnce(errorResponse);
 
         const goodResponse = [{foo: 'bar'}];
-        requestStub.onThirdCall().resolves(goodResponse);
+        requestStub.mockResolvedValueOnce(goodResponse);
 
         const reflection = await reflectAfterTimer(() =>
           table.insert(data, OPTIONS),
         );
-        assert(reflection.isFulfilled);
-        assert(requestStub.calledThrice);
-        assert(
-          requestStub.alwaysCalledWithMatch({
+        expect(reflection.isFulfilled).toBe(true);
+        expect(requestStub).toHaveBeenCalledTimes(3);
+        requestStub.mock.calls.forEach(([arg]: any) => {
+          expect(arg).toMatchObject({
             method: 'POST',
             uri: '/insertAll',
             json: dataApiFormat,
-          }),
-        );
-        assert.deepStrictEqual(reflection.value, goodResponse);
+          });
+        });
+        expect(reflection.value).toEqual(goodResponse);
       });
     });
   });
@@ -3022,21 +2897,21 @@ describe('BigQuery/Table', () => {
       const fakeMetadata = {};
 
       table.createLoadJob = (source: {}, metadata: {}) => {
-        assert.strictEqual(source, fakeSource);
-        assert.strictEqual(metadata, fakeMetadata);
+        expect(source).toBe(fakeSource);
+        expect(metadata).toBe(fakeMetadata);
         done();
       };
 
-      table.load(fakeSource, fakeMetadata, assert.ifError);
+      table.load(fakeSource, fakeMetadata, (err: any) => { if (err) done(err); });
     });
 
     it('should optionally accept metadata', done => {
       table.createLoadJob = (source: {}, metadata: {}) => {
-        assert.deepStrictEqual(metadata, {});
+        expect(metadata).toEqual({});
         done();
       };
 
-      table.load({}, assert.ifError);
+      table.load({}, (err: any) => { if (err) done(err); });
     });
 
     it('should return any createLoadJob errors', done => {
@@ -3048,8 +2923,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.load({}, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, response);
+        expect(err).toBe(error);
+        expect(resp).toBe(response);
         done();
       });
     });
@@ -3058,7 +2933,7 @@ describe('BigQuery/Table', () => {
       const error = new Error('err');
 
       table.load({}, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
 
@@ -3069,8 +2944,8 @@ describe('BigQuery/Table', () => {
       const metadata = {};
 
       table.load({}, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, metadata);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(metadata);
         done();
       });
 
@@ -3081,8 +2956,8 @@ describe('BigQuery/Table', () => {
   describe('query', () => {
     it('should pass args through to datasetInstance.query()', done => {
       table.dataset.query = (a: {}, b: {}) => {
-        assert.deepStrictEqual(a, {query: 'a'});
-        assert.strictEqual(b, 'b');
+        expect(a).toEqual({query: 'a'});
+        expect(b).toBe('b');
         done();
       };
 
@@ -3095,8 +2970,8 @@ describe('BigQuery/Table', () => {
         skipParsing: true,
       };
       table.dataset.query = (a: {}, b: {}) => {
-        assert.deepStrictEqual(a, query);
-        assert.strictEqual(b, 'b');
+        expect(a).toEqual(query);
+        expect(b).toBe('b');
         done();
       };
 
@@ -3110,17 +2985,17 @@ describe('BigQuery/Table', () => {
       const formattedMetadata = {};
 
       Table.formatMetadata_ = (data: {}) => {
-        assert.strictEqual(data, fakeMetadata);
+        expect(data).toBe(fakeMetadata);
         return formattedMetadata;
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (FakeServiceObject.prototype as any).setMetadata = function (
+      (ServiceObject.prototype as any).setMetadata = function (
         metadata: {},
         callback: Function,
       ) {
-        assert.strictEqual(this, table);
-        assert.strictEqual(metadata, formattedMetadata);
-        assert.strictEqual(callback, done);
+        expect(this).toBe(table);
+        expect(metadata).toBe(formattedMetadata);
+        expect(callback).toBe(done);
         callback!(null); // the done fn
       };
 
@@ -3136,9 +3011,9 @@ describe('BigQuery/Table', () => {
       const policy = {bindings: [binding], etag: 'abc'};
 
       table.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.json.policy, policy);
-        assert.strictEqual(reqOpts.uri, '/:setIamPolicy');
-        assert.strictEqual(reqOpts.method, 'POST');
+        expect(reqOpts.json.policy).toEqual(policy);
+        expect(reqOpts.uri).toBe('/:setIamPolicy');
+        expect(reqOpts.method).toBe('POST');
         done();
       };
 
@@ -3154,8 +3029,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.setIamPolicy(policy, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, policy);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(policy);
       });
     });
 
@@ -3164,10 +3039,10 @@ describe('BigQuery/Table', () => {
       const updateMask = 'binding';
 
       table.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.json.policy, policy);
-        assert.strictEqual(reqOpts.json.updateMask, updateMask);
-        assert.strictEqual(reqOpts.uri, '/:setIamPolicy');
-        assert.strictEqual(reqOpts.method, 'POST');
+        expect(reqOpts.json.policy).toEqual(policy);
+        expect(reqOpts.json.updateMask).toBe(updateMask);
+        expect(reqOpts.uri).toBe('/:setIamPolicy');
+        expect(reqOpts.method).toBe('POST');
         done();
       };
 
@@ -3176,9 +3051,9 @@ describe('BigQuery/Table', () => {
 
     it('should throw with invalid policy version', () => {
       const policy = {version: 100};
-      assert.throws(() => {
+      expect(() => {
         table.setIamPolicy(policy, util.noop);
-      }, /Only IAM policy version 1 is supported./);
+      }).toThrow(/Only IAM policy version 1 is supported./);
     });
 
     it('should return errors', () => {
@@ -3190,8 +3065,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.setIamPolicy(policy, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, null);
+        expect(err).toBe(error);
+        expect(resp).toBe(null);
       });
     });
   });
@@ -3199,8 +3074,8 @@ describe('BigQuery/Table', () => {
   describe('getIamPolicy', () => {
     it('should make correct API call', done => {
       table.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/:getIamPolicy');
-        assert.strictEqual(reqOpts.method, 'POST');
+        expect(reqOpts.uri).toBe('/:getIamPolicy');
+        expect(reqOpts.method).toBe('POST');
         done();
       };
 
@@ -3211,14 +3086,14 @@ describe('BigQuery/Table', () => {
       const policy = {};
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert.strictEqual(reqOpts.uri, '/:getIamPolicy');
-        assert.strictEqual(reqOpts.method, 'POST');
+        expect(reqOpts.uri).toBe('/:getIamPolicy');
+        expect(reqOpts.method).toBe('POST');
         callback(null, policy);
       };
 
       table.getIamPolicy((err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, policy);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(policy);
       });
     });
 
@@ -3227,23 +3102,23 @@ describe('BigQuery/Table', () => {
       const options = {requestedPolicyVersion: 1};
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert.deepStrictEqual(reqOpts.json.options, options);
-        assert.strictEqual(reqOpts.uri, '/:getIamPolicy');
-        assert.strictEqual(reqOpts.method, 'POST');
+        expect(reqOpts.json.options).toEqual(options);
+        expect(reqOpts.uri).toBe('/:getIamPolicy');
+        expect(reqOpts.method).toBe('POST');
         callback(null, policy);
       };
 
       table.getIamPolicy(options, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, policy);
+        expect(err).toBeFalsy();
+        expect(resp).toBe(policy);
       });
     });
 
     it('should throw with invalid policy version', () => {
       const options = {requestedPolicyVersion: 100};
-      assert.throws(() => {
+      expect(() => {
         table.getIamPolicy(options, util.noop);
-      }, /Only IAM policy version 1 is supported./);
+      }).toThrow(/Only IAM policy version 1 is supported./);
     });
 
     it('should return errors', () => {
@@ -3254,8 +3129,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.getIamPolicy((err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, null);
+        expect(err).toBe(error);
+        expect(resp).toBe(null);
       });
     });
   });
@@ -3265,9 +3140,9 @@ describe('BigQuery/Table', () => {
       const permissions = ['bigquery.do.stuff'];
 
       table.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/:testIamPermissions');
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.deepStrictEqual(reqOpts.json, {permissions});
+        expect(reqOpts.uri).toBe('/:testIamPermissions');
+        expect(reqOpts.method).toBe('POST');
+        expect(reqOpts.json).toEqual({permissions});
       };
 
       table.testIamPermissions(permissions, util.noop);
@@ -3277,15 +3152,15 @@ describe('BigQuery/Table', () => {
       const permissions = ['bigquery.do.stuff'];
 
       table.request = (reqOpts: DecorateRequestOptions, callback: Function) => {
-        assert.deepStrictEqual(reqOpts.json.permissions, permissions);
-        assert.strictEqual(reqOpts.uri, '/:testIamPermissions');
-        assert.strictEqual(reqOpts.method, 'POST');
+        expect(reqOpts.json.permissions).toEqual(permissions);
+        expect(reqOpts.uri).toBe('/:testIamPermissions');
+        expect(reqOpts.method).toBe('POST');
         callback(null, {permissions});
       };
 
       table.testIamPermissions(permissions, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(resp, {permissions});
+        expect(err).toBeFalsy();
+        expect(resp).toEqual({permissions});
       });
     });
 
@@ -3298,8 +3173,8 @@ describe('BigQuery/Table', () => {
       };
 
       table.testIamPermissions(permissions, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, null);
+        expect(err).toBe(error);
+        expect(resp).toBe(null);
       });
     });
   });

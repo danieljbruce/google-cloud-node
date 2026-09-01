@@ -12,44 +12,50 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
-import * as sinon from 'sinon';
-import * as proxyquire from 'proxyquire';
-import * as pfy from '@google-cloud/promisify';
 import {EventEmitter} from 'events';
 import {JobOptions} from '../src/job';
-import {ServiceObject, ServiceObjectConfig, util} from '@google-cloud/common';
+import {ServiceObject, util} from '@google-cloud/common';
 
 let promisified = false;
+let isCustomTypeOverride: Function | null = null;
 
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll: (c: Function) => {
-    if (c.name === 'Model') {
-      promisified = true;
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll: (c: Function, options: any) => {
+      if (c.name === 'Model') {
+        promisified = true;
+      }
+      return actual.promisifyAll(c, options);
+    },
+  };
+});
+
+jest.mock('@google-cloud/common', () => {
+  const actual = jest.requireActual('@google-cloud/common');
+  class FakeServiceObject extends actual.ServiceObject {
+    _calledWith: IArguments;
+    constructor(config: any) {
+      super(config);
+      // eslint-disable-next-line prefer-rest-params
+      this._calledWith = arguments;
     }
-    pfy.promisifyAll(c);
-  },
-});
-
-class FakeServiceObject extends ServiceObject {
-  _calledWith: IArguments;
-  constructor(config: ServiceObjectConfig) {
-    super(config);
-    // eslint-disable-next-line prefer-rest-params
-    this._calledWith = arguments;
   }
-}
-
-let isCustomTypeOverride: Function | null;
-const fakeUtil = Object.assign({}, util, {
-  isCustomType: (...args: Array<{}>) => {
-    return (isCustomTypeOverride || util.isCustomType)(...args);
-  },
-  noop: () => {},
+  return {
+    ...actual,
+    ServiceObject: FakeServiceObject,
+    util: {
+      ...actual.util,
+      isCustomType: (...args: Array<{}>) => {
+        return (isCustomTypeOverride || actual.util.isCustomType)(...args);
+      },
+      noop: () => {},
+    },
+  };
 });
 
-const sandbox = sinon.createSandbox();
+import {Model} from '../src/model';
 
 describe('BigQuery/Model', () => {
   const MODEL_ID = 'my_model';
@@ -65,17 +71,9 @@ describe('BigQuery/Model', () => {
       apiEndpoint: 'bigquery.googleapis.com',
       request: util.noop,
     },
-  };
+  } as unknown as any;
 
-  before(() => {
-    Model = proxyquire('../src/model.js', {
-      '@google-cloud/common': {
-        ServiceObject: FakeServiceObject,
-        util: fakeUtil,
-      },
-      '@google-cloud/promisify': fakePfy,
-    }).Model;
-  });
+  let model: any;
 
   beforeEach(() => {
     isCustomTypeOverride = null;
@@ -84,27 +82,22 @@ describe('BigQuery/Model', () => {
     model.bigQuery.createJob = util.noop;
   });
 
-  afterEach(() => sandbox.restore());
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let model: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let Model: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
 
     it('should inherit from ServiceObject', () => {
-      assert(model instanceof FakeServiceObject);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [config] = (model as any)._calledWith;
-      assert.strictEqual(config.parent, DATASET);
-      assert.strictEqual(config.baseUrl, '/models');
-      assert.strictEqual(config.id, MODEL_ID);
-      assert.deepStrictEqual(config.methods, {
+      expect(model instanceof ServiceObject).toBe(true);
+      const [config] = model._calledWith;
+      expect(config.parent).toBe(DATASET);
+      expect(config.baseUrl).toBe('/models');
+      expect(config.id).toBe(MODEL_ID);
+      expect(config.methods).toEqual({
         delete: true,
         exists: true,
         get: true,
@@ -129,22 +122,27 @@ describe('BigQuery/Model', () => {
         return false;
       };
 
-      model.bigQuery.job = sinon.stub();
-      model.bigQuery.createJob = sinon.stub();
+      model.bigQuery.job = jest.fn();
+      model.bigQuery.createJob = jest.fn();
     });
 
     it('should call createJob correctly', done => {
       model.bigQuery.createJob = (reqOpts: JobOptions) => {
-        assert.deepStrictEqual(reqOpts.configuration!.extract!.sourceModel, {
-          datasetId: model.dataset.id,
-          projectId: model.dataset.projectId,
-          modelId: model.id,
-        });
-
-        done();
+        try {
+          expect(reqOpts.configuration!.extract!.sourceModel).toEqual({
+            datasetId: model.dataset.id,
+            projectId: model.dataset.projectId,
+            modelId: model.id,
+          });
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      model.createExtractJob(URI, assert.ifError);
+      model.createExtractJob(URI, (err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should accept just a destination and a callback', done => {
@@ -158,29 +156,41 @@ describe('BigQuery/Model', () => {
     describe('formats', () => {
       it('should accept ML_TF_SAVED_MODEL', done => {
         model.bigQuery.createJob = (reqOpts: JobOptions) => {
-          const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'ML_TF_SAVED_MODEL');
-          done();
+          try {
+            const extract = reqOpts.configuration!.extract!;
+            expect(extract.destinationFormat).toBe('ML_TF_SAVED_MODEL');
+            done();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(
           URI,
           {format: 'ml_tf_saved_model'},
-          assert.ifError,
+          (err: any) => {
+            if (err) done(err);
+          },
         );
       });
 
       it('ML_XGBOOST_BOOSTER', done => {
         model.bigQuery.createJob = (reqOpts: JobOptions) => {
-          const extract = reqOpts.configuration!.extract!;
-          assert.strictEqual(extract.destinationFormat, 'ML_XGBOOST_BOOSTER');
-          done();
+          try {
+            const extract = reqOpts.configuration!.extract!;
+            expect(extract.destinationFormat).toBe('ML_XGBOOST_BOOSTER');
+            done();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(
           URI,
           {format: 'ml_xgboost_booster'},
-          assert.ifError,
+          (err: any) => {
+            if (err) done(err);
+          },
         );
       });
 
@@ -190,25 +200,37 @@ describe('BigQuery/Model', () => {
         };
 
         model.bigQuery.createJob = (reqOpts: JobOptions) => {
-          assert.deepStrictEqual(
-            reqOpts.configuration!.extract!.destinationUris,
-            ['gs://' + FILE.bucket.name + '/' + FILE.name],
-          );
-          done();
+          try {
+            expect(reqOpts.configuration!.extract!.destinationUris).toEqual([
+              'gs://' + FILE.bucket.name + '/' + FILE.name,
+            ]);
+            done();
+          } catch (e) {
+            done(e);
+          }
         };
 
-        model.createExtractJob(FILE, assert.ifError);
+        model.createExtractJob(FILE, (err: any) => {
+          if (err) done(err);
+        });
       });
 
       it('should check if a destination is a File', done => {
         isCustomTypeOverride = (dest: {}, type: string) => {
-          assert.strictEqual(dest, FILE);
-          assert.strictEqual(type, 'storage/file');
-          setImmediate(done);
-          return true;
+          try {
+            expect(dest).toBe(FILE);
+            expect(type).toBe('storage/file');
+            setImmediate(done);
+            return true;
+          } catch (e) {
+            done(e);
+            return true;
+          }
         };
 
-        model.createExtractJob(FILE, assert.ifError);
+        model.createExtractJob(FILE, (err: any) => {
+          if (err) done(err);
+        });
       });
 
       it('should throw if a destination is not a string or a File', () => {
@@ -216,23 +238,23 @@ describe('BigQuery/Model', () => {
           return false;
         };
 
-        assert.throws(() => {
+        expect(() => {
           model.createExtractJob({}, util.noop);
-        }, /Destination must be a string or a File object/);
+        }).toThrow(/Destination must be a string or a File object/);
 
-        assert.throws(() => {
+        expect(() => {
           model.createExtractJob([FILE, {}], util.noop);
-        }, /Destination must be a string or a File object/);
+        }).toThrow(/Destination must be a string or a File object/);
       });
 
       it('should throw if a provided format is not recognized', () => {
-        assert.throws(() => {
+        expect(() => {
           model.createExtractJob(
             URI,
             {format: 'interpretive_dance'},
             util.noop,
           );
-        }, /Destination format not recognized/);
+        }).toThrow(/Destination format not recognized/);
       });
 
       it('should accept a job prefix', done => {
@@ -245,13 +267,15 @@ describe('BigQuery/Model', () => {
           reqOpts: JobOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(reqOpts.jobPrefix, fakeJobPrefix);
-          assert.strictEqual(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (reqOpts.configuration!.extract as any).jobPrefix,
-            undefined,
-          );
-          callback(); // the done fn
+          try {
+            expect(reqOpts.jobPrefix).toBe(fakeJobPrefix);
+            expect(
+              (reqOpts.configuration!.extract as any).jobPrefix,
+            ).toBeUndefined();
+            callback();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(URI, options, done);
@@ -266,11 +290,12 @@ describe('BigQuery/Model', () => {
           reqOpts: JobOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(
-            reqOpts.configuration?.reservation,
-            'reservation/1',
-          );
-          callback(); // the done fn
+          try {
+            expect(reqOpts.configuration?.reservation).toBe('reservation/1');
+            callback();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(URI, options, done);
@@ -284,13 +309,15 @@ describe('BigQuery/Model', () => {
           reqOpts: JobOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(reqOpts.jobId, jobId);
-          assert.strictEqual(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (reqOpts.configuration!.extract as any).jobId,
-            undefined,
-          );
-          callback(); // the done fn
+          try {
+            expect(reqOpts.jobId).toBe(jobId);
+            expect(
+              (reqOpts.configuration!.extract as any).jobId,
+            ).toBeUndefined();
+            callback();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(URI, options, done);
@@ -301,8 +328,12 @@ describe('BigQuery/Model', () => {
           reqOpts: JobOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(done, callback);
-          callback(); // the done fn
+          try {
+            expect(callback).toBe(done);
+            callback();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(URI, {}, done);
@@ -313,8 +344,12 @@ describe('BigQuery/Model', () => {
           reqOpts: JobOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(done, callback);
-          callback(); // the done fn
+          try {
+            expect(callback).toBe(done);
+            callback();
+          } catch (e) {
+            done(e);
+          }
         };
 
         model.createExtractJob(URI, done);
@@ -323,7 +358,6 @@ describe('BigQuery/Model', () => {
   });
 
   describe('extract', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let fakeJob: any;
 
     beforeEach(() => {
@@ -342,21 +376,33 @@ describe('BigQuery/Model', () => {
       const fakeMetadata = {};
 
       model.createExtractJob = (destination: {}, metadata: {}) => {
-        assert.strictEqual(destination, fakeDestination);
-        assert.strictEqual(metadata, fakeMetadata);
-        done();
+        try {
+          expect(destination).toBe(fakeDestination);
+          expect(metadata).toBe(fakeMetadata);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      model.extract(fakeDestination, fakeMetadata, assert.ifError);
+      model.extract(fakeDestination, fakeMetadata, (err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should optionally accept metadata', done => {
       model.createExtractJob = (destination: {}, metadata: {}) => {
-        assert.deepStrictEqual(metadata, {});
-        done();
+        try {
+          expect(metadata).toEqual({});
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      model.extract({}, assert.ifError);
+      model.extract({}, (err: any) => {
+        if (err) done(err);
+      });
     });
 
     it('should return any createExtractJob errors', done => {
@@ -372,9 +418,13 @@ describe('BigQuery/Model', () => {
       };
 
       model.extract({}, (err: Error, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(resp, response);
-        done();
+        try {
+          expect(err).toBe(error);
+          expect(resp).toBe(response);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -382,8 +432,12 @@ describe('BigQuery/Model', () => {
       const error = new Error('err');
 
       model.extract({}, (err: Error) => {
-        assert.strictEqual(err, error);
-        done();
+        try {
+          expect(err).toBe(error);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
 
       fakeJob.emit('error', error);
@@ -393,9 +447,13 @@ describe('BigQuery/Model', () => {
       const metadata = {};
 
       model.extract({}, (err: Error, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, metadata);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(resp).toBe(metadata);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
 
       fakeJob.emit('complete', metadata);
