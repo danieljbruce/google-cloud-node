@@ -7,7 +7,7 @@ Issue #14 requested migrating the `@google-cloud/logging-winston` package test s
 - Remove legacy testing and coverage dependencies (`mocha`, `@types/mocha`, `c8`, `codecov`, `cross-env`, `proxyquire`).
 - Add Jest testing framework dependencies (`jest`, `@types/jest`, `ts-jest`).
 - Add `jest.config.js` configuring `ts-jest` for TypeScript test files.
-- Remove `.nycrc` and update `.gitignore` (`coverage/` instead of `.coverage`).
+- Remove `.nycrc` and `.mocharc.js`, and update `.gitignore` (`coverage/` instead of `.coverage`).
 - Update `package.json` test script to `jest --coverage`.
 - Migrate all unit tests under `test/` from Mocha/assert/proxyquire to Jest (`jest.mock`, `jest.spyOn`, `expect`, etc.).
 - Update `system-test/` files to ensure TypeScript compilation with Jest globals and timeout configuration.
@@ -16,6 +16,7 @@ Issue #14 requested migrating the `@google-cloud/logging-winston` package test s
 1. **Build & Config Files**:
    - `handwritten/logging-winston/jest.config.js`: Created Jest configuration with TypeScript transformer and mock clearing.
    - `handwritten/logging-winston/.nycrc`: Removed obsolete NYC configuration.
+   - `handwritten/logging-winston/.mocharc.js`: Removed obsolete Mocha configuration.
    - `handwritten/logging-winston/.gitignore`: Updated coverage directory rule to `coverage/`.
    - `handwritten/logging-winston/tsconfig.json`: Added `"types": ["jest", "node"]` to specify global type declarations.
 
