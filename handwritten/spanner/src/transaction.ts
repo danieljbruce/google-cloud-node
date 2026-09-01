@@ -41,7 +41,7 @@ import IsolationLevel = google.spanner.v1.TransactionOptions.IsolationLevel;
 import IAny = google.protobuf.IAny;
 import IQueryOptions = google.spanner.v1.ExecuteSqlRequest.IQueryOptions;
 import IRequestOptions = google.spanner.v1.IRequestOptions;
-import {Database, Spanner} from '.';
+import type {Database, Spanner} from '.';
 import ReadLockMode = google.spanner.v1.TransactionOptions.ReadWrite.ReadLockMode;
 import {
   ObservabilityOptions,

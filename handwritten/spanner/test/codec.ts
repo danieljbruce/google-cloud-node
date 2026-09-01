@@ -14,13 +14,10 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import {Big} from 'big.js';
 import {PreciseDate} from '@google-cloud/precise-date';
 import {GrpcService} from '../src/common-grpc/service';
+import {codec as realCodec} from '../src/codec';
 import {protos} from '@google-cloud/spanner-api';
 import google = protos.google;
 import {GoogleError} from 'google-gax';
@@ -34,20 +31,17 @@ const music = singer.examples.spanner.music;
 describe('codec', () => {
   let codec;
 
-  const sandbox = sinon.createSandbox();
 
-  before(() => {
-    codec = proxyquire('../src/codec.js', {
-      './common-grpc/service': {GrpcService},
-    }).codec;
+  beforeAll(() => {
+    codec = realCodec;
   });
 
   beforeEach(() => {
-    sandbox.stub(GrpcService, 'encodeValue_').callsFake(value => value);
-    sandbox.stub(GrpcService, 'decodeValue_').callsFake(value => value);
+    jest.spyOn(GrpcService, 'encodeValue_').mockImplementation(value => value as any);
+    jest.spyOn(GrpcService, 'decodeValue_').mockImplementation(value => value as any);
   });
 
-  afterEach(() => sandbox.restore());
+  afterEach(() => jest.restoreAllMocks());
 
   describe('SpannerDate', () => {
     describe('instantiation', () => {
@@ -55,14 +49,14 @@ describe('codec', () => {
         const date = new codec.SpannerDate('3-22-1986');
         const json = date.toJSON();
 
-        assert.strictEqual(json, '1986-03-22');
+        expect(json).toBe('1986-03-22');
       });
 
       it('should accept dates before 1000AD', () => {
         const date = new codec.SpannerDate('2-25-985');
         const json = date.toJSON();
 
-        assert.strictEqual(json, '0985-02-25');
+        expect(json).toBe('0985-02-25');
       });
 
       it('should default to the current local date', () => {
@@ -73,35 +67,35 @@ describe('codec', () => {
         const day = today.getDate();
         const expected = new codec.SpannerDate(year, month, day);
 
-        assert.deepStrictEqual(date, expected);
+        expect(date).toEqual(expected);
       });
 
       it('should interpret ISO date strings as local time', () => {
         const date = new codec.SpannerDate('1986-03-22');
         const json = date.toJSON();
 
-        assert.strictEqual(json, '1986-03-22');
+        expect(json).toBe('1986-03-22');
       });
 
       it('should interpret pre-1970 ISO date strings correctly without 2-digit year mapping', () => {
         const date = new codec.SpannerDate('0050-03-22');
         const json = date.toJSON();
 
-        assert.strictEqual(json, '0050-03-22');
+        expect(json).toBe('0050-03-22');
       });
 
       it('should accept y/m/d number values', () => {
         const date = new codec.SpannerDate(1986, 2, 22);
         const json = date.toJSON();
 
-        assert.strictEqual(json, '1986-03-22');
+        expect(json).toBe('1986-03-22');
       });
 
       it('should accept 2-digit years in y/m/d number values correctly', () => {
         const date = new codec.SpannerDate(50, 2, 22);
         const json = date.toJSON();
 
-        assert.strictEqual(json, '0050-03-22');
+        expect(json).toBe('0050-03-22');
       });
 
       it('should accept year zero in y/m/d number values', () => {
@@ -109,15 +103,15 @@ describe('codec', () => {
         const date = new codec.SpannerDate(0, 2, 22);
         const json = date.toJSON();
 
-        assert.ok(d);
-        assert.strictEqual(json, '1900-03-22');
+        expect(d).toBeTruthy();
+        expect(json).toBe('1900-03-22');
       });
 
       it('should truncate additional date fields', () => {
         const truncated = new codec.SpannerDate(1986, 2, 22, 4, 8, 10);
         const expected = new codec.SpannerDate(1986, 2, 22);
 
-        assert.deepStrictEqual(truncated, expected);
+        expect(truncated).toEqual(expected);
       });
     });
 
@@ -126,44 +120,44 @@ describe('codec', () => {
 
       beforeEach(() => {
         date = new codec.SpannerDate();
-        sandbox.stub(date, 'getFullYear').returns(1999);
-        sandbox.stub(date, 'getMonth').returns(11);
-        sandbox.stub(date, 'getDate').returns(31);
+        jest.spyOn(date, 'getFullYear').mockReturnValue(1999);
+        jest.spyOn(date, 'getMonth').mockReturnValue(11);
+        jest.spyOn(date, 'getDate').mockReturnValue(31);
       });
 
       it('should return the spanner date string', () => {
         const json = date.toJSON();
-        assert.strictEqual(json, '1999-12-31');
+        expect(json).toBe('1999-12-31');
       });
 
       it('should pad single digit months', () => {
-        (date.getMonth as sinon.SinonStub).returns(8);
+        jest.spyOn(date, 'getMonth').mockReturnValue(8);
         const json = date.toJSON();
-        assert.strictEqual(json, '1999-09-31');
+        expect(json).toBe('1999-09-31');
       });
 
       it('should pad single digit dates', () => {
-        (date.getDate as sinon.SinonStub).returns(3);
+        jest.spyOn(date, 'getDate').mockReturnValue(3);
         const json = date.toJSON();
-        assert.strictEqual(json, '1999-12-03');
+        expect(json).toBe('1999-12-03');
       });
 
       it('should pad single digit years', () => {
-        (date.getFullYear as sinon.SinonStub).returns(5);
+        jest.spyOn(date, 'getFullYear').mockReturnValue(5);
         const json = date.toJSON();
-        assert.strictEqual(json, '0005-12-31');
+        expect(json).toBe('0005-12-31');
       });
 
       it('should pad double digit years', () => {
-        (date.getFullYear as sinon.SinonStub).returns(52);
+        jest.spyOn(date, 'getFullYear').mockReturnValue(52);
         const json = date.toJSON();
-        assert.strictEqual(json, '0052-12-31');
+        expect(json).toBe('0052-12-31');
       });
 
       it('should pad triple digit years', () => {
-        (date.getFullYear as sinon.SinonStub).returns(954);
+        jest.spyOn(date, 'getFullYear').mockReturnValue(954);
         const json = date.toJSON();
-        assert.strictEqual(json, '0954-12-31');
+        expect(json).toBe('0954-12-31');
       });
     });
   });
@@ -173,15 +167,15 @@ describe('codec', () => {
       const value = 8;
       const float = new codec.Float(value);
 
-      assert.strictEqual(float.value, value);
+      expect(float.value).toBe(value);
     });
 
     it('should return as a float', () => {
       const value = '8.2';
       const float = new codec.Float(value);
 
-      assert.strictEqual(float.valueOf(), Number(value));
-      assert.strictEqual(float + 2, Number(value) + 2);
+      expect(float.valueOf()).toBe(Number(value));
+      expect(float + 2).toBe(Number(value) + 2);
     });
   });
 
@@ -190,15 +184,15 @@ describe('codec', () => {
       const value = 8;
       const float32 = new codec.Float32(value);
 
-      assert.strictEqual(float32.value, value);
+      expect(float32.value).toBe(value);
     });
 
     it('should return as a float32', () => {
       const value = '8.2';
       const float32 = new codec.Float32(value);
 
-      assert.strictEqual(float32.valueOf(), Number(value));
-      assert.strictEqual(float32 + 2, Number(value) + 2);
+      expect(float32.valueOf()).toBe(Number(value));
+      expect(float32 + 2).toBe(Number(value) + 2);
     });
   });
 
@@ -207,27 +201,24 @@ describe('codec', () => {
       const value = 8;
       const int = new codec.Int(value);
 
-      assert.strictEqual(int.value, '8');
+      expect(int.value).toBe('8');
     });
 
     it('should return as a number', () => {
       const value = 8;
       const int = new codec.Int(value);
 
-      assert.strictEqual(int.valueOf(), 8);
-      assert.strictEqual(int + 2, 10);
+      expect(int.valueOf()).toBe(8);
+      expect(int + 2).toBe(10);
     });
 
     it('should throw if number is out of bounds', () => {
       const value = '9223372036854775807';
       const int = new codec.Int(value);
 
-      assert.throws(
-        () => {
+      expect(() => {
           int.valueOf();
-        },
-        new RegExp('Integer ' + value + ' is out of bounds.'),
-      );
+        }).toThrow(new RegExp('Integer ' + value + ' is out of bounds.'));
     });
   });
 
@@ -236,27 +227,24 @@ describe('codec', () => {
       const value = 8;
       const oid = new codec.PGOid(value);
 
-      assert.strictEqual(oid.value, '8');
+      expect(oid.value).toBe('8');
     });
 
     it('should return as a number', () => {
       const value = 8;
       const oid = new codec.PGOid(value);
 
-      assert.strictEqual(oid.valueOf(), 8);
-      assert.strictEqual(oid + 2, 10);
+      expect(oid.valueOf()).toBe(8);
+      expect(oid + 2).toBe(10);
     });
 
     it('should throw if number is out of bounds', () => {
       const value = '9223372036854775807';
       const oid = new codec.PGOid(value);
 
-      assert.throws(
-        () => {
+      expect(() => {
           oid.valueOf();
-        },
-        new RegExp('PG.OID ' + value + ' is out of bounds.'),
-      );
+        }).toThrow(new RegExp('PG.OID ' + value + ' is out of bounds.'));
     });
   });
 
@@ -265,7 +253,7 @@ describe('codec', () => {
       const value = '8.01911';
       const numeric = new codec.Numeric(value);
 
-      assert.strictEqual(numeric.value, '8.01911');
+      expect(numeric.value).toBe('8.01911');
     });
 
     it('should return as a Big', () => {
@@ -273,14 +261,14 @@ describe('codec', () => {
       const numeric = new codec.Numeric(value);
 
       const expected = new Big(value);
-      assert.ok(numeric.valueOf().eq(expected));
+      expect(numeric.valueOf().eq(expected)).toBeTruthy();
     });
 
     it('toJSON', () => {
       const value = '8.01911';
       const numeric = new codec.Numeric(value);
 
-      assert.strictEqual(numeric.toJSON(), value);
+      expect(numeric.toJSON()).toBe(value);
     });
   });
 
@@ -289,14 +277,14 @@ describe('codec', () => {
       const value = '8.01911';
       const pgNumeric = new codec.PGNumeric(value);
 
-      assert.strictEqual(pgNumeric.value, '8.01911');
+      expect(pgNumeric.value).toBe('8.01911');
     });
 
     it('should store NaN value as a string', () => {
       const value = 'NaN';
       const pgNumeric = new codec.PGNumeric(value);
 
-      assert.strictEqual(pgNumeric.value, 'NaN');
+      expect(pgNumeric.value).toBe('NaN');
     });
 
     it('should return as a Big', () => {
@@ -304,23 +292,23 @@ describe('codec', () => {
       const pgNumeric = new codec.PGNumeric(value);
 
       const expected = new Big(value);
-      assert.ok(pgNumeric.valueOf().eq(expected));
+      expect(pgNumeric.valueOf().eq(expected)).toBeTruthy();
     });
 
     it('should throw an error when trying to return NaN as a Big', () => {
       const value = 'NaN';
       const pgNumeric = new codec.PGNumeric(value);
 
-      assert.throws(() => {
+      expect(() => {
         pgNumeric.valueOf();
-      }, new RegExp('NaN cannot be converted to a numeric value'));
+      }).toThrow(new RegExp('NaN cannot be converted to a numeric value'));
     });
 
     it('toJSON', () => {
       const value = '8.01911';
       const pgNumeric = new codec.PGNumeric(value);
 
-      assert.strictEqual(pgNumeric.toJSON(), value);
+      expect(pgNumeric.toJSON()).toBe(value);
     });
   });
 
@@ -328,143 +316,125 @@ describe('codec', () => {
     describe('constructor', () => {
       it('should create an Interval instance with correct properties', () => {
         const interval = new codec.Interval(1, 2, BigInt(1000));
-        assert.equal(interval.getMonths(), 1);
-        assert.equal(interval.getDays(), 2);
-        assert.equal(interval.getNanoseconds(), BigInt(1000));
+        expect(interval.getMonths()).toEqual(1);
+        expect(interval.getDays()).toEqual(2);
+        expect(interval.getNanoseconds()).toEqual(BigInt(1000));
       });
 
       it('should throw an error if months is not an integer', () => {
-        assert.throws(
-          () => new codec.Interval(1.5, 2, BigInt(1000)),
-          new RegExp('Invalid months: 1.5, months should be an integral value'),
-        );
+        expect(() => new codec.Interval(1.5, 2, BigInt(1000))).toThrow(new RegExp('Invalid months: 1.5, months should be an integral value'));
       });
 
       it('should throw an error if days is not an integer', () => {
-        assert.throws(
-          () => new codec.Interval(1, 2.5, BigInt(1000)),
-          new RegExp('Invalid days: 2.5, days should be an integral value'),
-        );
+        expect(() => new codec.Interval(1, 2.5, BigInt(1000))).toThrow(new RegExp('Invalid days: 2.5, days should be an integral value'));
       });
 
       it('should throw an error if days is not an integer', () => {
-        assert.throws(
-          () => new codec.Interval(1, 2, null),
-          new RegExp(
+        expect(() => new codec.Interval(1, 2, null)).toThrow(new RegExp(
             'Invalid nanoseconds: null, nanoseconds should be a valid bigint value',
-          ),
-        );
+          ));
       });
     });
 
     describe('fromMonths', () => {
       it('should create an Interval from months', () => {
         const interval = codec.Interval.fromMonths(5);
-        assert.equal(interval.getMonths(), 5);
-        assert.equal(interval.getDays(), 0);
-        assert.equal(interval.getNanoseconds(), BigInt(0));
+        expect(interval.getMonths()).toEqual(5);
+        expect(interval.getDays()).toEqual(0);
+        expect(interval.getNanoseconds()).toEqual(BigInt(0));
       });
 
       it('should throw an error if input is undefined', () => {
-        assert.throws(() => codec.Interval.fromMonths(undefined), GoogleError);
+        expect(() => codec.Interval.fromMonths(undefined)).toThrow(GoogleError);
       });
 
       it('should throw an error if input is null', () => {
-        assert.throws(() => codec.Interval.fromMonths(null), GoogleError);
+        expect(() => codec.Interval.fromMonths(null)).toThrow(GoogleError);
       });
     });
 
     describe('fromDays', () => {
       it('should create an Interval from days', () => {
         const interval = codec.Interval.fromDays(10);
-        assert.equal(interval.getMonths(), 0);
-        assert.equal(interval.getDays(), 10);
-        assert.equal(interval.getNanoseconds(), BigInt(0));
+        expect(interval.getMonths()).toEqual(0);
+        expect(interval.getDays()).toEqual(10);
+        expect(interval.getNanoseconds()).toEqual(BigInt(0));
       });
 
       it('should throw an error if input is undefined', () => {
-        assert.throws(() => codec.Interval.fromDays(undefined), GoogleError);
+        expect(() => codec.Interval.fromDays(undefined)).toThrow(GoogleError);
       });
 
       it('should throw an error if input is null', () => {
-        assert.throws(() => codec.Interval.fromDays(null), GoogleError);
+        expect(() => codec.Interval.fromDays(null)).toThrow(GoogleError);
       });
     });
 
     describe('fromSeconds', () => {
       it('should create an Interval from seconds', () => {
         const interval = codec.Interval.fromSeconds(60);
-        assert.equal(interval.getMonths(), 0);
-        assert.equal(interval.getDays(), 0);
-        assert.equal(interval.getNanoseconds(), BigInt(60 * 1000000000));
+        expect(interval.getMonths()).toEqual(0);
+        expect(interval.getDays()).toEqual(0);
+        expect(interval.getNanoseconds()).toEqual(BigInt(60 * 1000000000));
       });
 
       it('should throw an error if input is undefined', () => {
-        assert.throws(() => codec.Interval.fromSeconds(undefined), GoogleError);
+        expect(() => codec.Interval.fromSeconds(undefined)).toThrow(GoogleError);
       });
 
       it('should throw an error if input is null', () => {
-        assert.throws(() => codec.Interval.fromSeconds(null), GoogleError);
+        expect(() => codec.Interval.fromSeconds(null)).toThrow(GoogleError);
       });
     });
 
     describe('fromMilliseconds', () => {
       it('should create an Interval from milliseconds', () => {
         const interval = codec.Interval.fromMilliseconds(1000);
-        assert.equal(interval.getMonths(), 0);
-        assert.equal(interval.getDays(), 0);
-        assert.equal(interval.getNanoseconds(), BigInt(1000 * 1000000));
+        expect(interval.getMonths()).toEqual(0);
+        expect(interval.getDays()).toEqual(0);
+        expect(interval.getNanoseconds()).toEqual(BigInt(1000 * 1000000));
       });
 
       it('should throw an error if input is undefined', () => {
-        assert.throws(
-          () => codec.Interval.fromMilliseconds(undefined),
-          GoogleError,
-        );
+        expect(() => codec.Interval.fromMilliseconds(undefined)).toThrow(GoogleError);
       });
 
       it('should throw an error if input is null', () => {
-        assert.throws(() => codec.Interval.fromMilliseconds(null), GoogleError);
+        expect(() => codec.Interval.fromMilliseconds(null)).toThrow(GoogleError);
       });
     });
 
     describe('fromMicroseconds', () => {
       it('should create an Interval from microseconds', () => {
         const interval = codec.Interval.fromMicroseconds(1000000);
-        assert.equal(interval.getMonths(), 0);
-        assert.equal(interval.getDays(), 0);
-        assert.equal(interval.getNanoseconds(), BigInt(1000000 * 1000));
+        expect(interval.getMonths()).toEqual(0);
+        expect(interval.getDays()).toEqual(0);
+        expect(interval.getNanoseconds()).toEqual(BigInt(1000000 * 1000));
       });
 
       it('should throw an error if input is undefined', () => {
-        assert.throws(
-          () => codec.Interval.fromMicroseconds(undefined),
-          GoogleError,
-        );
+        expect(() => codec.Interval.fromMicroseconds(undefined)).toThrow(GoogleError);
       });
 
       it('should throw an error if input is null', () => {
-        assert.throws(() => codec.Interval.fromMicroseconds(null), GoogleError);
+        expect(() => codec.Interval.fromMicroseconds(null)).toThrow(GoogleError);
       });
     });
 
     describe('fromNanoseconds', () => {
       it('should create an Interval from nanoseconds', () => {
         const interval = codec.Interval.fromNanoseconds(BigInt(1000000000));
-        assert.equal(interval.getMonths(), 0);
-        assert.equal(interval.getDays(), 0);
-        assert.equal(interval.getNanoseconds(), BigInt(1000000000));
+        expect(interval.getMonths()).toEqual(0);
+        expect(interval.getDays()).toEqual(0);
+        expect(interval.getNanoseconds()).toEqual(BigInt(1000000000));
       });
 
       it('should throw an error if input is undefined', () => {
-        assert.throws(
-          () => codec.Interval.fromNanoseconds(undefined),
-          GoogleError,
-        );
+        expect(() => codec.Interval.fromNanoseconds(undefined)).toThrow(GoogleError);
       });
 
       it('should throw an error if input is null', () => {
-        assert.throws(() => codec.Interval.fromNanoseconds(null), GoogleError);
+        expect(() => codec.Interval.fromNanoseconds(null)).toThrow(GoogleError);
       });
     });
 
@@ -638,7 +608,7 @@ describe('codec', () => {
         ];
 
         testCases.forEach(({input, expected}) => {
-          assert.deepStrictEqual(codec.Interval.fromISO8601(input), expected);
+          expect(codec.Interval.fromISO8601(input)).toEqual(expected);
         });
       });
 
@@ -665,13 +635,9 @@ describe('codec', () => {
         ];
 
         invalidStrings.forEach(str => {
-          assert.throws(
-            () => {
+          expect(() => {
               codec.Interval.fromISO8601(str);
-            },
-            new RegExp('Invalid ISO8601 duration string'),
-            `Expected exception on parsing ${str}`,
-          );
+            }).toThrow(new RegExp('Invalid ISO8601 duration string'));
         });
       });
 
@@ -679,9 +645,9 @@ describe('codec', () => {
         // Assuming Number.MAX_SAFE_INTEGER / 12 is the max safe years
         const maxSafeYears = Math.ceil(Number.MAX_SAFE_INTEGER / 12);
         const invalidISOString = `P${maxSafeYears}Y4M`;
-        assert.throws(() => {
+        expect(() => {
           codec.Interval.fromISO8601(invalidISOString);
-        }, new RegExp('Total months is outside of the range of safe integer'));
+        }).toThrow(new RegExp('Total months is outside of the range of safe integer'));
       });
     });
 
@@ -808,7 +774,7 @@ describe('codec', () => {
         ];
 
         testCases.forEach(({input, expected}) => {
-          assert.equal(input.toISO8601(), expected);
+          expect(input.toISO8601()).toEqual(expected);
         });
       });
     });
@@ -819,56 +785,38 @@ describe('codec', () => {
       const interval3 = new codec.Interval(-4, -5, BigInt(-6)); // Negative values
 
       // Test with identical intervals
-      assert.equal(interval1.equals(interval2), true);
-      assert.equal(interval2.equals(interval1), true);
+      expect(interval1.equals(interval2)).toEqual(true);
+      expect(interval2.equals(interval1)).toEqual(true);
 
       // Test with different intervals
-      assert.equal(interval1.equals(interval3), false);
-      assert.equal(interval3.equals(interval1), false);
+      expect(interval1.equals(interval3)).toEqual(false);
+      expect(interval3.equals(interval1)).toEqual(false);
 
       // Test with different values for each field (including negative)
-      assert.equal(
-        interval1.equals(new codec.Interval(1, 2, BigInt(-4))),
-        false,
-      );
-      assert.equal(
-        interval1.equals(new codec.Interval(1, -3, BigInt(3))),
-        false,
-      );
-      assert.equal(
-        interval1.equals(new codec.Interval(-2, 2, BigInt(3))),
-        false,
-      );
-      assert.equal(
-        interval3.equals(new codec.Interval(-4, -5, BigInt(6))),
-        false,
-      );
-      assert.equal(
-        interval3.equals(new codec.Interval(-4, 5, BigInt(-6))),
-        false,
-      );
-      assert.equal(
-        interval3.equals(new codec.Interval(4, -5, BigInt(-6))),
-        false,
-      );
+      expect(interval1.equals(new codec.Interval(1, 2, BigInt(-4)))).toEqual(false);
+      expect(interval1.equals(new codec.Interval(1, -3, BigInt(3)))).toEqual(false);
+      expect(interval1.equals(new codec.Interval(-2, 2, BigInt(3)))).toEqual(false);
+      expect(interval3.equals(new codec.Interval(-4, -5, BigInt(6)))).toEqual(false);
+      expect(interval3.equals(new codec.Interval(-4, 5, BigInt(-6)))).toEqual(false);
+      expect(interval3.equals(new codec.Interval(4, -5, BigInt(-6)))).toEqual(false);
 
       // Test with null and undefined
-      assert.equal(interval1.equals(null), false);
-      assert.equal(interval1.equals(undefined), false);
+      expect(interval1.equals(null)).toEqual(false);
+      expect(interval1.equals(undefined)).toEqual(false);
 
       // Test with an object that is not an Interval
-      assert.equal(interval1.equals({} as BigInt), false);
+      expect(interval1.equals({} as BigInt)).toEqual(false);
     });
 
     it('should return the correct value with valueOf()', () => {
       const interval = new codec.Interval(1, 2, BigInt(3));
-      assert.equal(interval.valueOf(), interval);
+      expect(interval.valueOf()).toEqual(interval);
     });
 
     it('should return the correct JSON representation', () => {
       const interval = new codec.Interval(1, 2, BigInt(3));
       const expectedJson = interval.toISO8601();
-      assert.equal(interval.toJSON(), expectedJson);
+      expect(interval.toJSON()).toEqual(expectedJson);
     });
 
     describe('ISO8601 roundtrip', () => {
@@ -895,7 +843,7 @@ describe('codec', () => {
         testCases.forEach(interval => {
           const isoString = interval.toISO8601();
           const roundtripInterval = codec.Interval.fromISO8601(isoString);
-          assert.deepStrictEqual(roundtripInterval, interval);
+          expect(roundtripInterval).toEqual(interval);
         });
       });
     });
@@ -915,12 +863,11 @@ describe('codec', () => {
 
     it('should store value as buffer', () => {
       const protoMessage = new codec.ProtoMessage(protoMessageParams);
-      assert(Buffer.isBuffer(protoMessage.value));
+      expect(Buffer.isBuffer(protoMessage.value)).toBeTruthy();
     });
 
     it('should throw an error when value is not object and protoMessage is not passed', () => {
-      assert.throws(
-        () => {
+      expect(() => {
           new codec.ProtoMessage({
             value: {
               singerId: 1,
@@ -929,19 +876,14 @@ describe('codec', () => {
             },
             fullName: 'examples.spanner.music.SingerInfo',
           });
-        },
-        new GoogleError(`protoMessageParams cannot be used to construct 
+        }).toThrow(new GoogleError(`protoMessageParams cannot be used to construct 
       the ProtoMessage. Pass the serialized buffer of the
        proto message as the value or provide the message object along with the 
-       corresponding messageFunction generated by protobufjs-cli.`),
-      );
+       corresponding messageFunction generated by protobufjs-cli.`));
     });
 
     it('toJSON with messageFunction', () => {
-      assert.deepEqual(
-        new codec.ProtoMessage(protoMessageParams).toJSON(),
-        music.SingerInfo.toObject(protoMessageParams.value),
-      );
+      expect(new codec.ProtoMessage(protoMessageParams).toJSON()).toEqual(music.SingerInfo.toObject(protoMessageParams.value));
     });
 
     it('toJSON without messageFunction', () => {
@@ -949,7 +891,7 @@ describe('codec', () => {
         value: music.SingerInfo.encode(protoMessageParams.value).finish(),
         fullName: 'examples.spanner.music.SingerInfo',
       });
-      assert.deepEqual(message.toJSON(), message.value.toString());
+      expect(message.toJSON()).toEqual(message.value.toString());
     });
   });
 
@@ -962,36 +904,30 @@ describe('codec', () => {
 
     it('should store value as string', () => {
       const protoEnum = new codec.ProtoEnum(enumParams);
-      assert(isString(protoEnum.value));
+      expect(isString(protoEnum.value)).toBeTruthy();
     });
 
     it('should throw an error when value is non numeric string and enumObject is not passed', () => {
-      assert.throws(
-        () => {
+      expect(() => {
           new codec.ProtoEnum({
             value: 'POP',
             fullName: 'examples.spanner.music.Genre',
           });
-        },
-        new GoogleError(`protoEnumParams cannot be used for constructing the
+        }).toThrow(new GoogleError(`protoEnumParams cannot be used for constructing the
        ProtoEnum. Pass the number as the value or provide the enum string 
        constant as the value along with the corresponding enumObject generated 
-       by protobufjs-cli.`),
-      );
+       by protobufjs-cli.`));
     });
 
     it('toJSON with enumObject', () => {
-      assert.deepEqual(new codec.ProtoEnum(enumParams).toJSON(), 'JAZZ');
+      expect(new codec.ProtoEnum(enumParams).toJSON()).toEqual('JAZZ');
     });
 
     it('toJSON without enumObject', () => {
-      assert.deepEqual(
-        new codec.ProtoEnum({
+      expect(new codec.ProtoEnum({
           value: music.Genre.JAZZ,
           fullName: 'examples.spanner.music.Genre',
-        }).toJSON(),
-        1,
-      );
+        }).toJSON()).toEqual('1');
     });
   });
 
@@ -1002,11 +938,9 @@ describe('codec', () => {
         const options = {};
         const fakeJson = {};
 
-        (sandbox.stub(codec, 'convertFieldsToJson') as sinon.SinonStub)
-          .withArgs(struct, options)
-          .returns(fakeJson);
+        jest.spyOn(codec, 'convertFieldsToJson').mockReturnValue(fakeJson as any);
 
-        assert.strictEqual(struct.toJSON(options), fakeJson);
+        expect(struct.toJSON(options)).toBe(fakeJson);
       });
     });
 
@@ -1015,10 +949,10 @@ describe('codec', () => {
         const fields = [{name: 'name', value: 'value'}];
         const struct = codec.Struct.fromArray(fields);
 
-        assert(struct instanceof codec.Struct);
+        expect(struct instanceof codec.Struct).toBeTruthy();
 
         fields.forEach((field, i) => {
-          assert.strictEqual(struct[i], field);
+          expect(struct[i]).toBe(field);
         });
       });
     });
@@ -1032,10 +966,10 @@ describe('codec', () => {
         ];
         const struct = codec.Struct.fromJSON(json);
 
-        assert(struct instanceof codec.Struct);
+        expect(struct instanceof codec.Struct).toBeTruthy();
 
         expected.forEach((field, i) => {
-          assert.deepStrictEqual(struct[i], field);
+          expect(struct[i]).toEqual(field);
         });
       });
     });
@@ -1050,13 +984,13 @@ describe('codec', () => {
     ];
 
     it('should not require options', () => {
-      assert.doesNotThrow(() => codec.convertFieldsToJson(ROW));
+      expect(() => codec.convertFieldsToJson(ROW)).not.toThrow();
     });
 
     it('should return serialized rows', () => {
       const json = codec.convertFieldsToJson(ROW);
 
-      assert.deepStrictEqual(json, {name: 'value'});
+      expect(json).toEqual({name: 'value'});
     });
 
     it('should not return nameless values by default', () => {
@@ -1067,7 +1001,7 @@ describe('codec', () => {
       ];
 
       const json = codec.convertFieldsToJson(row);
-      assert.deepStrictEqual(json, {});
+      expect(json).toEqual({});
     });
 
     it('should return nameless values when requested', () => {
@@ -1078,7 +1012,7 @@ describe('codec', () => {
       ];
 
       const json = codec.convertFieldsToJson(row, {includeNameless: true});
-      assert.deepStrictEqual(json, {_0: 'value'});
+      expect(json).toEqual({_0: 'value'});
     });
 
     describe('structs', () => {
@@ -1091,14 +1025,14 @@ describe('codec', () => {
         const fakeStructJson = {};
 
         const struct = new codec.Struct();
-        const stub = sandbox.stub(struct, 'toJSON').returns(fakeStructJson);
+        const stub = jest.spyOn(struct, 'toJSON').mockReturnValue(fakeStructJson as any);
 
         const row = [{name: 'Struct', value: struct}];
 
         const json = codec.convertFieldsToJson(row, options);
 
-        assert.strictEqual(json.Struct, fakeStructJson);
-        assert.deepStrictEqual(stub.lastCall.args[0], options);
+        expect(json.Struct).toBe(fakeStructJson);
+        expect((stub as any).mock.calls[(stub as any).mock.calls.length - 1][0]).toEqual(options);
       });
 
       it('should wrap structs with option', () => {
@@ -1110,7 +1044,7 @@ describe('codec', () => {
         const row = [{name: 'Struct', value: struct}];
 
         const json = codec.convertFieldsToJson(row, {wrapStructs: true});
-        assert.deepStrictEqual(json.Struct, expectedStruct);
+        expect(json.Struct).toEqual(expectedStruct);
       });
     });
 
@@ -1124,8 +1058,8 @@ describe('codec', () => {
         ];
 
         const json = codec.convertFieldsToJson(row);
-        assert.strictEqual(typeof json.Number, 'number');
-        assert.strictEqual(json.Number, 3);
+        expect(typeof json.Number).toBe('number');
+        expect(json.Number).toBe(3);
       });
 
       it('should wrap numbers with option', () => {
@@ -1140,8 +1074,8 @@ describe('codec', () => {
 
         const json = codec.convertFieldsToJson(row, {wrapNumbers: true});
 
-        assert(json.Number instanceof codec.Int);
-        assert.deepStrictEqual(json.Number, int);
+        expect(json.Number instanceof codec.Int).toBeTruthy();
+        expect(json.Number).toEqual(int);
       });
 
       it('should throw an error if number is out of bounds', () => {
@@ -1154,9 +1088,9 @@ describe('codec', () => {
           },
         ];
 
-        assert.throws(() => {
+        expect(() => {
           codec.convertFieldsToJson(row);
-        }, new RegExp('Serializing column "Number" encountered an error'));
+        }).toThrow(new RegExp('Serializing column "Number" encountered an error'));
       });
     });
 
@@ -1172,7 +1106,7 @@ describe('codec', () => {
         ];
 
         const json = codec.convertFieldsToJson(row);
-        assert.deepStrictEqual(json.List, [value]);
+        expect(json.List).toEqual([value]);
       });
 
       it('should wrap numbers with option', () => {
@@ -1181,19 +1115,19 @@ describe('codec', () => {
         const row = [{name: 'List', value: [value]}];
 
         const json = codec.convertFieldsToJson(row, {wrapNumbers: true});
-        assert.deepStrictEqual(json.List, [value]);
+        expect(json.List).toEqual([value]);
       });
 
       it('should not wrap structs by default', () => {
         const struct = new codec.Struct();
         const expectedStruct = {a: 'b', c: 'd'};
 
-        sandbox.stub(struct, 'toJSON').returns(expectedStruct);
+        jest.spyOn(struct, 'toJSON').mockReturnValue(expectedStruct as any);
 
         const row = [{name: 'List', value: [struct]}];
 
         const json = codec.convertFieldsToJson(row);
-        assert.deepStrictEqual(json.List, [expectedStruct]);
+        expect(json.List).toEqual([expectedStruct]);
       });
 
       it('should wrap structs with option', () => {
@@ -1202,7 +1136,7 @@ describe('codec', () => {
         const row = [{name: 'List', value: [expectedStruct]}];
 
         const json = codec.convertFieldsToJson(row, {wrapStructs: true});
-        assert.deepStrictEqual(json.List, [expectedStruct]);
+        expect(json.List).toEqual([expectedStruct]);
       });
     });
   });
@@ -1217,13 +1151,13 @@ describe('codec', () => {
       const value = {};
 
       const decoded = codec.decode(value, BYPASS_FIELD);
-      assert.strictEqual(decoded, value);
+      expect(decoded).toBe(value);
     });
 
     it('should return null values as null', () => {
-      (GrpcService.decodeValue_ as sinon.SinonStub).returns(null);
+      jest.spyOn(GrpcService, 'decodeValue_').mockReturnValue(null as any);
       const decoded = codec.decode(null, BYPASS_FIELD);
-      assert.strictEqual(decoded, null);
+      expect(decoded).toBe(null);
     });
 
     it('should decode BYTES', () => {
@@ -1234,7 +1168,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.BYTES,
       });
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode ProtoMessage', () => {
@@ -1259,7 +1193,7 @@ describe('codec', () => {
         music.SingerInfo,
       );
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode ProtoEnum (non-JSON mode)', () => {
@@ -1269,8 +1203,8 @@ describe('codec', () => {
       };
 
       const decoded = codec.decode(1, type as any, music.Genre);
-      assert(decoded instanceof codec.ProtoEnum);
-      assert.strictEqual(decoded.value, '1');
+      expect(decoded instanceof codec.ProtoEnum).toBeTruthy();
+      expect(decoded.value).toBe('1');
     });
 
     it('should decode ProtoEnum (JSON mode)', () => {
@@ -1284,10 +1218,10 @@ describe('codec', () => {
       });
 
       // 1. Passing a numeric value (1 maps to JAZZ in music.Genre)
-      assert.strictEqual(decoder(1), 'JAZZ');
+      expect(decoder(1)).toBe('JAZZ');
 
       // 2. Passing an enum name string
-      assert.strictEqual(decoder('POP'), 'POP');
+      expect(decoder('POP')).toBe('POP');
     });
 
     it('should safely handle prototype properties like "toString" as enum values and throw/ignore them', () => {
@@ -1302,9 +1236,9 @@ describe('codec', () => {
 
       // Since "toString" is a prototype property of music.Genre (via Object.prototype.toString),
       // it should NOT be resolved, and attempting to decode it should throw.
-      assert.throws(() => {
+      expect(() => {
         decoder('toString');
-      }, /protoEnumParams cannot be used for constructing the ProtoEnum/);
+      }).toThrow(/protoEnumParams cannot be used for constructing the ProtoEnum/);
     });
 
     it('should decode UUID', () => {
@@ -1314,7 +1248,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.UUID,
       });
 
-      assert.strictEqual(decoded, value);
+      expect(decoded).toBe(value);
     });
 
     it('should decode FLOAT32', () => {
@@ -1324,8 +1258,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.FLOAT32,
       });
 
-      assert(decoded instanceof codec.Float32);
-      assert.strictEqual(decoded.value, value);
+      expect(decoded instanceof codec.Float32).toBeTruthy();
+      expect(decoded.value).toBe(value);
     });
 
     it('should decode FLOAT64', () => {
@@ -1335,8 +1269,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.FLOAT64,
       });
 
-      assert(decoded instanceof codec.Float);
-      assert.strictEqual(decoded.value, value);
+      expect(decoded instanceof codec.Float).toBeTruthy();
+      expect(decoded.value).toBe(value);
     });
 
     it('should decode INT64', () => {
@@ -1346,8 +1280,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.INT64,
       });
 
-      assert(decoded instanceof codec.Int);
-      assert.strictEqual(decoded.value, value);
+      expect(decoded instanceof codec.Int).toBeTruthy();
+      expect(decoded.value).toBe(value);
     });
 
     it('should decode NUMERIC', () => {
@@ -1357,8 +1291,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.NUMERIC,
       });
 
-      assert(decoded instanceof codec.Numeric);
-      assert.strictEqual(decoded.value, value);
+      expect(decoded instanceof codec.Numeric).toBeTruthy();
+      expect(decoded.value).toBe(value);
     });
 
     it('should decode PG NUMERIC', () => {
@@ -1369,8 +1303,8 @@ describe('codec', () => {
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_NUMERIC,
       });
 
-      assert(decoded instanceof codec.PGNumeric);
-      assert.strictEqual(decoded.value, value);
+      expect(decoded instanceof codec.PGNumeric).toBeTruthy();
+      expect(decoded.value).toBe(value);
     });
 
     it('should decode JSON', () => {
@@ -1381,7 +1315,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.JSON,
       });
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode complex JSON string to object', () => {
@@ -1398,7 +1332,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.JSON,
       });
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode JSONB', () => {
@@ -1410,7 +1344,7 @@ describe('codec', () => {
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_JSONB,
       });
 
-      assert.deepStrictEqual(decoded.value, expected);
+      expect(decoded.value).toEqual(expected);
     });
 
     it('should decode JSONB object to string', () => {
@@ -1428,7 +1362,7 @@ describe('codec', () => {
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_JSONB,
       });
 
-      assert.deepStrictEqual(decoded.toString(), expected);
+      expect(decoded.toString()).toEqual(expected);
     });
 
     it('should decode PG OID', () => {
@@ -1439,8 +1373,8 @@ describe('codec', () => {
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_OID,
       });
 
-      assert(decoded instanceof codec.PGOid);
-      assert.strictEqual(decoded.value, value);
+      expect(decoded instanceof codec.PGOid).toBeTruthy();
+      expect(decoded.value).toBe(value);
     });
 
     it('should decode TIMESTAMP', () => {
@@ -1450,7 +1384,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.TIMESTAMP,
       });
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode pre-1970 TIMESTAMP preserving -0 nanosecond sign correctness', () => {
@@ -1460,7 +1394,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.TIMESTAMP,
       });
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode DATE', () => {
@@ -1470,7 +1404,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.DATE,
       });
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode DATE and gracefully handle malformed strings by falling back', () => {
@@ -1482,8 +1416,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.DATE,
       });
 
-      assert.ok(decoded instanceof codec.SpannerDate);
-      assert.ok(isNaN(decoded.getTime()));
+      expect(decoded instanceof codec.SpannerDate).toBeTruthy();
+      expect(isNaN(decoded.getTime())).toBeTruthy();
     });
 
     it('should decode DATE and fallback when month/day out of range causes silent rollover', () => {
@@ -1492,16 +1426,16 @@ describe('codec', () => {
       const decodedMonth = codec.decode(invalidMonthStr, {
         code: google.spanner.v1.TypeCode.DATE,
       });
-      assert.ok(decodedMonth instanceof codec.SpannerDate);
-      assert.ok(isNaN(decodedMonth.getTime()));
+      expect(decodedMonth instanceof codec.SpannerDate).toBeTruthy();
+      expect(isNaN(decodedMonth.getTime())).toBeTruthy();
 
       // 2. Day 35 is out of bounds
       const invalidDayStr = '2020-12-35';
       const decodedDay = codec.decode(invalidDayStr, {
         code: google.spanner.v1.TypeCode.DATE,
       });
-      assert.ok(decodedDay instanceof codec.SpannerDate);
-      assert.ok(isNaN(decodedDay.getTime()));
+      expect(decodedDay instanceof codec.SpannerDate).toBeTruthy();
+      expect(isNaN(decodedDay.getTime())).toBeTruthy();
 
       // 3. February 30 causes rollover, yielding same output as native SpannerDate
       const rolloverFebStr = '2020-02-30';
@@ -1509,7 +1443,7 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.DATE,
       });
       const expectedFeb = new codec.SpannerDate(rolloverFebStr);
-      assert.deepStrictEqual(decodedFeb, expectedFeb);
+      expect(decodedFeb).toEqual(expectedFeb);
     });
 
     it('should decode TIMESTAMP and gracefully handle malformed strings by falling back', () => {
@@ -1521,8 +1455,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.TIMESTAMP,
       });
 
-      assert.ok(decoded instanceof PreciseDate);
-      assert.ok(isNaN(decoded.getTime()));
+      expect(decoded instanceof PreciseDate).toBeTruthy();
+      expect(isNaN(decoded.getTime())).toBeTruthy();
     });
 
     it('should decode TIMESTAMP and fallback when sub-seconds contain non-digits after 9th decimal', () => {
@@ -1531,8 +1465,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.TIMESTAMP,
       });
 
-      assert.ok(decoded instanceof PreciseDate);
-      assert.ok(isNaN(decoded.getTime()));
+      expect(decoded instanceof PreciseDate).toBeTruthy();
+      expect(isNaN(decoded.getTime())).toBeTruthy();
     });
 
     it('should decode TIMESTAMP and fallback when no dot and extra characters exist', () => {
@@ -1541,8 +1475,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.TIMESTAMP,
       });
 
-      assert.ok(decoded instanceof PreciseDate);
-      assert.ok(isNaN(decoded.getTime()));
+      expect(decoded instanceof PreciseDate).toBeTruthy();
+      expect(isNaN(decoded.getTime())).toBeTruthy();
     });
 
     it('should decode TIMESTAMP and fallback when month/day out of range causes silent rollover', () => {
@@ -1551,8 +1485,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.TIMESTAMP,
       });
 
-      assert.ok(decoded instanceof PreciseDate);
-      assert.ok(isNaN(decoded.getTime()));
+      expect(decoded instanceof PreciseDate).toBeTruthy();
+      expect(isNaN(decoded.getTime())).toBeTruthy();
     });
 
     it('should decode TIMESTAMP and fallback when February 30 causes silent rollover, yielding same output as native PreciseDate', () => {
@@ -1562,7 +1496,7 @@ describe('codec', () => {
       });
       const expected = new PreciseDate(rolloverTimestampStr);
 
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode INTERVAL', () => {
@@ -1572,8 +1506,8 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.INTERVAL,
       });
 
-      assert(decoded instanceof codec.Interval);
-      assert.deepStrictEqual(decoded, expected);
+      expect(decoded instanceof codec.Interval).toBeTruthy();
+      expect(decoded).toEqual(expected);
     });
 
     it('should decode ARRAY and inner members', () => {
@@ -1586,7 +1520,7 @@ describe('codec', () => {
         },
       });
 
-      assert(decoded[0] instanceof codec.Int);
+      expect(decoded[0] instanceof codec.Int).toBeTruthy();
     });
 
     it('should decode object STRUCT value and inner members', () => {
@@ -1626,8 +1560,8 @@ describe('codec', () => {
         },
       );
 
-      assert(decoded instanceof codec.Struct);
-      assert.deepStrictEqual(decoded, expectedStruct);
+      expect(decoded instanceof codec.Struct).toBeTruthy();
+      expect(decoded).toEqual(expectedStruct);
     });
 
     it('should decode object STRUCT value and inner members with falsy values', () => {
@@ -1711,8 +1645,8 @@ describe('codec', () => {
         },
       );
 
-      assert(decoded instanceof codec.Struct);
-      assert.deepStrictEqual(decoded, expectedStruct);
+      expect(decoded instanceof codec.Struct).toBeTruthy();
+      expect(decoded).toEqual(expectedStruct);
     });
 
     it('should decode array STRUCT value and inner members', () => {
@@ -1749,8 +1683,8 @@ describe('codec', () => {
         },
       );
 
-      assert(decoded instanceof codec.Struct);
-      assert.deepStrictEqual(decoded, expectedStruct);
+      expect(decoded instanceof codec.Struct).toBeTruthy();
+      expect(decoded).toEqual(expectedStruct);
     });
 
     describe('getDecoder STRUCT options', () => {
@@ -1789,23 +1723,20 @@ describe('codec', () => {
         };
 
         const result = decoder(testData) as any;
-        assert(result instanceof codec.Struct);
+        expect(result instanceof codec.Struct).toBeTruthy();
         const singerField = result[0].value;
-        assert(singerField instanceof codec.ProtoMessage);
-        assert.strictEqual(
-          singerField.fullName,
-          'examples.spanner.music.SingerInfo',
-        );
+        expect(singerField instanceof codec.ProtoMessage).toBeTruthy();
+        expect(singerField.fullName).toBe('examples.spanner.music.SingerInfo');
 
         // 2. In JSON mode (options = {wrapStructs: false})
         const jsonDecoder = codec.getDecoder(type as any, mockMetadata, {
           wrapStructs: false,
         });
         const jsonResult = jsonDecoder(testData) as any;
-        assert.strictEqual(jsonResult.singer.birthDate, 'January');
-        assert.strictEqual(jsonResult.singer.nationality, 'Country1');
-        assert.strictEqual(jsonResult.singer.genre, 0);
-        assert.strictEqual(jsonResult.singer.singerId.toString(), '1');
+        expect(jsonResult.singer.birthDate).toBe('January');
+        expect(jsonResult.singer.nationality).toBe('Country1');
+        expect(jsonResult.singer.genre).toBe(0);
+        expect(jsonResult.singer.singerId.toString()).toBe('1');
       });
 
       it('should recursively pass field-specific metadata to empty-string nameless fields', () => {
@@ -1842,13 +1773,10 @@ describe('codec', () => {
         };
 
         const result = decoder(testData) as any;
-        assert(result instanceof codec.Struct);
+        expect(result instanceof codec.Struct).toBeTruthy();
         const singerField = result[0].value;
-        assert(singerField instanceof codec.ProtoMessage);
-        assert.strictEqual(
-          singerField.fullName,
-          'examples.spanner.music.SingerInfo',
-        );
+        expect(singerField instanceof codec.ProtoMessage).toBeTruthy();
+        expect(singerField.fullName).toBe('examples.spanner.music.SingerInfo');
       });
 
       it('should safely handle prototype properties like "toString" as field names and not pollute metadata lookup', () => {
@@ -1887,13 +1815,13 @@ describe('codec', () => {
         };
 
         const result = decoder(testData) as any;
-        assert(result instanceof codec.Struct);
+        expect(result instanceof codec.Struct).toBeTruthy();
         const field = result[0].value;
 
         // Since toString is not an own property of mockMetadata, no metadata was passed down,
         // so the nested decoder's messageFunction is undefined instead of the prototype function.
-        assert(field instanceof codec.ProtoMessage);
-        assert.strictEqual(field.messageFunction, undefined);
+        expect(field instanceof codec.ProtoMessage).toBeTruthy();
+        expect(field.messageFunction).toBe(undefined);
       });
 
       it('should safely handle prototype properties in row objects and fall back correctly', () => {
@@ -1919,8 +1847,8 @@ describe('codec', () => {
         inputData[0] = 'actual_value';
 
         const result = decoder(inputData) as any;
-        assert(result instanceof codec.Struct);
-        assert.strictEqual(result[0].value, 'actual_value');
+        expect(result instanceof codec.Struct).toBeTruthy();
+        expect(result[0].value).toBe('actual_value');
       });
 
       it('should correctly decode empty-string field names using name != null', () => {
@@ -1945,7 +1873,7 @@ describe('codec', () => {
           wrapStructs: false,
         });
         const resultDefault = jsonDecoderDefault(inputObj);
-        assert.deepStrictEqual(resultDefault, {});
+        expect(resultDefault).toEqual({});
 
         // 2. JSON mode (wrapStructs = false) with includeNameless = true
         const jsonDecoderInclude = codec.getDecoder(type as any, undefined, {
@@ -1953,18 +1881,18 @@ describe('codec', () => {
           includeNameless: true,
         });
         const resultInclude = jsonDecoderInclude(inputObj);
-        assert.deepStrictEqual(resultInclude, {_0: 'hello'});
+        expect(resultInclude).toEqual({_0: 'hello'});
 
         // 3. Wrapped mode (wrapStructs = true)
         const wrappedDecoder = codec.getDecoder(type as any, undefined, {
           wrapStructs: true,
         });
         const wrappedResult = wrappedDecoder(inputObj) as any;
-        assert(wrappedResult instanceof codec.Struct);
+        expect(wrappedResult instanceof codec.Struct).toBeTruthy();
         // default toJSON() should omit the nameless field
-        assert.deepStrictEqual(wrappedResult.toJSON(), {});
+        expect(wrappedResult.toJSON()).toEqual({});
         // toJSON({includeNameless: true}) should include it as _0
-        assert.deepStrictEqual(wrappedResult.toJSON({includeNameless: true}), {
+        expect(wrappedResult.toJSON({includeNameless: true})).toEqual({
           _0: 'hello',
         });
       });
@@ -1993,13 +1921,13 @@ describe('codec', () => {
           undefined,
         );
         const standardResult = standardDecoder(input);
-        assert(standardResult instanceof codec.Struct);
+        expect(standardResult instanceof codec.Struct).toBeTruthy();
 
         // 2. When options is {} (JSON mode default) -> should NOT wrap struct (should return plain object)
         const jsonDefaultDecoder = codec.getDecoder(type as any, undefined, {});
         const jsonDefaultResult = jsonDefaultDecoder(input);
-        assert(!(jsonDefaultResult instanceof codec.Struct));
-        assert.deepStrictEqual(jsonDefaultResult, {field: 'test-value'});
+        expect(!(jsonDefaultResult instanceof codec.Struct)).toBeTruthy();
+        expect(jsonDefaultResult).toEqual({field: 'test-value'});
       });
     });
 
@@ -2019,8 +1947,8 @@ describe('codec', () => {
           undefined,
           undefined,
         );
-        assert(decoder32Wrapped('3.14') instanceof codec.Float32);
-        assert(decoder64Wrapped('3.14') instanceof codec.Float);
+        expect(decoder32Wrapped('3.14') instanceof codec.Float32).toBeTruthy();
+        expect(decoder64Wrapped('3.14') instanceof codec.Float).toBeTruthy();
 
         // wrapNumbers = false (JSON mode default)
         const decoder32Raw = codec.getDecoder(float32Type as any, undefined, {
@@ -2029,8 +1957,8 @@ describe('codec', () => {
         const decoder64Raw = codec.getDecoder(float64Type as any, undefined, {
           wrapNumbers: false,
         });
-        assert.strictEqual(decoder32Raw('3.14'), 3.14);
-        assert.strictEqual(decoder64Raw('3.14'), 3.14);
+        expect(decoder32Raw('3.14')).toBe(3.14);
+        expect(decoder64Raw('3.14')).toBe(3.14);
       });
 
       it('should decode INT64 and PG_OID based on wrapNumbers', () => {
@@ -2051,8 +1979,8 @@ describe('codec', () => {
           undefined,
           undefined,
         );
-        assert(decoder64Wrapped('123') instanceof codec.Int);
-        assert(decoderOidWrapped('123') instanceof codec.PGOid);
+        expect(decoder64Wrapped('123') instanceof codec.Int).toBeTruthy();
+        expect(decoderOidWrapped('123') instanceof codec.PGOid).toBeTruthy();
 
         // wrapNumbers = false
         const decoder64Raw = codec.getDecoder(int64Type as any, undefined, {
@@ -2061,18 +1989,12 @@ describe('codec', () => {
         const decoderOidRaw = codec.getDecoder(pgOidType as any, undefined, {
           wrapNumbers: false,
         });
-        assert.strictEqual(decoder64Raw('123'), 123);
-        assert.strictEqual(decoderOidRaw('123'), 123);
+        expect(decoder64Raw('123')).toBe(123);
+        expect(decoderOidRaw('123')).toBe(123);
 
         // Should throw error if number is out of bounds
-        assert.throws(
-          () => decoder64Raw('9007199254740992'),
-          /Integer 9007199254740992 is out of bounds/,
-        );
-        assert.throws(
-          () => decoderOidRaw('9007199254740992'),
-          /PG.OID 9007199254740992 is out of bounds/,
-        );
+        expect(() => decoder64Raw('9007199254740992')).toThrow(/Integer 9007199254740992 is out of bounds/);
+        expect(() => decoderOidRaw('9007199254740992')).toThrow(/PG.OID 9007199254740992 is out of bounds/);
       });
     });
   });
@@ -2082,12 +2004,10 @@ describe('codec', () => {
       const value = {};
       const defaultEncodedValue = '{}';
 
-      (GrpcService.encodeValue_ as sinon.SinonStub)
-        .withArgs(value)
-        .returns(defaultEncodedValue);
+      jest.spyOn(GrpcService, 'encodeValue_').mockReturnValue(defaultEncodedValue as any);
 
       const encoded = codec.encode(value);
-      assert.strictEqual(encoded, defaultEncodedValue);
+      expect(encoded).toBe(defaultEncodedValue);
     });
 
     it('should encode BYTES', () => {
@@ -2095,7 +2015,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.toString('base64'));
+      expect(encoded).toBe(value.toString('base64'));
     });
 
     it('should encode ProtoMessage', () => {
@@ -2115,10 +2035,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(protoMessage);
 
-      assert.strictEqual(
-        encoded,
-        music.SingerInfo.encode(singerInfo).finish().toString('base64'),
-      );
+      expect(encoded).toBe(music.SingerInfo.encode(singerInfo).finish().toString('base64'));
     });
 
     it('should encode ProtoEnum', () => {
@@ -2131,19 +2048,19 @@ describe('codec', () => {
 
       const encoded = codec.encode(protoEnum);
 
-      assert.strictEqual(encoded, genre.toString());
+      expect(encoded).toBe(genre.toString());
     });
 
     it('should encode structs', () => {
       const value = codec.Struct.fromJSON({a: 'b', c: 'd'});
       const encoded = codec.encode(value);
-      assert.deepStrictEqual(encoded, ['b', 'd']);
+      expect(encoded).toEqual(['b', 'd']);
     });
 
     it('should stringify Infinity', () => {
       const value = Infinity;
       const encoded = codec.encode(value);
-      assert.strictEqual(encoded, value.toString());
+      expect(encoded).toBe(value.toString());
     });
 
     it('should stringify -Infinity', () => {
@@ -2151,7 +2068,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.toString());
+      expect(encoded).toBe(value.toString());
     });
 
     it('should stringify NaN', () => {
@@ -2159,7 +2076,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.toString());
+      expect(encoded).toBe(value.toString());
     });
 
     it('should stringify INT64', () => {
@@ -2167,7 +2084,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.toString());
+      expect(encoded).toBe(value.toString());
     });
 
     it('should stringify NUMERIC', () => {
@@ -2175,7 +2092,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.value);
+      expect(encoded).toBe(value.value);
     });
 
     it('should stringify PG NUMERIC', () => {
@@ -2183,7 +2100,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.value);
+      expect(encoded).toBe(value.value);
     });
 
     it('should encode ARRAY and inner members', () => {
@@ -2191,7 +2108,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.deepStrictEqual(encoded, [
+      expect(encoded).toEqual([
         value.toString(), // (tests that it is stringified)
       ]);
     });
@@ -2201,7 +2118,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.toJSON());
+      expect(encoded).toBe(value.toJSON());
     });
 
     it('should encode DATE', () => {
@@ -2209,13 +2126,13 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value.toJSON());
+      expect(encoded).toBe(value.toJSON());
     });
 
     it('should encode INTERVAL', () => {
       const value = new codec.Interval(17, -20, BigInt(30001));
       const encoded = codec.encode(value);
-      assert.strictEqual(encoded, 'P1Y5M-20DT0.000030001S');
+      expect(encoded).toBe('P1Y5M-20DT0.000030001S');
     });
 
     it('should encode INT64', () => {
@@ -2223,7 +2140,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, '10');
+      expect(encoded).toBe('10');
     });
 
     it('should encode PG OID', () => {
@@ -2231,7 +2148,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, '10');
+      expect(encoded).toBe('10');
     });
 
     it('should encode UUID', () => {
@@ -2239,7 +2156,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, value);
+      expect(encoded).toBe(value);
     });
 
     it('should encode FLOAT32', () => {
@@ -2247,7 +2164,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, 10);
+      expect(encoded).toBe(10);
     });
 
     it('should encode FLOAT64', () => {
@@ -2255,7 +2172,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.strictEqual(encoded, 10);
+      expect(encoded).toBe(10);
     });
 
     it('should encode JSON', () => {
@@ -2264,7 +2181,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.deepStrictEqual(encoded, expected);
+      expect(encoded).toEqual(expected);
     });
 
     it('should encode complex object as JSON', () => {
@@ -2277,10 +2194,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.deepStrictEqual(
-        encoded,
-        '{"boolKey":true,"numberKey":3.14,"stringKey":"test","objectKey":{"innerKey":"inner-value"}}',
-      );
+      expect(encoded).toEqual('{"boolKey":true,"numberKey":3.14,"stringKey":"test","objectKey":{"innerKey":"inner-value"}}');
     });
 
     it('should encode deeply-nested object as JSON', () => {
@@ -2294,10 +2208,7 @@ describe('codec', () => {
 
       const encoded = codec.encode(value);
 
-      assert.deepStrictEqual(
-        encoded,
-        '{"k":'.repeat(nesting).concat('"v"').concat('}'.repeat(nesting)),
-      );
+      expect(encoded).toEqual('{"k":'.repeat(nesting).concat('"v"').concat('}'.repeat(nesting)));
     });
 
     it('should decode deeply-nested object as JSON', () => {
@@ -2313,58 +2224,52 @@ describe('codec', () => {
         code: google.spanner.v1.TypeCode.JSON,
       });
 
-      assert.deepStrictEqual(
-        decoded,
-        JSON.parse(
+      expect(decoded).toEqual(JSON.parse(
           '{"k":'.repeat(nesting).concat('"v"').concat('}'.repeat(nesting)),
-        ),
-      );
+        ));
     });
   });
 
   describe('getType', () => {
     it('should determine if the value is a boolean', () => {
-      assert.deepStrictEqual(codec.getType(true), {type: 'bool'});
+      expect(codec.getType(true)).toEqual({type: 'bool'});
     });
 
     it('should determine if the value is a float', () => {
-      assert.deepStrictEqual(codec.getType(NaN), {type: 'float64'});
-      assert.deepStrictEqual(codec.getType(Infinity), {type: 'float64'});
-      assert.deepStrictEqual(codec.getType(-Infinity), {type: 'float64'});
-      assert.deepStrictEqual(codec.getType(2.2), {type: 'float64'});
-      assert.deepStrictEqual(codec.getType(new codec.Float(1.1)), {
+      expect(codec.getType(NaN)).toEqual({type: 'float64'});
+      expect(codec.getType(Infinity)).toEqual({type: 'float64'});
+      expect(codec.getType(-Infinity)).toEqual({type: 'float64'});
+      expect(codec.getType(2.2)).toEqual({type: 'float64'});
+      expect(codec.getType(new codec.Float(1.1))).toEqual({
         type: 'float64',
       });
     });
 
     it('should determine if the uuid value is string', () => {
-      assert.deepStrictEqual(codec.getType(crypto.randomUUID()), {
+      expect(codec.getType(crypto.randomUUID())).toEqual({
         type: 'string',
       });
     });
 
     it('should determine if the uuid value is unspecified when SPANNER_ENABLE_UUID_AS_UNTYPED is true', () => {
-      const emitWarningStub = sandbox.stub(process, 'emitWarning');
+      const emitWarningStub = jest.spyOn(process, 'emitWarning').mockImplementation(() => {});
       try {
         process.env['SPANNER_ENABLE_UUID_AS_UNTYPED'] = 'true';
-        assert.deepStrictEqual(codec.getType(crypto.randomUUID()), {
+        expect(codec.getType(crypto.randomUUID())).toEqual({
           type: 'unspecified',
         });
-        assert.strictEqual(emitWarningStub.calledOnce, true);
-        assert.strictEqual(
-          emitWarningStub.firstCall.args[0],
-          'SPANNER_ENABLE_UUID_AS_UNTYPED environment variable is deprecated and will be removed in a future release.',
-        );
+        expect(emitWarningStub).toHaveBeenCalledTimes(1);
+        expect(emitWarningStub).toHaveBeenCalledWith('SPANNER_ENABLE_UUID_AS_UNTYPED environment variable is deprecated and will be removed in a future release.', 'DeprecationWarning');
       } finally {
         delete process.env['SPANNER_ENABLE_UUID_AS_UNTYPED'];
-        emitWarningStub.restore();
+        emitWarningStub.mockRestore();
       }
     });
 
     it('should determine if the uuid value is string when SPANNER_ENABLE_UUID_AS_UNTYPED is false', () => {
       try {
         process.env['SPANNER_ENABLE_UUID_AS_UNTYPED'] = 'false';
-        assert.deepStrictEqual(codec.getType(crypto.randomUUID()), {
+        expect(codec.getType(crypto.randomUUID())).toEqual({
           type: 'string',
         });
       } finally {
@@ -2373,75 +2278,72 @@ describe('codec', () => {
     });
 
     it('should determine if the value is a float32', () => {
-      assert.deepStrictEqual(codec.getType(new codec.Float32(1.1)), {
+      expect(codec.getType(new codec.Float32(1.1))).toEqual({
         type: 'float32',
       });
     });
 
     it('should determine if the value is an int', () => {
-      assert.deepStrictEqual(codec.getType(1234), {type: 'int64'});
-      assert.deepStrictEqual(codec.getType(new codec.Int(1)), {type: 'int64'});
+      expect(codec.getType(1234)).toEqual({type: 'int64'});
+      expect(codec.getType(new codec.Int(1))).toEqual({type: 'int64'});
     });
 
     it('should determine if the value is numeric', () => {
-      assert.deepStrictEqual(codec.getType(new codec.Numeric('8.01911')), {
+      expect(codec.getType(new codec.Numeric('8.01911'))).toEqual({
         type: 'numeric',
       });
     });
 
     it('should determine if the value is a string', () => {
-      assert.deepStrictEqual(codec.getType('abc'), {type: 'string'});
+      expect(codec.getType('abc')).toEqual({type: 'string'});
     });
 
     it('should determine if the value is bytes', () => {
-      assert.deepStrictEqual(codec.getType(Buffer.from('abc')), {
+      expect(codec.getType(Buffer.from('abc'))).toEqual({
         type: 'bytes',
       });
     });
 
     it('should determine if the value is json', () => {
-      assert.deepStrictEqual(codec.getType({key: 'value'}), {
+      expect(codec.getType({key: 'value'})).toEqual({
         type: 'json',
       });
     });
 
     it('should determine if the value is a date', () => {
-      assert.deepStrictEqual(codec.getType(new codec.SpannerDate()), {
+      expect(codec.getType(new codec.SpannerDate())).toEqual({
         type: 'date',
       });
     });
 
     it('should determine if the value is a timestamp', () => {
-      assert.deepStrictEqual(codec.getType(new PreciseDate()), {
+      expect(codec.getType(new PreciseDate())).toEqual({
         type: 'timestamp',
       });
     });
 
     it('should accept a plain date object as a timestamp', () => {
-      assert.deepStrictEqual(codec.getType(new Date()), {type: 'timestamp'});
+      expect(codec.getType(new Date())).toEqual({type: 'timestamp'});
     });
 
     it.skip('should determine if the value is a interval', () => {
-      assert.deepStrictEqual(
-        codec.getType(new codec.Interval(1, 2, BigInt(3))),
-        {
+      expect(codec.getType(new codec.Interval(1, 2, BigInt(3)))).toEqual({
           type: 'interval',
-        },
-      );
+        });
     });
 
     it('should determine if the value is a struct', () => {
       const struct = codec.Struct.fromJSON({a: 'b'});
       const type = codec.getType(struct);
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         type: 'struct',
         fields: [{name: 'a', type: 'string'}],
       });
     });
 
     it('should attempt to determine arrays and their values', () => {
-      assert.deepStrictEqual(codec.getType([Infinity]), {
+      expect(codec.getType([Infinity])).toEqual({
         type: 'array',
         child: {
           type: 'float64',
@@ -2450,9 +2352,9 @@ describe('codec', () => {
     });
 
     it('should return unspecified for unknown values', () => {
-      assert.deepStrictEqual(codec.getType(null), {type: 'unspecified'});
+      expect(codec.getType(null)).toEqual({type: 'unspecified'});
 
-      assert.deepStrictEqual(codec.getType([null]), {
+      expect(codec.getType([null])).toEqual({
         type: 'array',
         child: {
           type: 'unspecified',
@@ -2461,13 +2363,13 @@ describe('codec', () => {
     });
 
     it('should determine if the value is a PGNumeric', () => {
-      assert.deepStrictEqual(codec.getType(new codec.PGNumeric('7248')), {
+      expect(codec.getType(new codec.PGNumeric('7248'))).toEqual({
         type: 'pgNumeric',
       });
     });
 
     it('should determine if the value is a PGOid', () => {
-      assert.deepStrictEqual(codec.getType(new codec.PGOid(5678)), {
+      expect(codec.getType(new codec.PGOid(5678))).toEqual({
         type: 'pgOid',
       });
     });
@@ -2475,7 +2377,7 @@ describe('codec', () => {
 
   describe('convertToListValue', () => {
     beforeEach(() => {
-      sandbox.stub(codec, 'encode').callsFake(value => {
+      jest.spyOn(codec, 'encode').mockImplementation(value => {
         return {stringValue: value};
       });
     });
@@ -2487,7 +2389,7 @@ describe('codec', () => {
       };
 
       const converted = codec.convertToListValue(actual);
-      assert.deepStrictEqual(converted, expected);
+      expect(converted).toEqual(expected);
     });
 
     it('should convert a single value to a list value', () => {
@@ -2497,7 +2399,7 @@ describe('codec', () => {
       };
 
       const converted = codec.convertToListValue(actual);
-      assert.deepStrictEqual(converted, expected);
+      expect(converted).toEqual(expected);
     });
   });
 
@@ -2510,7 +2412,7 @@ describe('codec', () => {
       };
 
       const converted = codec.convertMsToProtoTimestamp(ms);
-      assert.deepStrictEqual(converted, expected);
+      expect(converted).toEqual(expected);
     });
   });
 
@@ -2521,7 +2423,7 @@ describe('codec', () => {
       const expected = new Date(5000.00001);
       const converted = codec.convertProtoTimestampToDate(timestamp);
 
-      assert.deepStrictEqual(converted, expected);
+      expect(converted).toEqual(expected);
     });
   });
 
@@ -2581,14 +2483,14 @@ describe('codec', () => {
 
       Object.keys(typeMap).forEach(key => {
         const type = codec.createTypeObject(key);
-        assert.deepStrictEqual(type, typeMap[key]);
+        expect(type).toEqual(typeMap[key]);
       });
     });
 
     it('should default to unspecified for unknown types', () => {
       const type = codec.createTypeObject('unicorn');
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[
           google.spanner.v1.TypeCode.TYPE_CODE_UNSPECIFIED
         ],
@@ -2601,7 +2503,7 @@ describe('codec', () => {
         child: 'bool',
       });
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.ARRAY],
         arrayElementType: {
           code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.BOOL],
@@ -2618,7 +2520,7 @@ describe('codec', () => {
         ],
       });
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.STRUCT],
         structType: {
           fields: [
@@ -2660,7 +2562,7 @@ describe('codec', () => {
         ],
       });
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.STRUCT],
         structType: {
           fields: [
@@ -2691,7 +2593,7 @@ describe('codec', () => {
     it('should set code and typeAnnotation for pgNumeric string', () => {
       const type = codec.createTypeObject('pgNumeric');
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.NUMERIC],
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_NUMERIC,
       });
@@ -2700,7 +2602,7 @@ describe('codec', () => {
     it('should set code and typeAnnotation for pgNumeric friendlyType object', () => {
       const type = codec.createTypeObject({type: 'pgNumeric'});
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.NUMERIC],
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_NUMERIC,
       });
@@ -2709,7 +2611,7 @@ describe('codec', () => {
     it('should set code and typeAnnotation for pgOid string', () => {
       const type = codec.createTypeObject('pgOid');
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.INT64],
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_OID,
       });
@@ -2718,7 +2620,7 @@ describe('codec', () => {
     it('should set code and typeAnnotation for pgOid friendlyType object', () => {
       const type = codec.createTypeObject({type: 'pgOid'});
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         code: google.spanner.v1.TypeCode[google.spanner.v1.TypeCode.INT64],
         typeAnnotation: google.spanner.v1.TypeAnnotationCode.PG_OID,
       });

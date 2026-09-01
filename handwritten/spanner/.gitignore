@@ -1,8 +1,6 @@
 **/*.log
 **/node_modules
-/.coverage
 /coverage
-/.nyc_output
 /docs/
 /out/
 /build/

@@ -21,7 +21,6 @@ import * as proxyquire from 'proxyquire';
 import * as sinon from 'sinon';
 import {util} from '@google-cloud/common';
 import * as pfy from '@google-cloud/promisify';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {Instance, Spanner} from '../src';
 import * as bu from '../src/backup';
 import {GetMetadataResponse} from '../src/backup';
@@ -91,7 +90,7 @@ describe('Backup', () => {
 
   let backup: bu.Backup;
 
-  before(() => {
+  beforeAll(() => {
     Backup = proxyquire('../src/backup.js', {
       '@google-cloud/common-grpc': {
         ServiceObject: FakeGrpcServiceObject,

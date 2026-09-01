@@ -27,7 +27,7 @@ import {
 } from './transaction';
 import {protos} from '@google-cloud/spanner-api';
 import google = protos.google;
-import {Session, Database} from '.';
+import type {Session, Database} from '.';
 import {
   CLOUD_RESOURCE_HEADER,
   ResourceCallback,

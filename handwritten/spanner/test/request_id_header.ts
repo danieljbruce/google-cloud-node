@@ -15,7 +15,6 @@
  */
 
 /* eslint-disable prefer-rest-params */
-import * as assert from 'assert';
 import {
   RequestIDError,
   X_GOOG_SPANNER_REQUEST_ID_HEADER,
@@ -25,96 +24,68 @@ import {
   newAtomicCounter,
   nextNthRequest,
   randIdForProcess,
-} from '../src/request_id_header';
+} from "../src/request_id_header";
 
-describe('RequestId', () => {
-  describe('AtomicCounter', () => {
-    it('Constructor with initialValue', done => {
+describe("RequestId", () => {
+  describe("AtomicCounter", () => {
+    it("Constructor with initialValue", () => {
       const ac0 = newAtomicCounter();
-      assert.deepStrictEqual(ac0.value(), 0);
-      assert.deepStrictEqual(
-        ac0.increment(2),
-        2,
-        'increment should return the added value',
-      );
-      assert.deepStrictEqual(
-        ac0.value(),
-        2,
-        'increment should have modified the value',
-      );
+      expect(ac0.value()).toBe(0);
+      expect(ac0.increment(2)).toBe(2);
+      expect(ac0.value()).toBe(2);
 
       const ac1 = newAtomicCounter(1);
-      assert.deepStrictEqual(ac1.value(), 1);
-      assert.deepStrictEqual(
-        ac1.increment(1 << 27),
-        (1 << 27) + 1,
-        'increment should return the added value',
-      );
-      assert.deepStrictEqual(
-        ac1.value(),
-        (1 << 27) + 1,
-        'increment should have modified the value',
-      );
-      done();
+      expect(ac1.value()).toBe(1);
+      expect(ac1.increment(1 << 27)).toBe((1 << 27) + 1);
+      expect(ac1.value()).toBe((1 << 27) + 1);
     });
 
-    it('reset', done => {
+    it("reset", () => {
       const ac0 = newAtomicCounter(1);
       ac0.increment();
-      assert.strictEqual(ac0.value(), 2);
+      expect(ac0.value()).toBe(2);
       ac0.reset();
-      assert.strictEqual(ac0.value(), 0);
-      done();
+      expect(ac0.value()).toBe(0);
     });
 
-    it('toString', done => {
+    it("toString", () => {
       const ac0 = newAtomicCounter(1);
       ac0.increment();
-      assert.strictEqual(ac0.value(), 2);
-      assert.strictEqual(ac0.toString(), '2');
-      assert.strictEqual(`${ac0}`, '2');
-      done();
+      expect(ac0.value()).toBe(2);
+      expect(ac0.toString()).toBe("2");
+      expect(`${ac0}`).toBe("2");
     });
   });
 
-  describe('craftRequestId', () => {
-    it('has a 32-bit hex-formatted process-id', done => {
-      assert.match(
-        randIdForProcess,
-        /^[0-9A-Fa-f]{8}$/,
-        `process-id should be a 32-bit hexadecimal number, but was ${randIdForProcess}`,
-      );
-      done();
+  describe("craftRequestId", () => {
+    it("has a 32-bit hex-formatted process-id", () => {
+      expect(randIdForProcess).toMatch(/^[0-9A-Fa-f]{8}$/);
     });
 
-    it('with attempts', done => {
-      assert.strictEqual(
-        craftRequestId(1, 2, 3, 4),
-        `1.${randIdForProcess}.1.2.3.4`,
+    it("with attempts", () => {
+      expect(craftRequestId(1, 2, 3, 4)).toBe(
+        `1.${randIdForProcess}.1.2.3.4`
       );
-      done();
     });
   });
 
-  describe('injectRequestIDIntoError', () => {
-    it('with non-null error', done => {
-      const err: Error = new Error('this one');
-      const config = {headers: {}};
-      config.headers[X_GOOG_SPANNER_REQUEST_ID_HEADER] = '1.2.3.4.5.6';
+  describe("injectRequestIDIntoError", () => {
+    it("with non-null error", () => {
+      const err: Error = new Error("this one");
+      const config: any = {headers: {}};
+      config.headers[X_GOOG_SPANNER_REQUEST_ID_HEADER] = "1.2.3.4.5.6";
       injectRequestIDIntoError(config, err);
-      assert.strictEqual((err as RequestIDError).requestID, '1.2.3.4.5.6');
-      done();
+      expect((err as RequestIDError).requestID).toBe("1.2.3.4.5.6");
     });
   });
 
-  describe('injectRequestIDIntoHeaders', () => {
-    it('with null session', done => {
+  describe("injectRequestIDIntoHeaders", () => {
+    it("with null session", () => {
       const hdrs = {};
       injectRequestIDIntoHeaders(hdrs, null, 2, 1);
-      done();
     });
 
-    it('with nthRequest explicitly passed in', done => {
+    it("with nthRequest explicitly passed in", () => {
       const session = {
         parent: {
           _nextNthRequest: () => {
@@ -122,15 +93,14 @@ describe('RequestId', () => {
           },
         },
       };
-      const got = injectRequestIDIntoHeaders({}, session, 2, 5);
+      const got = injectRequestIDIntoHeaders({}, session as any, 2, 5);
       const want = {
-        'x-goog-spanner-request-id': `1.${randIdForProcess}.1.1.2.5`,
+        "x-goog-spanner-request-id": `1.${randIdForProcess}.1.1.2.5`,
       };
-      assert.deepStrictEqual(got, want);
-      done();
+      expect(got).toEqual(want);
     });
 
-    it('infer nthRequest from session', done => {
+    it("infer nthRequest from session", () => {
       const session = {
         parent: {
           _nextNthRequest: () => {
@@ -140,32 +110,25 @@ describe('RequestId', () => {
       };
 
       const inputHeaders: {[k: string]: string} = {};
-      const got = injectRequestIDIntoHeaders(inputHeaders, session);
+      const got = injectRequestIDIntoHeaders(inputHeaders, session as any);
       const want = {
-        'x-goog-spanner-request-id': `1.${randIdForProcess}.1.1.5.1`,
+        "x-goog-spanner-request-id": `1.${randIdForProcess}.1.1.5.1`,
       };
-      assert.deepStrictEqual(got, want);
-      done();
+      expect(got).toEqual(want);
     });
   });
 
-  describe('nextNthRequest', () => {
-    const fauxDatabase = {};
-    assert.deepStrictEqual(
-      nextNthRequest(fauxDatabase),
-      1,
-      'Without override, should default to 1',
-    );
+  describe("nextNthRequest", () => {
+    it("should infer value properly", () => {
+      const fauxDatabase = {};
+      expect(nextNthRequest(fauxDatabase)).toBe(1);
 
-    Object.assign(fauxDatabase, {
-      _nextNthRequest: () => {
-        return 4;
-      },
+      Object.assign(fauxDatabase, {
+        _nextNthRequest: () => {
+          return 4;
+        },
+      });
+      expect(nextNthRequest(fauxDatabase)).toBe(4);
     });
-    assert.deepStrictEqual(
-      nextNthRequest(fauxDatabase),
-      4,
-      'With override should infer value',
-    );
   });
 });

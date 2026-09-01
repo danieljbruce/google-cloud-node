@@ -356,18 +356,10 @@ class Spanner extends GrpcService {
    *
    * @returns {boolean} `true` if AFE server timing is enabled; otherwise, `false`.
    */
-  public static isAFEServerTimingEnabled = (): boolean => {
-    if (this._isAFEServerTimingEnabled === undefined) {
-      this._isAFEServerTimingEnabled =
-        process.env['SPANNER_DISABLE_AFE_SERVER_TIMING'] !== 'true';
-    }
-    return this._isAFEServerTimingEnabled;
-  };
+  public static isAFEServerTimingEnabled = isAFEServerTimingEnabled;
 
   /** Resets the cached value (use in tests if env changes). */
-  public static _resetAFEServerTimingForTest(): void {
-    this._isAFEServerTimingEnabled = undefined;
-  }
+  public static _resetAFEServerTimingForTest = _resetAFEServerTimingForTest;
 
   /**
    * Gets the configured Spanner emulator host from an environment variable.

@@ -15,41 +15,50 @@
 
 /* eslint-disable prefer-rest-params */
 
-import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {grpc} from 'google-gax';
-import * as proxyquire from 'proxyquire';
-import * as pfy from '@google-cloud/promisify';
-import * as sinon from 'sinon';
 
 import * as instConfig from '../src/instance-config';
 import {Spanner, GetInstanceConfigResponse} from '../src';
 import {CLOUD_RESOURCE_HEADER} from '../src/common';
 
-let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll(klass, options) {
-    if (klass.name !== 'InstanceConfig') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, ['exists']);
-  },
+
+jest.mock("@google-cloud/promisify", () => {
+  const actual = jest.requireActual("@google-cloud/promisify");
+  return {
+    ...actual,
+    promisifyAll: (klass: any, options: any) => {
+      if (klass.name === "InstanceConfig") {
+        (global as any).__promisified = true;
+        expect(options.exclude).toEqual(["exists"]);
+      }
+    },
+  };
 });
 
 class FakeGrpcServiceObject {
-  calledWith_: IArguments;
-  constructor() {
-    this.calledWith_ = arguments;
+  calledWith_: any[];
+  constructor(...args: any[]) {
+    this.calledWith_ = args;
   }
 }
+
+jest.mock("../src/common-grpc/service-object", () => {
+  class MockGrpcServiceObject {
+    calledWith_: any[];
+    constructor(...args: any[]) {
+      this.calledWith_ = args;
+    }
+  }
+  return {
+    GrpcServiceObject: MockGrpcServiceObject,
+  };
+});
 
 describe('InstanceConfig', () => {
   // tslint:disable-next-line variable-name
   let InstanceConfig: typeof instConfig.InstanceConfig;
   let instanceConfig: instConfig.InstanceConfig;
 
-  const sandbox = sinon.createSandbox();
 
   const SPANNER = {
     request: () => {},
@@ -63,13 +72,8 @@ describe('InstanceConfig', () => {
 
   const NAME = 'instance-config-name';
 
-  before(() => {
-    InstanceConfig = proxyquire('../src/instance-config.js', {
-      './common-grpc/service-object': {
-        GrpcServiceObject: FakeGrpcServiceObject,
-      },
-      '@google-cloud/promisify': fakePfy,
-    }).InstanceConfig;
+  beforeAll(() => {
+    InstanceConfig = instConfig.InstanceConfig;
   });
 
   beforeEach(() => {
@@ -78,7 +82,7 @@ describe('InstanceConfig', () => {
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect((global as any).__promisified).toBeTruthy();
     });
 
     it('should format the name', () => {
@@ -88,21 +92,21 @@ describe('InstanceConfig', () => {
       InstanceConfig.formatName_ = (projectId, name) => {
         InstanceConfig.formatName_ = formatName_;
 
-        assert.strictEqual(projectId, SPANNER.projectId);
-        assert.strictEqual(name, NAME);
+        expect(projectId).toBe(SPANNER.projectId);
+        expect(name).toBe(NAME);
 
         return formattedName;
       };
 
       const instanceConfig = new InstanceConfig(SPANNER, NAME);
-      assert(instanceConfig.formattedName_, formattedName);
+      expect(instanceConfig.formattedName_).toBeTruthy();
     });
 
     it('should localize the request function', done => {
       const spannerInstance = Object.assign({}, SPANNER);
 
       spannerInstance.request = function () {
-        assert.strictEqual(this, spannerInstance);
+        expect(this).toBe(spannerInstance);
         done();
       };
 
@@ -115,26 +119,26 @@ describe('InstanceConfig', () => {
       const options = {};
       const spannerInstance = Object.assign({}, SPANNER, {
         createInstanceConfig(name, options_, callback) {
-          assert.strictEqual(name, instanceConfig.formattedName_);
-          assert.strictEqual(options_, options);
+          expect(name).toBe(instanceConfig.formattedName_);
+          expect(options_).toBe(options);
           callback(); // done()
         },
       });
 
       const instanceConfig = new InstanceConfig(spannerInstance, NAME);
-      assert(instanceConfig instanceof FakeGrpcServiceObject);
+      expect(instanceConfig.calledWith_).toBeDefined();
 
       const calledWith = instanceConfig.calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, spannerInstance);
-      assert.strictEqual(calledWith.id, NAME);
-      assert.deepStrictEqual(calledWith.methods, {create: true});
+      expect(calledWith.parent).toBe(spannerInstance);
+      expect(calledWith.id).toBe(NAME);
+      expect(calledWith.methods).toEqual({create: true});
 
       calledWith.createMethod(null, options, done);
     });
 
     it('should set the resourceHeader_', () => {
-      assert.deepStrictEqual(instanceConfig.resourceHeader_, {
+      expect(instanceConfig.resourceHeader_).toEqual({
         [CLOUD_RESOURCE_HEADER]: instanceConfig.formattedName_,
       });
     });
@@ -144,15 +148,12 @@ describe('InstanceConfig', () => {
     const PATH = 'projects/' + SPANNER.projectId + '/instanceConfigs/' + NAME;
 
     it('should return the name if already formatted', () => {
-      assert.strictEqual(
-        InstanceConfig.formatName_(SPANNER.projectId, PATH),
-        PATH,
-      );
+      expect(InstanceConfig.formatName_(SPANNER.projectId, PATH)).toBe(PATH);
     });
 
     it('should format the name', () => {
       const formattedName = InstanceConfig.formatName_(SPANNER.projectId, NAME);
-      assert.strictEqual(formattedName, PATH);
+      expect(formattedName).toBe(PATH);
     });
   });
 
@@ -163,13 +164,13 @@ describe('InstanceConfig', () => {
 
     it('should make the correct request', done => {
       instanceConfig.request = (config, callback: Function) => {
-        assert.strictEqual(config.client, 'InstanceAdminClient');
-        assert.strictEqual(config.method, 'deleteInstanceConfig');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('InstanceAdminClient');
+        expect(config.method).toBe('deleteInstanceConfig');
+        expect(config.reqOpts).toEqual({
           name: instanceConfig.formattedName_,
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
-        assert.deepStrictEqual(config.headers, instanceConfig.resourceHeader_);
+        expect(config.gaxOpts).toEqual({});
+        expect(config.headers).toEqual(instanceConfig.resourceHeader_);
         callback(); // done()
       };
 
@@ -184,11 +185,11 @@ describe('InstanceConfig', () => {
       };
 
       cache.set(instanceConfig.id, instanceConfig);
-      assert.strictEqual(cache.get(instanceConfig.id), instanceConfig);
+      expect(cache.get(instanceConfig.id)).toBe(instanceConfig);
 
       instanceConfig.delete(err => {
-        assert.ifError(err);
-        assert.strictEqual(cache.has(instanceConfig.id), false);
+        (err => { expect(err).toBeFalsy(); })(err);
+        expect(cache.has(instanceConfig.id)).toBe(false);
         done();
       });
     });
@@ -197,7 +198,7 @@ describe('InstanceConfig', () => {
       const gaxOptions = {};
 
       instanceConfig.request = (config, callback: Function) => {
-        assert.deepStrictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toEqual(gaxOptions);
         callback(); // done()
       };
 
@@ -207,7 +208,7 @@ describe('InstanceConfig', () => {
 
   describe('exists', () => {
     beforeEach(() => (instanceConfig.parent = SPANNER));
-    afterEach(() => sandbox.restore());
+    afterEach(() => jest.restoreAllMocks());
 
     it('should return any non-404 like errors', async () => {
       const err = {code: grpc.status.INTERNAL};
@@ -217,9 +218,9 @@ describe('InstanceConfig', () => {
 
       try {
         await instanceConfig.exists();
-        assert.fail('Should have rethrown error');
+        fail('Should have rethrown error');
       } catch (thrown) {
-        assert.deepStrictEqual(thrown, err);
+        expect(thrown).toEqual(err);
       }
     });
 
@@ -228,7 +229,7 @@ describe('InstanceConfig', () => {
       instanceConfig.get = async () => INSTANCE_CONFIG_INFO_RESPONSE;
 
       const doesExist = await instanceConfig.exists();
-      assert.strictEqual(doesExist, true);
+      expect(doesExist).toBe(true);
     });
 
     it('should return false if instance config does not exist', async () => {
@@ -237,7 +238,7 @@ describe('InstanceConfig', () => {
       };
 
       const doesExist = await instanceConfig.exists();
-      assert.strictEqual(doesExist, false);
+      expect(doesExist).toBe(false);
     });
   });
 
@@ -246,57 +247,53 @@ describe('InstanceConfig', () => {
       instanceConfig.parent = SPANNER;
     });
     afterEach(() => {
-      sandbox.restore();
+      jest.restoreAllMocks();
     });
 
     it('should call getInstanceConfig', done => {
       const options = {};
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      sandbox.stub(SPANNER, 'getInstanceConfig').callsFake(_ => done());
+      jest.spyOn(SPANNER, 'getInstanceConfig').mockImplementation(_ => done());
 
-      instanceConfig.get(options, assert.ifError);
+      instanceConfig.get(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept and pass gaxOptions to getInstanceConfig', done => {
       const gaxOptions = {};
 
-      sandbox.stub(SPANNER, 'getInstanceConfig').callsFake((_, options) => {
-        assert.strictEqual(options.gaxOptions, gaxOptions);
+      jest.spyOn(SPANNER, 'getInstanceConfig').mockImplementation((_, options) => {
+        expect(options.gaxOptions).toBe(gaxOptions);
         done();
       });
 
-      instanceConfig.get({gaxOptions}, assert.ifError);
+      instanceConfig.get({gaxOptions}, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require an options object', done => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      sandbox.stub(SPANNER, 'getInstanceConfig').callsFake(_ => done());
-      instanceConfig.get(assert.ifError);
+      jest.spyOn(SPANNER, 'getInstanceConfig').mockImplementation(_ => done());
+      instanceConfig.get((err => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error from getMetadata', done => {
       const error = new Error('Error.') as grpc.ServiceError;
 
-      sandbox
-        .stub(SPANNER, 'getInstanceConfig')
-        .callsFake((_, opts_: {}, callback) => callback!(error));
+      jest.spyOn(SPANNER, 'getInstanceConfig').mockImplementation((_, opts_: {}, callback) => callback!(error));
 
       instanceConfig.get(err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should return self and API response', done => {
       const apiResponse = {} as instConfig.IInstanceConfig;
-      sandbox
-        .stub(SPANNER, 'getInstanceConfig')
-        .callsFake((_, opts_: {}, callback) => callback!(null, apiResponse));
+      jest.spyOn(SPANNER, 'getInstanceConfig').mockImplementation((_, opts_: {}, callback) => callback!(null, apiResponse));
 
       instanceConfig.get((err, instanceConfigMetadata_) => {
-        assert.ifError(err);
-        assert.strictEqual(instanceConfigMetadata_, apiResponse);
+        (err => { expect(err).toBeFalsy(); })(err);
+        expect(instanceConfigMetadata_).toBe(apiResponse);
         done();
       });
     });
@@ -314,8 +311,8 @@ describe('InstanceConfig', () => {
       function callback() {}
 
       instanceConfig.request = (config, callback_) => {
-        assert.strictEqual(config.client, 'InstanceAdminClient');
-        assert.strictEqual(config.method, 'updateInstanceConfig');
+        expect(config.client).toBe('InstanceAdminClient');
+        expect(config.method).toBe('updateInstanceConfig');
 
         const expectedReqOpts = Object.assign(
           {},
@@ -324,16 +321,16 @@ describe('InstanceConfig', () => {
           }),
         ) as instConfig.IInstanceConfig as instConfig.SetInstanceConfigMetadataRequest;
 
-        assert.deepStrictEqual(config.reqOpts.instanceConfig, expectedReqOpts);
-        assert.deepStrictEqual(config.reqOpts.updateMask, {
+        expect(config.reqOpts.instanceConfig).toEqual(expectedReqOpts);
+        expect(config.reqOpts.updateMask).toEqual({
           paths: ['needs_to_be_snake_cased'],
         });
 
-        assert.deepStrictEqual(METADATA, ORIGINAL_METADATA);
-        assert.deepStrictEqual(config.gaxOpts, {});
-        assert.deepStrictEqual(config.headers, instanceConfig.resourceHeader_);
+        expect(METADATA).toEqual(ORIGINAL_METADATA);
+        expect(config.gaxOpts).toEqual({});
+        expect(config.headers).toEqual(instanceConfig.resourceHeader_);
 
-        assert.strictEqual(callback_, callback);
+        expect(callback_).toBe(callback);
 
         return requestReturnValue;
       };
@@ -342,27 +339,27 @@ describe('InstanceConfig', () => {
         Object.assign({}, {instanceConfig: METADATA}),
         callback,
       );
-      assert.strictEqual(returnValue, requestReturnValue);
+      expect(returnValue).toBe(requestReturnValue);
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
       instanceConfig.request = config => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
       instanceConfig.setMetadata(
         Object.assign({}, {instanceConfig: METADATA}, {gaxOpts: gaxOptions}),
-        assert.ifError,
+        (err => { expect(err).toBeFalsy(); }),
       );
     });
 
     it('should not require a callback', () => {
-      assert.doesNotThrow(async () => {
+      expect(async () => {
         await instanceConfig.setMetadata(
           Object.assign({}, {instanceConfig: METADATA}),
         );
-      });
+      }).not.toThrow();
     });
   });
 });

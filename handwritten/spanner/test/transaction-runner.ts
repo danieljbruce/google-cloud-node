@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {EventEmitter} from 'events';
 import {grpc} from 'google-gax';
 import * as proxyquire from 'proxyquire';
@@ -64,7 +63,7 @@ describe('TransactionRunner', () => {
 
   let fakeTransaction;
 
-  before(() => {
+  beforeAll(() => {
     const runners = proxyquire('../src/transaction-runner', {
       './protos': {
         getRetryInfo: () => RETRY_INFO,

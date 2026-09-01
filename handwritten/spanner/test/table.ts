@@ -16,7 +16,6 @@
 
 import * as pfy from '@google-cloud/promisify';
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import * as proxyquire from 'proxyquire';
 import * as sinon from 'sinon';
 import {split} from 'split-array-stream';
@@ -80,7 +79,7 @@ describe('Table', () => {
   const NAME = 'table-name';
   const NAMEWITHSCHEMA = 'schema.' + NAME;
 
-  before(() => {
+  beforeAll(() => {
     Table = proxyquire('../src/table.js', {
       '@google-cloud/promisify': fakePfy,
     }).Table;

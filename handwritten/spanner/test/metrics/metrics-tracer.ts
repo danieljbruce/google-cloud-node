@@ -13,8 +13,6 @@
 // limitations under the License.
 
 import {status as Status} from '@grpc/grpc-js';
-import * as assert from 'assert';
-import * as sinon from 'sinon';
 import * as Constants from '../../src/metrics/constants';
 import {MetricsTracer} from '../../src/metrics/metrics-tracer';
 
@@ -37,39 +35,39 @@ describe('MetricsTracer', () => {
   let fakeGfeLatency: any;
   let fakeAfeCounter: any;
   let fakeAfeLatency: any;
-  let sandbox: sinon.SinonSandbox;
+  
   beforeEach(() => {
-    sandbox = sinon.createSandbox();
+    
     fakeAttemptCounter = {
-      add: sinon.spy(),
+      add: jest.fn(),
     };
 
     fakeAttemptLatency = {
-      record: sinon.spy(),
+      record: jest.fn(),
     };
 
     fakeOperationCounter = {
-      add: sinon.spy(),
+      add: jest.fn(),
     };
 
     fakeOperationLatency = {
-      record: sinon.spy(),
+      record: jest.fn(),
     };
 
     fakeGfeCounter = {
-      add: sinon.spy(),
+      add: jest.fn(),
     };
 
     fakeGfeLatency = {
-      record: sinon.spy(),
+      record: jest.fn(),
     };
 
     fakeAfeCounter = {
-      add: sinon.spy(),
+      add: jest.fn(),
     };
 
     fakeAfeLatency = {
-      record: sinon.spy(),
+      record: jest.fn(),
     };
 
     tracer = new MetricsTracer(
@@ -91,81 +89,76 @@ describe('MetricsTracer', () => {
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
   describe('recordAttemptCompletion', () => {
     it('should record attempt latency when enabled', () => {
       tracer.recordOperationStart();
       tracer.recordAttemptStart();
-      assert.ok(tracer.currentOperation!.currentAttempt);
-      assert.ok(tracer.currentOperation!.currentAttempt.startTime);
-      assert.strictEqual(tracer.currentOperation!.attemptCount, 1);
+      expect(tracer.currentOperation!.currentAttempt).toBeTruthy();
+      expect(tracer.currentOperation!.currentAttempt!.startTime).toBeTruthy();
+      expect(tracer.currentOperation!.attemptCount).toBe(1);
 
       tracer.recordAttemptCompletion(Status.OK);
 
-      assert.strictEqual(fakeAttemptLatency.record.calledOnce, true);
-      const [[latency, otelAttrs]] = fakeAttemptLatency.record.args;
-      assert.strictEqual(typeof latency, 'number');
-      assert.strictEqual(
-        otelAttrs[Constants.METRIC_LABEL_KEY_STATUS],
-        Status[Status.OK],
-      );
+      expect(fakeAttemptLatency.record).toHaveBeenCalledTimes(1);
+      const [[latency, otelAttrs]] = fakeAttemptLatency.record.mock.calls;
+      expect(typeof latency).toBe('number');
+      expect(otelAttrs[Constants.METRIC_LABEL_KEY_STATUS]).toBe(Status[Status.OK]);
     });
 
     it('should record fractional latency with sub-millisecond precision', () => {
-      const nowStub = sandbox.stub(performance, 'now');
-      nowStub.onCall(0).returns(100.0); // op start
-      nowStub.onCall(1).returns(200.5); // attempt start
-      nowStub.onCall(2).returns(202.75); // attempt end
+      const nowStub = jest.spyOn(performance, 'now');
+      nowStub.mockReturnValueOnce(100.0);
+      nowStub.mockReturnValueOnce(200.5);
+      nowStub.mockReturnValueOnce(202.75);
 
       tracer.recordOperationStart();
       tracer.recordAttemptStart();
       tracer.recordAttemptCompletion(Status.OK);
 
-      assert.strictEqual(fakeAttemptLatency.record.calledOnce, true);
-      const [[latency]] = fakeAttemptLatency.record.args;
-      assert.strictEqual(latency, 2.25); // 202.75 - 200.5
+      expect(fakeAttemptLatency.record).toHaveBeenCalledTimes(1);
+      const [[latency]] = fakeAttemptLatency.record.mock.calls;
+      expect(latency).toBe(2.25); // 202.75 - 200.5
     });
 
     it('should do nothing if disabled', () => {
       tracer.enabled = false;
       tracer.recordAttemptStart();
       tracer.recordAttemptCompletion(Status.OK);
-      assert.strictEqual(fakeAttemptLatency.record.called, false);
+      expect(fakeAttemptLatency.record).not.toHaveBeenCalled();
     });
   });
 
   describe('recordOperationCompletion', () => {
     it('should record operation and attempt metrics when enabled', () => {
-      const factory = sandbox
-        .stub(MetricsTracerFactory, 'getInstance')
-        .returns({
-          clearCurrentTracer: sinon.spy(),
-        } as any);
+      jest.spyOn(MetricsTracerFactory, 'getInstance').mockReturnValue({
+        clearCurrentTracer: jest.fn(),
+      } as any);
       tracer.recordOperationStart();
-      assert.ok(tracer.currentOperation!.startTime);
+      expect(tracer.currentOperation!.startTime).toBeTruthy();
       tracer.recordAttemptStart();
       tracer.recordAttemptCompletion(Status.OK);
       tracer.recordOperationCompletion();
 
-      assert.strictEqual(fakeOperationCounter.add.calledOnce, true);
-      assert.strictEqual(fakeAttemptCounter.add.calledOnce, true);
-      assert.strictEqual(fakeOperationLatency.record.calledOnce, true);
+      expect(fakeOperationCounter.add).toHaveBeenCalledTimes(1);
+      expect(fakeAttemptCounter.add).toHaveBeenCalledTimes(1);
+      expect(fakeOperationLatency.record).toHaveBeenCalledTimes(1);
 
-      const [[_, opAttrs]] = fakeOperationLatency.record.args;
-      assert.strictEqual(opAttrs[Constants.METRIC_LABEL_KEY_STATUS], 'OK');
+      const [[_, opAttrs]] = fakeOperationLatency.record.mock.calls;
+      expect(opAttrs[Constants.METRIC_LABEL_KEY_STATUS]).toBe('OK');
     });
 
     it('should record fractional operation latency with sub-millisecond precision', () => {
-      const nowStub = sandbox.stub(performance, 'now');
-      nowStub.onCall(0).returns(100.5); // op start
-      nowStub.onCall(1).returns(105.0); // attempt start
-      nowStub.onCall(2).returns(108.0); // attempt end
-      nowStub.onCall(3).returns(110.25); // op end
+      const nowStub = jest.spyOn(performance, 'now');
+      nowStub.mockReturnValueOnce(100.5);
+      nowStub.mockReturnValueOnce(105.0);
+      nowStub.mockReturnValueOnce(108.0);
+      nowStub.mockReturnValueOnce(110.25);
 
-      sandbox.stub(MetricsTracerFactory, 'getInstance').returns({
-        clearCurrentTracer: sinon.spy(),
+      jest.spyOn(MetricsTracerFactory, 'getInstance').mockReturnValue({
+        clearCurrentTracer: jest.fn(),
       } as any);
 
       tracer.recordOperationStart();
@@ -173,16 +166,16 @@ describe('MetricsTracer', () => {
       tracer.recordAttemptCompletion(Status.OK);
       tracer.recordOperationCompletion();
 
-      assert.strictEqual(fakeOperationLatency.record.calledOnce, true);
-      const [[latency]] = fakeOperationLatency.record.args;
-      assert.strictEqual(latency, 9.75); // 110.25 - 100.5
+      expect(fakeOperationLatency.record).toHaveBeenCalledTimes(1);
+      const [[latency]] = fakeOperationLatency.record.mock.calls;
+      expect(latency).toBe(9.75); // 110.25 - 100.5
     });
 
     it('should do nothing if disabled', () => {
       tracer.enabled = false;
       tracer.recordOperationCompletion();
-      assert.strictEqual(fakeOperationCounter.add.called, false);
-      assert.strictEqual(fakeOperationLatency.record.called, false);
+      expect(fakeOperationCounter.add).not.toHaveBeenCalled();
+      expect(fakeOperationLatency.record).not.toHaveBeenCalled();
     });
   });
 
@@ -191,27 +184,27 @@ describe('MetricsTracer', () => {
       tracer.enabled = true;
       tracer.gfeLatency = 123;
       tracer.recordGfeLatency(Status.OK);
-      assert.strictEqual(fakeGfeLatency.record.calledOnce, true);
+      expect(fakeGfeLatency.record).toHaveBeenCalledTimes(1);
     });
 
     it('should not record if disabled', () => {
       tracer.enabled = false;
       tracer.gfeLatency = 123;
       tracer.recordGfeLatency(Status.OK);
-      assert.strictEqual(fakeGfeLatency.record.called, false);
+      expect(fakeGfeLatency.record).not.toHaveBeenCalled();
     });
   });
 
   describe('recordGfeConnectivityErrorCount', () => {
     it('should increment GFE error counter if enabled', () => {
       tracer.recordGfeConnectivityErrorCount(Status.OK);
-      assert.strictEqual(fakeGfeCounter.add.calledOnce, true);
+      expect(fakeGfeCounter.add).toHaveBeenCalledTimes(1);
     });
 
     it('should not increment if disabled', () => {
       tracer.enabled = false;
       tracer.recordGfeConnectivityErrorCount(Status.OK);
-      assert.strictEqual(fakeGfeCounter.add.called, false);
+      expect(fakeGfeCounter.add).not.toHaveBeenCalled();
     });
   });
 
@@ -225,7 +218,7 @@ describe('MetricsTracer', () => {
       tracer.enabled = true;
       tracer.afeLatency = 123;
       tracer.recordAfeLatency(Status.OK);
-      assert.strictEqual(fakeAfeLatency.record.calledOnce, true);
+      expect(fakeAfeLatency.record).toHaveBeenCalledTimes(1);
     });
 
     it('should not record if AFE server timing is disabled', () => {
@@ -234,14 +227,14 @@ describe('MetricsTracer', () => {
       process.env['SPANNER_DISABLE_AFE_SERVER_TIMING'] = 'true';
       tracer.afeLatency = 123;
       tracer.recordAfeLatency(Status.OK);
-      assert.strictEqual(fakeAfeLatency.record.called, false);
+      expect(fakeAfeLatency.record).not.toHaveBeenCalled();
     });
 
     it('should not record if metrics are disabled', () => {
       tracer.enabled = false;
       tracer.afeLatency = 123;
       tracer.recordAfeLatency(Status.OK);
-      assert.strictEqual(fakeAfeLatency.record.called, false);
+      expect(fakeAfeLatency.record).not.toHaveBeenCalled();
     });
   });
 
@@ -254,13 +247,13 @@ describe('MetricsTracer', () => {
     it('should increment AFE error counter if enabled', () => {
       tracer.enabled = true;
       tracer.recordAfeConnectivityErrorCount(Status.OK);
-      assert.strictEqual(fakeAfeCounter.add.calledOnce, true);
+      expect(fakeAfeCounter.add).toHaveBeenCalledTimes(1);
     });
 
     it('should not increment if metrics are disabled', () => {
       tracer.enabled = false;
       tracer.recordAfeConnectivityErrorCount(Status.OK);
-      assert.strictEqual(fakeAfeCounter.add.called, false);
+      expect(fakeAfeCounter.add).not.toHaveBeenCalled();
     });
 
     it('should not increment if AFE server timing is disabled', () => {
@@ -268,7 +261,7 @@ describe('MetricsTracer', () => {
       Spanner._resetAFEServerTimingForTest();
       process.env['SPANNER_DISABLE_AFE_SERVER_TIMING'] = 'true';
       tracer.recordAfeConnectivityErrorCount(Status.OK);
-      assert.strictEqual(fakeAfeCounter.add.called, false);
+      expect(fakeAfeCounter.add).not.toHaveBeenCalled();
     });
   });
 
@@ -296,40 +289,40 @@ describe('MetricsTracer', () => {
     it('should extract afe and gfe latency from a valid server-timing header', () => {
       const header = 'gfet4t7; dur=123, afe; dur=30, other=value';
       const gfeLatency = tracer.extractGfeLatency(header);
-      assert.strictEqual(gfeLatency, 123);
+      expect(gfeLatency).toBe(123);
       const afeLatency = tracer.extractAfeLatency(header);
-      assert.strictEqual(afeLatency, 30);
+      expect(afeLatency).toBe(30);
     });
 
     it('should return null if header is undefined', () => {
       const gfeLatency = tracer.extractGfeLatency(undefined as any);
-      assert.strictEqual(gfeLatency, null);
+      expect(gfeLatency).toBe(null);
       const afeLatency = tracer.extractAfeLatency(undefined as any);
-      assert.strictEqual(afeLatency, null);
+      expect(afeLatency).toBe(null);
     });
 
     it('should return null if header does not match expected format', () => {
       const header = 'some-other-header';
       const gfeLatency = tracer.extractGfeLatency(header);
-      assert.strictEqual(gfeLatency, null);
+      expect(gfeLatency).toBe(null);
       const afeLatency = tracer.extractAfeLatency(header);
-      assert.strictEqual(afeLatency, null);
+      expect(afeLatency).toBe(null);
     });
 
     it('should extract only the gfe latency if extra data is present', () => {
       const header = 'gfet4t7; dur=456; other=value';
       const gfeLatency = tracer.extractGfeLatency(header);
-      assert.strictEqual(gfeLatency, 456);
+      expect(gfeLatency).toBe(456);
       const afeLatency = tracer.extractAfeLatency(header);
-      assert.strictEqual(afeLatency, null);
+      expect(afeLatency).toBe(null);
     });
 
     it('should extract only the afe latency if extra data is present', () => {
       const header = 'other=value, afe; dur=30; ';
       const gfeLatency = tracer.extractGfeLatency(header);
-      assert.strictEqual(gfeLatency, null);
+      expect(gfeLatency).toBe(null);
       const afeLatency = tracer.extractAfeLatency(header);
-      assert.strictEqual(afeLatency, 30);
+      expect(afeLatency).toBe(30);
     });
   });
 });

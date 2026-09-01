@@ -16,7 +16,6 @@
 
 import {PreciseDate} from '@google-cloud/precise-date';
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {EventEmitter} from 'events';
 import {common as p} from 'protobufjs';
 import * as proxyquire from 'proxyquire';
@@ -105,7 +104,7 @@ describe('Transaction', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let PartitionedDml;
 
-  before(() => {
+  beforeAll(() => {
     const txns = proxyquire('../src/transaction', {
       '@google-cloud/promisify': {promisifyAll: PROMISIFY_ALL},
       './codec': {codec},
@@ -2616,7 +2615,7 @@ describe('Transaction', () => {
 
     describe('_setMutationKey', () => {
       let transaction;
-      before(() => {
+      beforeAll(() => {
         transaction = new Transaction(SESSION);
       });
 
@@ -2799,7 +2798,7 @@ describe('Transaction', () => {
     });
 
     describe('runStream', () => {
-      before(() => {
+      beforeAll(() => {
         PARTIAL_RESULT_STREAM.callsFake(makeRequest => makeRequest());
       });
 
@@ -2875,7 +2874,7 @@ describe('Transaction', () => {
     });
 
     describe('createReadStream', () => {
-      before(() => {
+      beforeAll(() => {
         PARTIAL_RESULT_STREAM.callsFake(makeRequest => makeRequest());
       });
 

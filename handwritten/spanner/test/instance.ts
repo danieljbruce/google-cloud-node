@@ -16,13 +16,8 @@
 
 /* eslint-disable prefer-rest-params */
 
-import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {ApiError} from '@google-cloud/common';
 import {grpc} from 'google-gax';
-import * as proxyquire from 'proxyquire';
-import * as pfy from '@google-cloud/promisify';
-import * as sinon from 'sinon';
 import snakeCase = require('lodash.snakecase');
 import {Duplex} from 'stream';
 
@@ -34,44 +29,57 @@ import {Backup} from '../src/backup';
 import {PreciseDate} from '@google-cloud/precise-date';
 import {CLOUD_RESOURCE_HEADER, AFE_SERVER_TIMING_HEADER} from '../src/common';
 
-let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll(klass, options) {
-    if (klass.name !== 'Instance') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, ['database', 'backup']);
-  },
+
+jest.mock("@google-cloud/promisify", () => {
+  const actual = jest.requireActual("@google-cloud/promisify");
+  return {
+    ...actual,
+    promisifyAll: (klass: any, options: any) => {
+      if (klass.name === "Instance") {
+        (global as any).__promisified_instance = true;
+        expect(options.exclude).toEqual(["database", "backup"]);
+      }
+    },
+  };
 });
 
 class FakeDatabase {
-  calledWith_: IArguments;
-  constructor() {
-    this.calledWith_ = arguments;
+  calledWith_: any[];
+  constructor(...args: any[]) {
+    this.calledWith_ = args;
   }
 }
 
 class FakeGrpcServiceObject {
-  calledWith_: IArguments;
-  constructor() {
-    this.calledWith_ = arguments;
+  calledWith_: any[];
+  constructor(...args: any[]) {
+    this.calledWith_ = args;
   }
 }
 
 class FakeBackup {
-  calledWith_: IArguments;
-  constructor() {
-    this.calledWith_ = arguments;
+  calledWith_: any[];
+  constructor(...args: any[]) {
+    this.calledWith_ = args;
   }
 }
+
+jest.mock("../src/common-grpc/service-object", () => ({
+  GrpcServiceObject: FakeGrpcServiceObject,
+}));
+jest.mock("../src/database", () => ({
+  Database: FakeDatabase,
+}));
+jest.mock("../src/backup", () => ({
+  Backup: FakeBackup,
+}));
+
 
 describe('Instance', () => {
   // tslint:disable-next-line variable-name
   let Instance: typeof inst.Instance;
   let instance: inst.Instance;
 
-  const sandbox = sinon.createSandbox();
 
   const SPANNER = {
     request: () => {},
@@ -86,15 +94,8 @@ describe('Instance', () => {
 
   const NAME = 'instance-name';
 
-  before(() => {
-    Instance = proxyquire('../src/instance.js', {
-      './common-grpc/service-object': {
-        GrpcServiceObject: FakeGrpcServiceObject,
-      },
-      '@google-cloud/promisify': fakePfy,
-      './database.js': {Database: FakeDatabase},
-      './backup.js': {Backup: FakeBackup},
-    }).Instance;
+  beforeAll(() => {
+    Instance = inst.Instance;
   });
 
   beforeEach(() => {
@@ -103,11 +104,11 @@ describe('Instance', () => {
 
   describe('instantiation', () => {
     it('should localize an database map', () => {
-      assert(instance.databases_ instanceof Map);
+      expect(instance.databases_ instanceof Map).toBeTruthy();
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect((global as any).__promisified_instance).toBeTruthy();
     });
 
     it('should format the name', () => {
@@ -117,21 +118,21 @@ describe('Instance', () => {
       Instance.formatName_ = (projectId, name) => {
         Instance.formatName_ = formatName_;
 
-        assert.strictEqual(projectId, SPANNER.projectId);
-        assert.strictEqual(name, NAME);
+        expect(projectId).toBe(SPANNER.projectId);
+        expect(name).toBe(NAME);
 
         return formattedName;
       };
 
       const instance = new Instance(SPANNER, NAME);
-      assert(instance.formattedName_, formattedName);
+      expect(instance.formattedName_).toBeTruthy();
     });
 
     it('should localize the request function', done => {
       const spannerInstance = Object.assign({}, SPANNER);
 
       spannerInstance.request = function () {
-        assert.strictEqual(this, spannerInstance);
+        expect(this).toBe(spannerInstance);
         done();
       };
 
@@ -145,8 +146,8 @@ describe('Instance', () => {
       const CONFIG = {};
 
       spannerInstance.requestStream = function (config) {
-        assert.strictEqual(this, spannerInstance);
-        assert.strictEqual(config, CONFIG);
+        expect(this).toBe(spannerInstance);
+        expect(config).toBe(CONFIG);
         done();
       };
 
@@ -158,26 +159,26 @@ describe('Instance', () => {
       const options = {};
       const spannerInstance = Object.assign({}, SPANNER, {
         createInstance(name, options_, callback) {
-          assert.strictEqual(name, instance.formattedName_);
-          assert.strictEqual(options_, options);
+          expect(name).toBe(instance.formattedName_);
+          expect(options_).toBe(options);
           callback(); // done()
         },
       });
 
       const instance = new Instance(spannerInstance, NAME);
-      assert(instance instanceof FakeGrpcServiceObject);
+      expect((instance as any).calledWith_).toBeDefined();
 
       const calledWith = instance.calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, spannerInstance);
-      assert.strictEqual(calledWith.id, NAME);
-      assert.deepStrictEqual(calledWith.methods, {create: true});
+      expect(calledWith.parent).toBe(spannerInstance);
+      expect(calledWith.id).toBe(NAME);
+      expect(calledWith.methods).toEqual({create: true});
 
       calledWith.createMethod(null, options, done);
     });
 
     it('should set the commonHeaders_', () => {
-      assert.deepStrictEqual(instance.commonHeaders_, {
+      expect(instance.commonHeaders_).toEqual({
         [CLOUD_RESOURCE_HEADER]: instance.formattedName_,
         [AFE_SERVER_TIMING_HEADER]: 'true',
       });
@@ -188,12 +189,12 @@ describe('Instance', () => {
     const PATH = 'projects/' + SPANNER.projectId + '/instances/' + NAME;
 
     it('should return the name if already formatted', () => {
-      assert.strictEqual(Instance.formatName_(SPANNER.projectId, PATH), PATH);
+      expect(Instance.formatName_(SPANNER.projectId, PATH)).toBe(PATH);
     });
 
     it('should format the name', () => {
       const formattedName = Instance.formatName_(SPANNER.projectId, NAME);
-      assert.strictEqual(formattedName, PATH);
+      expect(formattedName).toBe(PATH);
     });
   });
 
@@ -207,31 +208,31 @@ describe('Instance', () => {
     const ORIGINAL_OPTIONS = Object.assign({}, OPTIONS);
 
     it('should throw if a name is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         void instance.createDatabase(null!);
-      }, /A name is required to create a database\./);
+      }).toThrow(/A name is required to create a database\./);
     });
 
     it('should make the correct default request', done => {
       instance.request = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'createDatabase');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('createDatabase');
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
           createStatement: 'CREATE DATABASE `' + NAME + '`',
         });
-        assert.strictEqual(config.gaxOpts, undefined);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toBe(undefined);
+        expect(config.headers).toEqual(instance.commonHeaders_);
 
         done();
       };
 
-      instance.createDatabase(NAME, assert.ifError);
+      instance.createDatabase(NAME, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept options', done => {
       instance.request = config => {
-        assert.deepStrictEqual(OPTIONS, ORIGINAL_OPTIONS);
+        expect(OPTIONS).toEqual(ORIGINAL_OPTIONS);
 
         const expectedReqOpts = Object.assign(
           {
@@ -241,12 +242,12 @@ describe('Instance', () => {
           OPTIONS,
         );
 
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
         done();
       };
 
-      instance.createDatabase(NAME, OPTIONS, assert.ifError);
+      instance.createDatabase(NAME, OPTIONS, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not alter the original options', done => {
@@ -256,15 +257,15 @@ describe('Instance', () => {
       });
       const originalOptions = Object.assign({}, options);
       instance.request = (config, callback: Function) => {
-        assert.strictEqual(config.reqOpts.poolOptions, undefined);
+        expect(config.reqOpts.poolOptions).toBe(undefined);
         callback();
       };
 
       instance.createDatabase(NAME, options, err => {
         if (err) {
-          assert.ifError(err);
+          (err => { expect(err).toBeFalsy(); })(err);
         }
-        assert.deepStrictEqual(options, originalOptions);
+        expect(options).toEqual(originalOptions);
         done();
       });
     });
@@ -272,13 +273,13 @@ describe('Instance', () => {
     it('should accept gaxOptions', done => {
       const options = Object.assign({}, OPTIONS, {gaxOptions: {}});
       instance.request = config => {
-        assert.strictEqual(config.gaxOpts, options.gaxOptions);
-        assert.strictEqual(config.reqOpts.gaxOptions, undefined);
+        expect(config.gaxOpts).toBe(options.gaxOptions);
+        expect(config.reqOpts.gaxOptions).toBe(undefined);
 
         done();
       };
 
-      instance.createDatabase(NAME, options, assert.ifError);
+      instance.createDatabase(NAME, options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should only use the name in the createStatement', done => {
@@ -291,12 +292,12 @@ describe('Instance', () => {
           OPTIONS,
         );
 
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
         done();
       };
 
-      instance.createDatabase(PATH, OPTIONS, assert.ifError);
+      instance.createDatabase(PATH, OPTIONS, (err => { expect(err).toBeFalsy(); }));
     });
 
     describe('options.poolOptions/poolCtor', () => {
@@ -308,17 +309,17 @@ describe('Instance', () => {
         });
 
         instance.request = (config, callback: Function) => {
-          assert.strictEqual(config.reqOpts.poolOptions, undefined);
+          expect(config.reqOpts.poolOptions).toBe(undefined);
           callback();
         };
 
         instance.database = (name, poolOptions_) => {
-          assert.strictEqual(poolOptions_, poolOptions);
+          expect(poolOptions_).toBe(poolOptions);
           done();
           return {} as Database;
         };
 
-        instance.createDatabase(PATH, options, assert.ifError);
+        instance.createDatabase(PATH, options, (err => { expect(err).toBeFalsy(); }));
       });
 
       it('should allow specifying session pool constructor', done => {
@@ -329,17 +330,17 @@ describe('Instance', () => {
         });
 
         instance.request = (config, callback: Function) => {
-          assert.strictEqual(config.reqOpts.poolCtor, undefined);
+          expect(config.reqOpts.poolCtor).toBe(undefined);
           callback();
         };
 
         instance.database = (name, poolOptions_) => {
-          assert.strictEqual(poolOptions_, poolCtor);
+          expect(poolOptions_).toBe(poolCtor);
           done();
           return {} as Database;
         };
 
-        instance.createDatabase(PATH, options, assert.ifError);
+        instance.createDatabase(PATH, options, (err => { expect(err).toBeFalsy(); }));
       });
     });
 
@@ -352,12 +353,12 @@ describe('Instance', () => {
         });
 
         instance.request = config => {
-          assert.deepStrictEqual(config.reqOpts.extraStatements, [SCHEMA]);
-          assert.strictEqual(config.reqOpts.schema, undefined);
+          expect(config.reqOpts.extraStatements).toEqual([SCHEMA]);
+          expect(config.reqOpts.schema).toBe(undefined);
           done();
         };
 
-        instance.createDatabase(NAME, options, assert.ifError);
+        instance.createDatabase(NAME, options, (err => { expect(err).toBeFalsy(); }));
       });
 
       it('should arrify and rename to extraStatements from array style schema filed', done => {
@@ -368,12 +369,12 @@ describe('Instance', () => {
         });
 
         instance.request = config => {
-          assert.deepStrictEqual(config.reqOpts.extraStatements, SCHEMA);
-          assert.strictEqual(config.reqOpts.schema, undefined);
+          expect(config.reqOpts.extraStatements).toEqual(SCHEMA);
+          expect(config.reqOpts.schema).toBe(undefined);
           done();
         };
 
-        instance.createDatabase(NAME, options, assert.ifError);
+        instance.createDatabase(NAME, options, (err => { expect(err).toBeFalsy(); }));
       });
     });
 
@@ -389,9 +390,9 @@ describe('Instance', () => {
 
       it('should execute callback with error & API response', done => {
         instance.createDatabase(NAME, OPTIONS, (err, db, op, resp) => {
-          assert.strictEqual(err, ERROR);
-          assert.strictEqual(op, null);
-          assert.strictEqual(resp, API_RESPONSE);
+          expect(err).toBe(ERROR);
+          expect(op).toBe(null);
+          expect(resp).toBe(API_RESPONSE);
           done();
         });
       });
@@ -411,15 +412,15 @@ describe('Instance', () => {
         const fakeDatabaseInstance = {};
 
         instance.database = name => {
-          assert.strictEqual(name, NAME);
+          expect(name).toBe(NAME);
           return fakeDatabaseInstance as Database;
         };
 
         instance.createDatabase(NAME, OPTIONS, (err, db, op, resp) => {
-          assert.ifError(err);
-          assert.strictEqual(db, fakeDatabaseInstance);
-          assert.strictEqual(op, OPERATION);
-          assert.strictEqual(resp, API_RESPONSE);
+          (err => { expect(err).toBeFalsy(); })(err);
+          expect(db).toBe(fakeDatabaseInstance);
+          expect(op).toBe(OPERATION);
+          expect(resp).toBe(API_RESPONSE);
           done();
         });
       });
@@ -430,27 +431,27 @@ describe('Instance', () => {
     const NAME = 'database-name';
 
     it('should throw if a name is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         instance.database(null!);
-      }, /A name is required to access a Database object\./);
+      }).toThrow(/A name is required to access a Database object\./);
     });
 
     it('should create and cache a Database', () => {
       const cache = instance.databases_;
       const poolOptions = {};
 
-      assert.strictEqual(cache.has(NAME), false);
+      expect(cache.has(NAME)).toBe(false);
 
       const database = instance.database(
         NAME,
         poolOptions,
       ) as {} as FakeDatabase;
 
-      assert(database instanceof FakeDatabase);
-      assert.strictEqual(database.calledWith_[0], instance);
-      assert.strictEqual(database.calledWith_[1], NAME);
-      assert.strictEqual(database.calledWith_[2], poolOptions);
-      assert.strictEqual(database, cache.get(NAME));
+      expect(database instanceof FakeDatabase).toBeTruthy();
+      expect(database.calledWith_[0]).toBe(instance);
+      expect(database.calledWith_[1]).toBe(NAME);
+      expect(database.calledWith_[2]).toBe(poolOptions);
+      expect(database).toBe(cache.get(NAME));
     });
 
     it('should re-use cached objects', () => {
@@ -461,7 +462,7 @@ describe('Instance', () => {
 
       const database = instance.database(NAME);
 
-      assert.strictEqual(database, fakeDatabase);
+      expect(database).toBe(fakeDatabase);
     });
 
     it('should create and cache different objects when called with different session pool options', () => {
@@ -500,16 +501,10 @@ describe('Instance', () => {
         fakeSessionPoolOptionsInOtherOrder,
       );
 
-      assert.strictEqual(database, fakeDatabase);
-      assert.strictEqual(databaseWithEmptyOptions, fakeDatabase);
-      assert.strictEqual(
-        databaseWithOptions,
-        fakeDatabaseWithSessionPoolOptions,
-      );
-      assert.strictEqual(
-        databaseWithOptionsInOtherOrder,
-        fakeDatabaseWithSessionPoolOptions,
-      );
+      expect(database).toBe(fakeDatabase);
+      expect(databaseWithEmptyOptions).toBe(fakeDatabase);
+      expect(databaseWithOptions).toBe(fakeDatabaseWithSessionPoolOptions);
+      expect(databaseWithOptionsInOtherOrder).toBe(fakeDatabaseWithSessionPoolOptions);
     });
   });
 
@@ -529,12 +524,12 @@ describe('Instance', () => {
       } as {} as Database);
 
       instance.request = () => {
-        assert.strictEqual(closed, true);
-        assert.strictEqual(instance.databases_.size, 0);
+        expect(closed).toBe(true);
+        expect(instance.databases_.size).toBe(0);
         done();
       };
 
-      instance.delete(assert.ifError);
+      instance.delete((err => { expect(err).toBeFalsy(); }));
     });
 
     it('should ignore closing errors', done => {
@@ -548,18 +543,18 @@ describe('Instance', () => {
         done();
       };
 
-      instance.delete(assert.ifError);
+      instance.delete((err => { expect(err).toBeFalsy(); }));
     });
 
     it('should make the correct request', done => {
       instance.request = (config, callback: Function) => {
-        assert.strictEqual(config.client, 'InstanceAdminClient');
-        assert.strictEqual(config.method, 'deleteInstance');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('InstanceAdminClient');
+        expect(config.method).toBe('deleteInstance');
+        expect(config.reqOpts).toEqual({
           name: instance.formattedName_,
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toEqual({});
+        expect(config.headers).toEqual(instance.commonHeaders_);
         callback(); // done()
       };
 
@@ -574,11 +569,11 @@ describe('Instance', () => {
       };
 
       cache.set(instance.id, instance);
-      assert.strictEqual(cache.get(instance.id), instance);
+      expect(cache.get(instance.id)).toBe(instance);
 
       instance.delete(err => {
-        assert.ifError(err);
-        assert.strictEqual(cache.has(instance.id), false);
+        (err => { expect(err).toBeFalsy(); })(err);
+        expect(cache.has(instance.id)).toBe(false);
         done();
       });
     });
@@ -587,7 +582,7 @@ describe('Instance', () => {
       const gaxOptions = {};
 
       instance.request = (config, callback: Function) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         callback(); // done()
       };
 
@@ -596,14 +591,12 @@ describe('Instance', () => {
   });
 
   describe('exists', () => {
-    afterEach(() => sandbox.restore());
+    afterEach(() => jest.restoreAllMocks());
 
     it('should return any non-404 like errors', done => {
       const error = {code: 3};
 
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake(
+      jest.spyOn(instance, 'getMetadata').mockImplementation(
           (
             opts_:
               | inst.GetInstanceMetadataOptions
@@ -616,16 +609,14 @@ describe('Instance', () => {
         );
 
       instance.exists((err, exists) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(exists, null);
+        expect(err).toBe(error);
+        expect(exists).toBe(null);
         done();
       });
     });
 
     it('should return true if error is absent', done => {
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake(
+      jest.spyOn(instance, 'getMetadata').mockImplementation(
           (
             opts_:
               | inst.GetInstanceMetadataOptions
@@ -638,8 +629,8 @@ describe('Instance', () => {
         );
 
       instance.exists((err, exists) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, true);
+        (err => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(true);
         done();
       });
     });
@@ -647,9 +638,7 @@ describe('Instance', () => {
     it('should return false if not found error if present', done => {
       const error = {code: 5};
 
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake(
+      jest.spyOn(instance, 'getMetadata').mockImplementation(
           (
             opts_:
               | inst.GetInstanceMetadataOptions
@@ -663,8 +652,8 @@ describe('Instance', () => {
         );
 
       instance.exists((err, exists) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, false);
+        (err => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(false);
         done();
       });
     });
@@ -672,10 +661,10 @@ describe('Instance', () => {
     it('should accept and pass gaxOptions to getMetadata', done => {
       const gaxOptions = {};
       (instance.getMetadata as Function) = options => {
-        assert.strictEqual(options.gaxOptions, gaxOptions);
+        expect(options.gaxOptions).toBe(gaxOptions);
         done();
       };
-      instance.exists(gaxOptions, assert.ifError);
+      instance.exists(gaxOptions, (err => { expect(err).toBeFalsy(); }));
     });
   });
 
@@ -683,43 +672,43 @@ describe('Instance', () => {
     it('should call getMetadata', done => {
       const options = {};
 
-      sandbox.stub(instance, 'getMetadata').callsFake(() => done());
+      jest.spyOn(instance, 'getMetadata').mockImplementation(() => done());
 
-      instance.get(options, assert.ifError);
+      instance.get(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept and pass gaxOptions to getMetadata', done => {
       const gaxOptions = {};
       (instance.getMetadata as Function) = options => {
-        assert.strictEqual(options.gaxOptions, gaxOptions);
+        expect(options.gaxOptions).toBe(gaxOptions);
         done();
       };
 
-      instance.get({gaxOptions}, assert.ifError);
+      instance.get({gaxOptions}, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require an options object', done => {
-      sandbox.stub(instance, 'getMetadata').callsFake(() => done());
+      jest.spyOn(instance, 'getMetadata').mockImplementation(() => done());
 
-      instance.get(assert.ifError);
+      instance.get((err => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept and pass `fields` string as is', () => {
       const fieldNames = 'nodeCount';
-      const spyMetadata = sandbox.spy(instance, 'getMetadata');
+      const spyMetadata = jest.spyOn(instance, 'getMetadata');
 
-      instance.get({fieldNames}, assert.ifError);
+      instance.get({fieldNames}, (err => { expect(err).toBeFalsy(); }));
 
-      assert.ok(spyMetadata.calledWith({fieldNames}));
+      expect(spyMetadata).toHaveBeenCalledWith({fieldNames}, expect.any(Function));
     });
 
     it('should accept and pass `fields` array as is', () => {
       const fieldNames = ['name', 'labels', 'nodeCount'];
-      const spyMetadata = sandbox.stub(instance, 'getMetadata');
+      const spyMetadata = jest.spyOn(instance, 'getMetadata');
 
-      instance.get({fieldNames}, assert.ifError);
+      instance.get({fieldNames}, (err => { expect(err).toBeFalsy(); }));
 
-      assert.ok(spyMetadata.calledWith({fieldNames}));
+      expect(spyMetadata).toHaveBeenCalledWith({fieldNames}, expect.any(Function));
     });
 
     describe('autoCreate', () => {
@@ -741,9 +730,7 @@ describe('Instance', () => {
       beforeEach(() => {
         OPERATION.listeners = {};
 
-        sandbox
-          .stub(instance, 'getMetadata')
-          .callsFake((opts_: {}, callback) => callback!(error));
+        jest.spyOn(instance, 'getMetadata').mockImplementation((opts_: {}, callback) => callback!(error));
 
         instance.create = (options, callback) => {
           callback(null, null, OPERATION);
@@ -757,9 +744,9 @@ describe('Instance', () => {
         const labels = {label: 'mayLabael'};
 
         instance.create = options => {
-          assert.strictEqual(options.fieldNames, undefined);
-          assert.strictEqual(options.autoCreate, undefined);
-          assert.deepStrictEqual(options, {config, nodes, displayName, labels});
+          expect(options.fieldNames).toBe(undefined);
+          expect(options.autoCreate).toBe(undefined);
+          expect(options).toEqual({config, nodes, displayName, labels});
           done();
         };
         instance.get(
@@ -771,7 +758,7 @@ describe('Instance', () => {
             labels,
             fieldNames: 'labels',
           },
-          assert.ifError,
+          (err => { expect(err).toBeFalsy(); }),
         );
       });
 
@@ -779,22 +766,22 @@ describe('Instance', () => {
         const gaxOptions = {timeout: 1000};
         const options = Object.assign({}, OPTIONS, {gaxOptions});
         instance.create = options => {
-          assert.deepStrictEqual(options.gaxOptions, gaxOptions);
+          expect(options.gaxOptions).toEqual(gaxOptions);
           done();
         };
 
-        instance.get(options, assert.ifError);
+        instance.get(options, (err => { expect(err).toBeFalsy(); }));
       });
 
       it('should call create', done => {
         const createOptions: {autoCreate?: {}} = Object.assign({}, OPTIONS);
         delete createOptions.autoCreate;
         instance.create = options => {
-          assert.deepStrictEqual(options, createOptions);
+          expect(options).toEqual(createOptions);
           done();
         };
 
-        instance.get(OPTIONS, assert.ifError);
+        instance.get(OPTIONS, (err => { expect(err).toBeFalsy(); }));
       });
 
       it('should return error if create failed', done => {
@@ -805,7 +792,7 @@ describe('Instance', () => {
         };
 
         instance.get(OPTIONS, err => {
-          assert.strictEqual(err, error);
+          expect(err).toBe(error);
           done();
         });
       });
@@ -818,7 +805,7 @@ describe('Instance', () => {
         });
 
         instance.get(OPTIONS, err => {
-          assert.strictEqual(err, error);
+          expect(err).toBe(error);
           done();
         });
       });
@@ -831,10 +818,10 @@ describe('Instance', () => {
         });
 
         instance.get(OPTIONS, (err, instance_, apiResponse) => {
-          assert.ifError(err);
-          assert.strictEqual(instance_, instance);
-          assert.strictEqual(instance.metadata, metadata);
-          assert.strictEqual(metadata, apiResponse);
+          (err => { expect(err).toBeFalsy(); })(err);
+          expect(instance_).toBe(instance);
+          expect(instance.metadata).toBe(metadata);
+          expect(metadata).toBe(apiResponse);
           done();
         });
       });
@@ -849,16 +836,14 @@ describe('Instance', () => {
         autoCreate: true,
       };
 
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake((opts_: {}, callback) => callback!(error));
+      jest.spyOn(instance, 'getMetadata').mockImplementation((opts_: {}, callback) => callback!(error));
 
       instance.create = () => {
         throw new Error('Should not create.');
       };
 
       instance.get(options, err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -867,16 +852,14 @@ describe('Instance', () => {
       const error = new ApiError('Error.') as grpc.ServiceError;
       error.code = 5;
 
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake((opts_: {}, callback) => callback!(error));
+      jest.spyOn(instance, 'getMetadata').mockImplementation((opts_: {}, callback) => callback!(error));
 
       instance.create = () => {
         throw new Error('Should not create.');
       };
 
       instance.get(err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -884,12 +867,10 @@ describe('Instance', () => {
     it('should return an error from getMetadata', done => {
       const error = new Error('Error.') as grpc.ServiceError;
 
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake((opts_: {}, callback) => callback!(error));
+      jest.spyOn(instance, 'getMetadata').mockImplementation((opts_: {}, callback) => callback!(error));
 
       instance.get(err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -897,14 +878,12 @@ describe('Instance', () => {
     it('should return self and API response', done => {
       const apiResponse = {} as inst.IInstance;
 
-      sandbox
-        .stub(instance, 'getMetadata')
-        .callsFake((opts_: {}, callback) => callback!(null, apiResponse));
+      jest.spyOn(instance, 'getMetadata').mockImplementation((opts_: {}, callback) => callback!(null, apiResponse));
 
       instance.get((err, instance_, apiResponse_) => {
-        assert.ifError(err);
-        assert.strictEqual(instance_, instance);
-        assert.strictEqual(apiResponse_, apiResponse);
+        (err => { expect(err).toBeFalsy(); })(err);
+        expect(instance_).toBe(instance);
+        expect(apiResponse_).toBe(apiResponse);
         done();
       });
     });
@@ -925,20 +904,20 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.request = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'listDatabases');
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('listDatabases');
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
-        assert.notStrictEqual(config.reqOpts, OPTIONS);
-        assert.deepStrictEqual(OPTIONS, ORIGINAL_OPTIONS);
+        expect(config.reqOpts).not.toBe(OPTIONS);
+        expect(OPTIONS).toEqual(ORIGINAL_OPTIONS);
 
-        assert.deepStrictEqual(config.gaxOpts, OPTIONS.gaxOptions);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toEqual(OPTIONS.gaxOptions);
+        expect(config.headers).toEqual(instance.commonHeaders_);
 
         done();
       };
 
-      instance.getDatabases(OPTIONS, assert.ifError);
+      instance.getDatabases(OPTIONS, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass pageSize and pageToken from gaxOptions into reqOpts', done => {
@@ -957,15 +936,15 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getDatabases(options, assert.ifError);
+      instance.getDatabases(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('pageSize and pageToken in options should take precedence over gaxOptions', done => {
@@ -991,29 +970,29 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getDatabases(options, assert.ifError);
+      instance.getDatabases(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require options', done => {
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
         });
 
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
 
         done();
       };
 
-      instance.getDatabases(assert.ifError);
+      instance.getDatabases((err => { expect(err).toBeFalsy(); }));
     });
 
     describe('error', () => {
@@ -1027,7 +1006,7 @@ describe('Instance', () => {
 
       it('should execute callback with original arguments', done => {
         instance.getDatabases(OPTIONS, (...args) => {
-          assert.deepStrictEqual(args, REQUEST_RESPONSE_ARGS);
+          expect(args).toEqual(REQUEST_RESPONSE_ARGS);
           done();
         });
       });
@@ -1053,19 +1032,19 @@ describe('Instance', () => {
         const fakeDatabaseInstance = {};
 
         instance.database = (name, options) => {
-          assert.strictEqual(name, DATABASES[0].name);
-          assert.strictEqual((options as SessionPoolOptions).min, 0);
+          expect(name).toBe(DATABASES[0].name);
+          expect((options as SessionPoolOptions).min).toBe(0);
           return fakeDatabaseInstance as Database;
         };
 
         instance.getDatabases(OPTIONS, (...args) => {
-          assert.ifError(args[0]);
-          assert.strictEqual(args[0], REQUEST_RESPONSE_ARGS[0]);
+          (err => { expect(err).toBeFalsy(); })(args[0]);
+          expect(args[0]).toBe(REQUEST_RESPONSE_ARGS[0]);
           const database = args[1]!.pop();
-          assert.strictEqual(database, fakeDatabaseInstance);
-          assert.strictEqual(database!.metadata, REQUEST_RESPONSE_ARGS[1][0]);
-          assert.strictEqual(args[2], REQUEST_RESPONSE_ARGS[2]);
-          assert.strictEqual(args[3], REQUEST_RESPONSE_ARGS[3]);
+          expect(database).toBe(fakeDatabaseInstance);
+          expect(database!.metadata).toBe(REQUEST_RESPONSE_ARGS[1][0]);
+          expect(args[2]).toBe(REQUEST_RESPONSE_ARGS[2]);
+          expect(args[3]).toBe(REQUEST_RESPONSE_ARGS[3]);
           done();
         });
       });
@@ -1095,7 +1074,7 @@ describe('Instance', () => {
           callback(...REQUEST_RESPONSE_ARGS);
         };
         function callback(err, databases, nextQuery) {
-          assert.deepStrictEqual(nextQuery, EXPECTEDNEXTQUERY);
+          expect(nextQuery).toEqual(EXPECTEDNEXTQUERY);
           done();
         }
         instance.getDatabases(GETDATABASESOPTIONS, callback);
@@ -1116,20 +1095,20 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.requestStream = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'listDatabasesStream');
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('listDatabasesStream');
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
-        assert.notStrictEqual(config.reqOpts, OPTIONS);
+        expect(config.reqOpts).not.toBe(OPTIONS);
 
-        assert.deepStrictEqual(config.gaxOpts, OPTIONS.gaxOptions);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toEqual(OPTIONS.gaxOptions);
+        expect(config.headers).toEqual(instance.commonHeaders_);
 
         return returnValue;
       };
 
       const returnedValue = instance.getDatabasesStream(OPTIONS);
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
 
     it('should pass pageSize and pageToken from gaxOptions into reqOpts', () => {
@@ -1147,16 +1126,16 @@ describe('Instance', () => {
       );
 
       instance.requestStream = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         return returnValue;
       };
 
       const returnedValue = instance.getDatabasesStream(options);
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
 
     it('pageSize and pageToken in options should take precedence over gaxOptions', () => {
@@ -1183,31 +1162,31 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.requestStream = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         return returnValue;
       };
 
       const returnedValue = instance.getDatabasesStream(options);
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
 
     it('should not require options', () => {
       instance.requestStream = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
         });
 
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
 
         return returnValue;
       };
 
       const returnedValue = instance.getDatabasesStream();
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
   });
 
@@ -1218,25 +1197,25 @@ describe('Instance', () => {
       function callback() {}
 
       instance.request = config => {
-        assert.strictEqual(config.client, 'InstanceAdminClient');
-        assert.strictEqual(config.method, 'getInstance');
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.client).toBe('InstanceAdminClient');
+        expect(config.method).toBe('getInstance');
+        expect(config.reqOpts).toEqual({
           name: instance.formattedName_,
         });
-        assert.strictEqual(config.gaxOpts, undefined);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toBe(undefined);
+        expect(config.headers).toEqual(instance.commonHeaders_);
         return requestReturnValue;
       };
 
       const returnValue = instance.getMetadata(callback);
-      assert.strictEqual(returnValue, requestReturnValue);
+      expect(returnValue).toBe(requestReturnValue);
     });
 
     it('should accept `fieldNames` as string', done => {
       const fieldNames = 'nodeCount';
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           fieldMask: {
             paths: toArray(fieldNames).map(snakeCase),
           },
@@ -1244,14 +1223,14 @@ describe('Instance', () => {
         });
         done();
       };
-      instance.getMetadata({fieldNames}, assert.ifError);
+      instance.getMetadata({fieldNames}, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept `fieldNames` as string array', done => {
       const fieldNames = ['name', 'labels', 'nodeCount'];
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           fieldMask: {
             paths: fieldNames.map(snakeCase),
           },
@@ -1259,16 +1238,16 @@ describe('Instance', () => {
         });
         done();
       };
-      instance.getMetadata({fieldNames}, assert.ifError);
+      instance.getMetadata({fieldNames}, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
       instance.request = config => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
-      instance.getMetadata({gaxOptions}, assert.ifError);
+      instance.getMetadata({gaxOptions}, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should update metadata', done => {
@@ -1277,7 +1256,7 @@ describe('Instance', () => {
         callback(null, metadata);
       };
       instance.getMetadata(() => {
-        assert.strictEqual(instance.metadata, metadata);
+        expect(instance.metadata).toBe(metadata);
         done();
       });
 
@@ -1287,7 +1266,7 @@ describe('Instance', () => {
           callback(error);
         };
         instance.getMetadata(err => {
-          assert.strictEqual(err, error);
+          expect(err).toBe(error);
           done();
         });
       });
@@ -1306,44 +1285,44 @@ describe('Instance', () => {
       function callback() {}
 
       instance.request = (config, callback_) => {
-        assert.strictEqual(config.client, 'InstanceAdminClient');
-        assert.strictEqual(config.method, 'updateInstance');
+        expect(config.client).toBe('InstanceAdminClient');
+        expect(config.method).toBe('updateInstance');
 
         const expectedReqOpts = Object.assign({}, METADATA, {
           name: instance.formattedName_,
         });
 
-        assert.deepStrictEqual(config.reqOpts.instance, expectedReqOpts);
-        assert.deepStrictEqual(config.reqOpts.fieldMask, {
+        expect(config.reqOpts.instance).toEqual(expectedReqOpts);
+        expect(config.reqOpts.fieldMask).toEqual({
           paths: ['needs_to_be_snake_cased'],
         });
 
-        assert.deepStrictEqual(METADATA, ORIGINAL_METADATA);
-        assert.deepStrictEqual(config.gaxOpts, {});
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(METADATA).toEqual(ORIGINAL_METADATA);
+        expect(config.gaxOpts).toEqual({});
+        expect(config.headers).toEqual(instance.commonHeaders_);
 
-        assert.strictEqual(callback_, callback);
+        expect(callback_).toBe(callback);
 
         return requestReturnValue;
       };
 
       const returnValue = instance.setMetadata(METADATA, callback);
-      assert.strictEqual(returnValue, requestReturnValue);
+      expect(returnValue).toBe(requestReturnValue);
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
       instance.request = config => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
-      instance.setMetadata(METADATA, gaxOptions, assert.ifError);
+      instance.setMetadata(METADATA, gaxOptions, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require a callback', () => {
-      assert.doesNotThrow(async () => {
+      expect(async () => {
         await instance.setMetadata(METADATA);
-      });
+      }).not.toThrow();
     });
   });
 
@@ -1364,19 +1343,19 @@ describe('Instance', () => {
       });
 
       instance.request = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'listBackups');
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('listBackups');
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
-        assert.notStrictEqual(config.reqOpts, OPTIONS);
-        assert.deepStrictEqual(OPTIONS, ORIGINAL_OPTIONS);
+        expect(config.reqOpts).not.toBe(OPTIONS);
+        expect(OPTIONS).toEqual(ORIGINAL_OPTIONS);
 
-        assert.deepStrictEqual(config.gaxOpts, options.gaxOptions);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toEqual(options.gaxOptions);
+        expect(config.headers).toEqual(instance.commonHeaders_);
         done();
       };
 
-      instance.getBackups(options, assert.ifError);
+      instance.getBackups(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass pageSize and pageToken from gaxOptions into reqOpts', done => {
@@ -1394,15 +1373,15 @@ describe('Instance', () => {
       );
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getBackups(options, assert.ifError);
+      instance.getBackups(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('pageSize and pageToken in options should take precedence over gaxOptions', done => {
@@ -1427,27 +1406,27 @@ describe('Instance', () => {
       );
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getBackups(options, assert.ifError);
+      instance.getBackups(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require options', done => {
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         done();
       };
 
-      instance.getBackups(assert.ifError);
+      instance.getBackups((err => { expect(err).toBeFalsy(); }));
     });
 
     describe('error', () => {
@@ -1461,7 +1440,7 @@ describe('Instance', () => {
 
       it('should execute callback with original arguments', done => {
         instance.getBackups(OPTIONS, (...args) => {
-          assert.deepStrictEqual(args, REQUEST_RESPONSE_ARGS);
+          expect(args).toEqual(REQUEST_RESPONSE_ARGS);
           done();
         });
       });
@@ -1489,18 +1468,18 @@ describe('Instance', () => {
         const fakeBackupInstance = {};
 
         instance.backup = backupId => {
-          assert.strictEqual(backupId, BACKUPS[0].name);
+          expect(backupId).toBe(BACKUPS[0].name);
           return fakeBackupInstance as Backup;
         };
 
         instance.getBackups(OPTIONS, (...args) => {
-          assert.ifError(args[0]);
-          assert.strictEqual(args[0], REQUEST_RESPONSE_ARGS[0]);
+          (err => { expect(err).toBeFalsy(); })(args[0]);
+          expect(args[0]).toBe(REQUEST_RESPONSE_ARGS[0]);
           const backup = args[1]!.pop();
-          assert.strictEqual(backup, fakeBackupInstance);
-          assert.strictEqual(backup!.metadata, REQUEST_RESPONSE_ARGS[1][0]);
-          assert.strictEqual(args[2], REQUEST_RESPONSE_ARGS[2]);
-          assert.strictEqual(args[3], REQUEST_RESPONSE_ARGS[3]);
+          expect(backup).toBe(fakeBackupInstance);
+          expect(backup!.metadata).toBe(REQUEST_RESPONSE_ARGS[1][0]);
+          expect(args[2]).toBe(REQUEST_RESPONSE_ARGS[2]);
+          expect(args[3]).toBe(REQUEST_RESPONSE_ARGS[3]);
           done();
         });
       });
@@ -1530,7 +1509,7 @@ describe('Instance', () => {
           callback(...REQUEST_RESPONSE_ARGS);
         };
         function callback(err, backups, nextQuery) {
-          assert.deepStrictEqual(nextQuery, EXPECTEDNEXTQUERY);
+          expect(nextQuery).toEqual(EXPECTEDNEXTQUERY);
           done();
         }
         instance.getBackups(GETBACKUPSOPTIONS, callback);
@@ -1551,20 +1530,20 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.requestStream = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'listBackupsStream');
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('listBackupsStream');
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
-        assert.notStrictEqual(config.reqOpts, OPTIONS);
+        expect(config.reqOpts).not.toBe(OPTIONS);
 
-        assert.deepStrictEqual(config.gaxOpts, OPTIONS.gaxOptions);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toEqual(OPTIONS.gaxOptions);
+        expect(config.headers).toEqual(instance.commonHeaders_);
 
         return returnValue;
       };
 
       const returnedValue = instance.getBackupsStream(OPTIONS);
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
 
     it('should pass pageSize and pageToken from gaxOptions into reqOpts', () => {
@@ -1582,16 +1561,16 @@ describe('Instance', () => {
       );
 
       instance.requestStream = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         return returnValue;
       };
 
       const returnedValue = instance.getBackupsStream(options);
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
 
     it('pageSize and pageToken in options should take precedence over gaxOptions', () => {
@@ -1618,31 +1597,31 @@ describe('Instance', () => {
       delete expectedReqOpts.gaxOptions;
 
       instance.requestStream = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         return returnValue;
       };
 
       const returnedValue = instance.getBackupsStream(options);
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
 
     it('should not require options', () => {
       instance.requestStream = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
         });
 
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
 
         return returnValue;
       };
 
       const returnedValue = instance.getBackupsStream();
-      assert.strictEqual(returnedValue, returnValue);
+      expect(returnedValue).toBe(returnValue);
     });
   });
 
@@ -1650,16 +1629,16 @@ describe('Instance', () => {
     const BACKUP_NAME = 'backup-name';
 
     it('should throw if a backup ID is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         instance.backup(null!);
-      }, /A backup ID is required to create a Backup\./);
+      }).toThrow(/A backup ID is required to create a Backup\./);
     });
 
     it('should return an instance of Backup', () => {
       const backup = instance.backup(BACKUP_NAME) as {} as FakeBackup;
-      assert(backup instanceof FakeBackup);
-      assert.strictEqual(backup.calledWith_[0], instance);
-      assert.strictEqual(backup.calledWith_[1], BACKUP_NAME);
+      expect(backup instanceof FakeBackup).toBeTruthy();
+      expect(backup.calledWith_[0]).toBe(instance);
+      expect(backup.calledWith_[1]).toBe(BACKUP_NAME);
     });
   });
 
@@ -1680,18 +1659,18 @@ describe('Instance', () => {
       });
 
       instance.request = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'listBackupOperations');
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('listBackupOperations');
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
-        assert.notStrictEqual(config.reqOpts, OPTIONS);
-        assert.deepStrictEqual(OPTIONS, ORIGINAL_OPTIONS);
+        expect(config.reqOpts).not.toBe(OPTIONS);
+        expect(OPTIONS).toEqual(ORIGINAL_OPTIONS);
 
-        assert.deepStrictEqual(config.gaxOpts, options.gaxOptions);
+        expect(config.gaxOpts).toEqual(options.gaxOptions);
         done();
       };
 
-      instance.getBackupOperations(options, assert.ifError);
+      instance.getBackupOperations(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass pageSize and pageToken from gaxOptions into reqOpts', done => {
@@ -1710,15 +1689,15 @@ describe('Instance', () => {
       );
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getBackupOperations(options, assert.ifError);
+      instance.getBackupOperations(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('pageSize and pageToken in options should take precedence over gaxOptions', done => {
@@ -1744,28 +1723,28 @@ describe('Instance', () => {
       );
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getBackupOperations(options, assert.ifError);
+      instance.getBackupOperations(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require options', done => {
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
         });
 
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         done();
       };
 
-      instance.getBackupOperations(assert.ifError);
+      instance.getBackupOperations((err => { expect(err).toBeFalsy(); }));
     });
 
     it('should return a complete nextQuery object', done => {
@@ -1793,7 +1772,7 @@ describe('Instance', () => {
         callback(...RESPONSE);
       };
       function callback(err, backupOps, nextQuery) {
-        assert.deepStrictEqual(nextQuery, EXPECTEDNEXTQUERY);
+        expect(nextQuery).toEqual(EXPECTEDNEXTQUERY);
         done();
       }
       instance.getBackupOperations(GETBACKUPOPSOPTIONS, callback);
@@ -1817,19 +1796,19 @@ describe('Instance', () => {
       });
 
       instance.request = config => {
-        assert.strictEqual(config.client, 'DatabaseAdminClient');
-        assert.strictEqual(config.method, 'listDatabaseOperations');
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
+        expect(config.client).toBe('DatabaseAdminClient');
+        expect(config.method).toBe('listDatabaseOperations');
+        expect(config.reqOpts).toEqual(expectedReqOpts);
 
-        assert.notStrictEqual(config.reqOpts, OPTIONS);
-        assert.deepStrictEqual(OPTIONS, ORIGINAL_OPTIONS);
+        expect(config.reqOpts).not.toBe(OPTIONS);
+        expect(OPTIONS).toEqual(ORIGINAL_OPTIONS);
 
-        assert.deepStrictEqual(config.gaxOpts, options.gaxOptions);
-        assert.deepStrictEqual(config.headers, instance.commonHeaders_);
+        expect(config.gaxOpts).toEqual(options.gaxOptions);
+        expect(config.headers).toEqual(instance.commonHeaders_);
         done();
       };
 
-      instance.getDatabaseOperations(options, assert.ifError);
+      instance.getDatabaseOperations(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass pageSize and pageToken from gaxOptions into reqOpts', done => {
@@ -1848,15 +1827,15 @@ describe('Instance', () => {
       );
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getDatabaseOperations(options, assert.ifError);
+      instance.getDatabaseOperations(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('pageSize and pageToken in options should take precedence over gaxOptions', done => {
@@ -1882,28 +1861,28 @@ describe('Instance', () => {
       );
 
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, expectedReqOpts);
-        assert.notStrictEqual(config.gaxOpts, gaxOptions);
-        assert.notDeepStrictEqual(config.gaxOpts, gaxOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.reqOpts).toEqual(expectedReqOpts);
+        expect(config.gaxOpts).not.toBe(gaxOptions);
+        expect(config.gaxOpts).not.toEqual(gaxOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
 
         done();
       };
 
-      instance.getDatabaseOperations(options, assert.ifError);
+      instance.getDatabaseOperations(options, (err => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require options', done => {
       instance.request = config => {
-        assert.deepStrictEqual(config.reqOpts, {
+        expect(config.reqOpts).toEqual({
           parent: instance.formattedName_,
         });
 
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         done();
       };
 
-      instance.getDatabaseOperations(assert.ifError);
+      instance.getDatabaseOperations((err => { expect(err).toBeFalsy(); }));
     });
 
     it('should return a complete nextQuery object', done => {
@@ -1931,7 +1910,7 @@ describe('Instance', () => {
         callback(...RESPONSE);
       };
       function callback(err, databaseOps, nextQuery) {
-        assert.deepStrictEqual(nextQuery, EXPECTEDNEXTQUERY);
+        expect(nextQuery).toEqual(EXPECTEDNEXTQUERY);
         done();
       }
       instance.getDatabaseOperations(GETDATABASEOPSOPTIONS, callback);

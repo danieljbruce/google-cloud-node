@@ -18,7 +18,6 @@ import {grpc, CallOptions, Operation as GaxOperation} from 'google-gax';
 import {protos} from '@google-cloud/spanner-api';
 import instanceAdmin = protos.google;
 import databaseAdmin = protos.google;
-import {Spanner} from '.';
 
 export type IOperation = instanceAdmin.longrunning.IOperation;
 
@@ -119,11 +118,25 @@ export function getCommonHeaders(
     headers[END_TO_END_TRACING_HEADER] = 'true';
   }
 
-  if (Spanner.isAFEServerTimingEnabled()) {
+  if (isAFEServerTimingEnabled()) {
     headers[AFE_SERVER_TIMING_HEADER] = 'true';
   }
 
   headers[CLOUD_RESOURCE_HEADER] = resourceName;
 
   return headers;
+}
+
+let _isAFEServerTimingEnabled: boolean | undefined;
+
+export function isAFEServerTimingEnabled(): boolean {
+  if (_isAFEServerTimingEnabled === undefined) {
+    _isAFEServerTimingEnabled =
+      process.env['SPANNER_DISABLE_AFE_SERVER_TIMING'] !== 'true';
+  }
+  return _isAFEServerTimingEnabled;
+}
+
+export function _resetAFEServerTimingForTest(): void {
+  _isAFEServerTimingEnabled = undefined;
 }
