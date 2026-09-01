@@ -13,32 +13,32 @@
 // limitations under the License.
 
 import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, before, beforeEach} from 'mocha';
-import * as proxyquire from 'proxyquire';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import {Record} from '../src';
+let promisified = false;
+
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll(esClass: Function, options?: promisify.PromisifyAllOptions) {
+      if (esClass.name === 'Record') {
+        promisified = true;
+        expect(options?.exclude).toEqual(['toJSON', 'toString']);
+      }
+      return actual.promisifyAll(esClass, options);
+    },
+  };
+});
+
+import {Record} from '../src/record';
 
 interface Metadata {
   name: string;
   data?: string[];
   ttl: number;
 }
-let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  promisifyAll(esClass: Function, options: promisify.PromisifyAllOptions) {
-    if (esClass.name !== 'Record') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, ['toJSON', 'toString']);
-  },
-});
 
 describe('Record', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let Record: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let record: any;
 
@@ -52,51 +52,51 @@ describe('Record', () => {
     ttl: 86400,
   };
 
-  before(() => {
-    Record = proxyquire('../src/record', {
-      '@google-cloud/promisify': fakePromisify,
-    }).Record;
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    record = new Record(ZONE as any, TYPE, METADATA);
   });
 
-  beforeEach(() => {
-    record = new Record(ZONE, TYPE, METADATA);
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
 
     it('should localize the zone instance', () => {
-      assert.strictEqual(record.zone_, ZONE);
+      expect(record.zone_).toBe(ZONE);
     });
 
     it('should localize the type', () => {
-      assert.strictEqual(record.type, TYPE);
+      expect(record.type).toBe(TYPE);
     });
 
     it('should localize the metadata', () => {
-      assert.strictEqual(record.metadata, METADATA);
+      expect(record.metadata).toBe(METADATA);
     });
 
     it('should assign the parsed metadata', () => {
       const parsedMetadata = record.toJSON();
       delete parsedMetadata.rrdatas;
-      // tslint:disable-next-line:forin
       for (const prop in parsedMetadata) {
-        assert.strictEqual(record[prop], parsedMetadata[prop]);
+        expect(record[prop]).toEqual(parsedMetadata[prop]);
       }
     });
 
     it('should re-assign rrdatas to data', () => {
       const originalRrdatas = new Array<string>();
 
-      const recordThatHadRrdatas = new Record(ZONE, TYPE, {
+      const recordThatHadRrdatas = new Record(ZONE as any, TYPE, {
         rrdatas: originalRrdatas,
+        name: 'name',
+        ttl: 86400,
       });
 
-      assert.strictEqual(recordThatHadRrdatas.rrdatas, undefined);
-      assert.strictEqual(recordThatHadRrdatas.data, originalRrdatas);
+      expect(recordThatHadRrdatas.rrdatas).toBeUndefined();
+      expect(recordThatHadRrdatas.data).toBe(originalRrdatas);
     });
   });
 
@@ -111,12 +111,12 @@ describe('Record', () => {
       const expectedData = aRecord.ip;
 
       it('should parse an A record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'a', aRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'a', aRecord);
 
-        assert.strictEqual(record.type, 'A');
-        assert.deepStrictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, aRecord.name);
-        assert.strictEqual(record.metadata.ttl, aRecord.ttl);
+        expect(record.type).toBe('A');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(aRecord.name);
+        expect(record.metadata.ttl).toBe(aRecord.ttl);
       });
     });
 
@@ -130,12 +130,12 @@ describe('Record', () => {
       const expectedData = aaaaRecord.ip;
 
       it('should parse an AAAA record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'aaaa', aaaaRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'aaaa', aaaaRecord);
 
-        assert.strictEqual(record.type, 'AAAA');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, aaaaRecord.name);
-        assert.strictEqual(record.metadata.ttl, aaaaRecord.ttl);
+        expect(record.type).toBe('AAAA');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(aaaaRecord.name);
+        expect(record.metadata.ttl).toBe(aaaaRecord.ttl);
       });
     });
 
@@ -149,12 +149,12 @@ describe('Record', () => {
       const expectedData = cnameRecord.alias;
 
       it('should parse a CNAME record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'cname', cnameRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'cname', cnameRecord);
 
-        assert.strictEqual(record.type, 'CNAME');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, cnameRecord.name);
-        assert.strictEqual(record.metadata.ttl, cnameRecord.ttl);
+        expect(record.type).toBe('CNAME');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(cnameRecord.name);
+        expect(record.metadata.ttl).toBe(cnameRecord.ttl);
       });
     });
 
@@ -169,12 +169,12 @@ describe('Record', () => {
       const expectedData = mxRecord.preference + ' ' + mxRecord.host;
 
       it('should parse an MX record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'mx', mxRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'mx', mxRecord);
 
-        assert.strictEqual(record.type, 'MX');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, mxRecord.name);
-        assert.strictEqual(record.metadata.ttl, mxRecord.ttl);
+        expect(record.type).toBe('MX');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(mxRecord.name);
+        expect(record.metadata.ttl).toBe(mxRecord.ttl);
       });
     });
 
@@ -188,12 +188,12 @@ describe('Record', () => {
       const expectedData = nsRecord.host;
 
       it('should parse an NS record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'ns', nsRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'ns', nsRecord);
 
-        assert.strictEqual(record.type, 'NS');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, nsRecord.name);
-        assert.strictEqual(record.metadata.ttl, nsRecord.ttl);
+        expect(record.type).toBe('NS');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(nsRecord.name);
+        expect(record.metadata.ttl).toBe(nsRecord.ttl);
       });
     });
 
@@ -221,12 +221,12 @@ describe('Record', () => {
       ].join(' ');
 
       it('should parse an SOA record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'soa', soaRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'soa', soaRecord);
 
-        assert.strictEqual(record.type, 'SOA');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, soaRecord.name);
-        assert.strictEqual(record.metadata.ttl, soaRecord.ttl);
+        expect(record.type).toBe('SOA');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(soaRecord.name);
+        expect(record.metadata.ttl).toBe(soaRecord.ttl);
       });
     });
 
@@ -240,12 +240,12 @@ describe('Record', () => {
       const expectedData = spfRecord.data;
 
       it('should parse an SPF record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'spf', spfRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'spf', spfRecord);
 
-        assert.strictEqual(record.type, 'SPF');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, spfRecord.name);
-        assert.strictEqual(record.metadata.ttl, spfRecord.ttl);
+        expect(record.type).toBe('SPF');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(spfRecord.name);
+        expect(record.metadata.ttl).toBe(spfRecord.ttl);
       });
     });
 
@@ -267,12 +267,12 @@ describe('Record', () => {
       ].join(' ');
 
       it('should parse an SRV record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'srv', srvRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'srv', srvRecord);
 
-        assert.strictEqual(record.type, 'SRV');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, srvRecord.name);
-        assert.strictEqual(record.metadata.ttl, srvRecord.ttl);
+        expect(record.type).toBe('SRV');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(srvRecord.name);
+        expect(record.metadata.ttl).toBe(srvRecord.ttl);
       });
     });
 
@@ -286,21 +286,25 @@ describe('Record', () => {
       const expectedData = txtRecord.txt;
 
       it('should parse a TXT record', () => {
-        const record = Record.fromZoneRecord_(ZONE, 'txt', txtRecord);
+        const record = Record.fromZoneRecord_(ZONE as any, 'txt', txtRecord);
 
-        assert.strictEqual(record.type, 'TXT');
-        assert.strictEqual(record.metadata.data, expectedData);
-        assert.strictEqual(record.metadata.name, txtRecord.name);
-        assert.strictEqual(record.metadata.ttl, txtRecord.ttl);
+        expect(record.type).toBe('TXT');
+        expect(record.metadata.data).toBe(expectedData);
+        expect(record.metadata.name).toBe(txtRecord.name);
+        expect(record.metadata.ttl).toBe(txtRecord.ttl);
       });
     });
   });
 
   describe('delete', () => {
-    it('should call zone.deleteRecords', (done: any) => {
+    it('should call zone.deleteRecords', done => {
       record.zone_.deleteRecords = (records: Record[], callback: Function) => {
-        assert.strictEqual(records, record);
-        callback();
+        try {
+          expect(records).toBe(record);
+          callback();
+        } catch (e) {
+          done(e);
+        }
       };
       record.delete(done);
     });
@@ -314,7 +318,7 @@ describe('Record', () => {
       });
       delete expectedRecord.data;
 
-      assert.deepStrictEqual(record.toJSON(), expectedRecord);
+      expect(record.toJSON()).toEqual(expectedRecord);
     });
   });
 
@@ -347,11 +351,7 @@ describe('Record', () => {
         ].join(' '),
       ].join('\n');
 
-      // That's a bunch of silliness, but it generates simply:
-      // name 86400 IN A example.com.
-      // name 86400 IN A example2.com.
-
-      assert.strictEqual(record.toString(), expectedRecordString);
+      expect(record.toString()).toBe(expectedRecordString);
     });
   });
 });

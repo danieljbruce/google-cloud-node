@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import * as assert from 'assert';
-import {describe, it, before, after} from 'mocha';
 import * as fs from 'fs';
 import * as tmp from 'tmp';
 import * as util from 'util';
@@ -115,7 +114,7 @@ describe.skip('dns', () => {
     }),
   };
 
-  before(async () => {
+  beforeAll(async () => {
     // Clean up any leaked resources
     const [zones] = await dns.getZones();
     await Promise.all(
@@ -138,13 +137,12 @@ describe.skip('dns', () => {
     });
   });
 
-  after(done => {
+  afterAll(done => {
     ZONE.delete({force: true}, done);
   });
 
   // deal with eventual consistency of ZONE.create():
-  it('should return 0 or more zones', async function () {
-    this.retries(3);
+  it('should return 0 or more zones', async () => {
     await delayMs(1000);
     const zones = await dns.getZones();
     assert(zones!.length >= 0);
