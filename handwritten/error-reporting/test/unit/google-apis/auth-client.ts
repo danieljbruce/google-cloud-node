@@ -12,44 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as proxyquire from 'proxyquire';
-import {describe, beforeEach, afterEach, it} from 'mocha';
+let errToReturn: Error | null | undefined;
+
+jest.mock('@google-cloud/common', () => {
+  return {
+    Service: class {
+      authClient: {
+        getAccessToken: () => Promise<string>;
+      };
+      request: (...args: any[]) => void;
+      constructor() {
+        this.authClient = {
+          getAccessToken: jest.fn().mockImplementation(async () => {
+            if (errToReturn) {
+              throw errToReturn;
+            }
+            return 'some-token';
+          }),
+        };
+        this.request = jest.fn();
+      }
+    },
+  };
+});
 
 import {
   Configuration,
   ConfigurationOptions,
   Logger,
 } from '../../../src/configuration';
+import {RequestHandler} from '../../../src/google-apis/auth-client';
 import {deepStrictEqual} from '../../util';
 
 function verifyReportedMessage(
   config1: ConfigurationOptions,
-  errToReturn: Error | null | undefined,
+  err: Error | null | undefined,
   expectedLogs: {error?: string; info?: string; warn?: string},
-  done: () => void,
+  done: (err?: any) => void,
 ) {
-  class ServiceStub {
-    authClient: {};
-    request: {};
-    constructor() {
-      this.authClient = {
-        async getAccessToken() {
-          if (errToReturn) {
-            throw errToReturn;
-          }
-          return 'some-token';
-        },
-      };
-      this.request = () => {};
-    }
-  }
-
-  const RequestHandler = proxyquire('../../../src/google-apis/auth-client', {
-    '@google-cloud/common': {
-      Service: ServiceStub,
-    },
-  }).RequestHandler;
-
+  errToReturn = err;
   const logs: {error?: string; info?: string; warn?: string} = {};
   const logger = {
     error(text: string) {
@@ -72,13 +73,17 @@ function verifyReportedMessage(
     },
   } as {} as Logger;
   const config2 = new Configuration(config1, logger);
-  // tslint:disable-next-line:no-unused-expression
   new RequestHandler(config2, logger);
   setImmediate(() => {
-    deepStrictEqual(logs, expectedLogs);
-    done();
+    try {
+      deepStrictEqual(logs, expectedLogs);
+      done();
+    } catch (e) {
+      done(e);
+    }
   });
 }
+
 describe('RequestHandler', () => {
   let nodeEnv: string | undefined;
   beforeEach(() => {
@@ -93,22 +98,25 @@ describe('RequestHandler', () => {
     }
   });
 
-  it('should not request OAuth2 token if key is provided', function (done) {
-    this.timeout(8000);
-    const config: ConfigurationOptions = {
-      reportMode: 'always',
-      key: 'key',
-    };
-    const message = 'Made OAuth2 Token Request';
-    verifyReportedMessage(
-      config,
-      new Error(message),
-      {
-        info: 'API key provided; skipping OAuth2 token request.',
-      },
-      done,
-    );
-  });
+  it(
+    'should not request OAuth2 token if key is provided',
+    done => {
+      const config: ConfigurationOptions = {
+        reportMode: 'always',
+        key: 'key',
+      };
+      const message = 'Made OAuth2 Token Request';
+      verifyReportedMessage(
+        config,
+        new Error(message),
+        {
+          info: 'API key provided; skipping OAuth2 token request.',
+        },
+        done,
+      );
+    },
+    8000,
+  );
 
   it('should not request OAuth2 token if error reporting is disabled', done => {
     verifyReportedMessage(

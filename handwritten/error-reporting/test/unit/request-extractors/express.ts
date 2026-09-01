@@ -16,7 +16,6 @@ import {Response} from 'express';
 import {expressRequestInformationExtractor} from '../../../src/request-extractors/express';
 import {Fuzzer} from '../../../utils/fuzzer';
 import {deepStrictEqual} from '../../util';
-import {describe, it, beforeEach} from 'mocha';
 
 describe('Behaviour under varying input', () => {
   let f: Fuzzer;

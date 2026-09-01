@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-
 import {Logger} from '../../../src/configuration';
 import * as manual from '../../../src/interfaces/manual';
 import {FakeConfiguration as Configuration} from '../../fixtures/configuration';
@@ -29,7 +26,6 @@ import {RequestInformationContainer} from '../../../src/classes/request-informat
 import {Request} from '../../../src/request-extractors/manual';
 
 describe('Manual handler', () => {
-  // nock.disableNetConnect();
   // Mocked client
   const client: RequestHandler = {
     sendError(e: ErrorMessage, cb: () => void) {
@@ -48,8 +44,7 @@ describe('Manual handler', () => {
       // the ErrorMessage objects given to the `report` method in the tests
       // do not have construction site information to verify that if that
       // information is not available, the user is issued a warning.
-      assert.strictEqual(
-        message,
+      expect(message).toBe(
         'Encountered a manually constructed error ' +
           'with message "builder test" but without a construction site stack ' +
           'trace.  This error might not be visible in the error reporting ' +
@@ -60,64 +55,61 @@ describe('Manual handler', () => {
   describe('Report invocation behaviour', () => {
     it('Should allow argument-less invocation', () => {
       const r = report(null!);
-      assert(r instanceof ErrorMessage, 'should be an inst of ErrorMessage');
+      expect(r instanceof ErrorMessage).toBe(true);
     });
     it('Should allow single string', () => {
       const r = report('doohickey');
-      assert(r instanceof ErrorMessage, 'should be an inst of ErrorMessage');
-      assert(r.message.match(/doohickey/), 'string error should propagate');
+      expect(r instanceof ErrorMessage).toBe(true);
+      expect(r.message).toMatch(/doohickey/);
     });
     it('Should allow single inst of Error', () => {
       const r = report(new Error('hokeypokey'));
-      assert(r.message.match(/hokeypokey/));
+      expect(r.message).toMatch(/hokeypokey/);
     });
-    it('Should allow a function as a malformed error input', function (this, done) {
-      this.timeout(2000);
-      const r = report(() => {
-        assert(false, 'callback should not be called');
-      });
-      assert(r instanceof ErrorMessage, 'should be an inst of ErrorMessage');
-      setTimeout(() => {
-        done();
-      }, 1000);
-    });
+    it(
+      'Should allow a function as a malformed error input',
+      done => {
+        const r = report(() => {
+          expect(false).toBe(true);
+        });
+        expect(r instanceof ErrorMessage).toBe(true);
+        setTimeout(() => {
+          done();
+        }, 1000);
+      },
+      2000,
+    );
     it('Should callback to the supplied function', done => {
       const r = report('malarkey', () => {
         done();
       });
-      assert(r.message.match(/malarkey/), 'string error should propagate');
+      expect(r.message).toMatch(/malarkey/);
     });
     it('replace the error string with the additional message', done => {
       const r = report('monkey', 'wrench', () => {
         done();
       });
-      assert.strictEqual(
-        r.message,
-        'wrench',
-        'additional message should replace',
-      );
+      expect(r.message).toBe('wrench');
     });
     it('Should allow a full array of optional arguments', done => {
       const r = report('donkey', {method: 'FETCH'}, 'cart', () => {
         done();
       });
-      assert.strictEqual(r.message, 'cart', 'additional message replace');
-      assert.strictEqual(r.context.httpRequest.method, 'FETCH');
+      expect(r.message).toBe('cart');
+      expect(r.context.httpRequest.method).toBe('FETCH');
     });
     it('Should allow all optional arguments except the callback', () => {
       const r = report('whiskey', {method: 'SIP'}, 'sour');
-      assert.strictEqual(r.message, 'sour', 'additional message replace');
-      assert.strictEqual(r.context.httpRequest.method, 'SIP');
+      expect(r.message).toBe('sour');
+      expect(r.context.httpRequest.method).toBe('SIP');
     });
     it('Should allow a lack of additional message', done => {
       const r = report('ticky', {method: 'TACKEY'}, () => {
         done();
       });
-      assert(
-        r.message.match(/ticky/) && !r.message.match(/TACKEY/),
-        'original message should be preserved',
-      );
-      assert.strictEqual(r.context.httpRequest.method, 'TACKEY');
+      expect(r.message).toMatch(/ticky/);
+      expect(r.message).not.toMatch(/TACKEY/);
+      expect(r.context.httpRequest.method).toBe('TACKEY');
     });
     it('Should ignore arguments', done => {
       const r = report(
@@ -127,10 +119,8 @@ describe('Manual handler', () => {
         }) as unknown as string,
         'field' as unknown as manual.Callback,
       );
-      assert(
-        r.message.match('hockey') && !r.message.match('field'),
-        'string after callback should be ignored',
-      );
+      expect(r.message).toMatch('hockey');
+      expect(r.message).not.toMatch('field');
     });
     it('Should ignore arguments', done => {
       const r = report(
@@ -140,13 +130,13 @@ describe('Manual handler', () => {
         }) as unknown as string,
         {method: 'HONK'} as unknown as manual.Callback,
       );
-      assert.notStrictEqual(r.context.httpRequest.method, 'HONK');
+      expect(r.context.httpRequest.method).not.toBe('HONK');
     });
     it('Should allow null arguments as placeholders', done => {
       const r = report('pokey', null!, null!, () => {
         done();
       });
-      assert(r.message.match(/pokey/), 'string error should propagate');
+      expect(r.message).toMatch(/pokey/);
     });
     it('Should allow explicit undefined', done => {
       const r = report(
@@ -157,7 +147,7 @@ describe('Manual handler', () => {
           done();
         },
       );
-      assert(r.message.match(/Turkey/), 'string error should propagate');
+      expect(r.message).toMatch(/Turkey/);
     });
     it('Should allow request to be supplied as undefined', done => {
       const r = report(
@@ -168,7 +158,7 @@ describe('Manual handler', () => {
           done();
         },
       );
-      assert.strictEqual(r.message, 'solution', 'error should propagate');
+      expect(r.message).toBe('solution');
     });
     it('Should allow additional message', done => {
       const r = report(
@@ -179,11 +169,9 @@ describe('Manual handler', () => {
           done();
         },
       );
-      assert(
-        r.message.match(/Mickey/) && !r.message.match(/SNIFF/),
-        'string error should propagate',
-      );
-      assert.strictEqual(r.context.httpRequest.method, 'SNIFF');
+      expect(r.message).toMatch(/Mickey/);
+      expect(r.message).not.toMatch(/SNIFF/);
+      expect(r.context.httpRequest.method).toBe('SNIFF');
     });
   });
 
@@ -191,10 +179,7 @@ describe('Manual handler', () => {
     it('Should accept builder inst as only argument', () => {
       const msg = 'builder test';
       const r = report(new ErrorMessage().setMessage(msg));
-      assert(
-        r.message.startsWith(msg),
-        'string message should propagate from error message inst',
-      );
+      expect(r.message.startsWith(msg)).toBe(true);
     });
     it('Should accept builder and request as arguments', () => {
       const msg = 'builder test';
@@ -206,31 +191,14 @@ describe('Manual handler', () => {
           .consumeRequestInformation(oldReq as RequestInformationContainer),
         newReq,
       );
-      assert(
-        r.message.startsWith(msg),
-        'string message should propagate from error message inst',
-      );
-      assert.strictEqual(
-        r.context.httpRequest.method,
-        newReq.method,
-        [
-          'request argument supplied at report invocation should propagte and',
-          'if supplied, should overwrite any prexisting data in the field.',
-        ].join('\n'),
-      );
+      expect(r.message.startsWith(msg)).toBe(true);
+      expect(r.context.httpRequest.method).toBe(newReq.method);
     });
     it('Should accept message and additional message params as', () => {
       const oldMsg = 'builder test';
       const newMsg = 'analysis';
       const r = report(new ErrorMessage().setMessage(oldMsg), newMsg);
-      assert.strictEqual(
-        r.message,
-        newMsg,
-        [
-          'message supplied at report invocation should propagte and, if',
-          'supplied, should overwrite any prexisting data in the message field.',
-        ].join('\n'),
-      );
+      expect(r.message).toBe(newMsg);
     });
     it('Should accept message and callback function', done => {
       const oldMsg = 'builder test';

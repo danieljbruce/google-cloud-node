@@ -12,57 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, after, beforeEach, afterEach} from 'mocha';
 import {createLogger} from '../../src/logger';
 
 describe('logger', () => {
   describe('Initialization', () => {
     let oldEnv: string | undefined;
-    before(() => {
+    beforeAll(() => {
       oldEnv = process.env.GCLOUD_ERRORS_LOGLEVEL;
       delete process.env.GCLOUD_ERRORS_LOGLEVEL;
     });
-    after(() => {
+    afterAll(() => {
       process.env.GCLOUD_ERRORS_LOGLEVEL = oldEnv;
     });
     describe('Exception handling', () => {
       it('Should not throw given undefined', () => {
-        assert.doesNotThrow(
-          createLogger,
-          createLogger() as {} as (err: Error) => boolean,
-        );
+        expect(() => createLogger()).not.toThrow();
       });
       it('Should not throw given an empty object', () => {
-        assert.doesNotThrow(
-          createLogger.bind(null, {}),
-          createLogger() as {} as (err: Error) => boolean,
-        );
+        expect(() => createLogger({})).not.toThrow();
       });
       it('Should not throw given logLevel as a number', () => {
-        assert.doesNotThrow(
-          createLogger.bind(null, {logLevel: 3}),
-          createLogger({logLevel: 3}) as {} as (err: Error) => boolean,
-        );
+        expect(() => createLogger({logLevel: 3})).not.toThrow();
       });
       it('Should not throw given logLevel as a string', () => {
-        assert.doesNotThrow(
-          createLogger.bind(null, {logLevel: '3'}),
-          createLogger({logLevel: 3}) as {} as (err: Error) => boolean,
-        );
+        expect(() =>
+          createLogger({logLevel: '3' as unknown as number}),
+        ).not.toThrow();
       });
       it('Should not throw given an env variable to use', () => {
         process.env.GCLOUD_ERRORS_LOGLEVEL = '4';
-        assert.doesNotThrow(
-          createLogger,
+        expect(() =>
           createLogger({
             logLevel: 4,
-          }) as {} as (err: Error) => boolean,
-        );
+          }),
+        ).not.toThrow();
         delete process.env.GCLOUD_ERRORS_LOGLEVEL;
       });
       it('Should thow given logLevel as null', () => {
-        assert.throws(createLogger.bind(null, {logLevel: null!}), undefined);
+        expect(() => createLogger({logLevel: null!})).toThrow();
       });
     });
     describe('Default log level', () => {
@@ -89,16 +76,14 @@ describe('logger', () => {
       it('Should print WARN logs by default', () => {
         const logger = createLogger();
         logger.warn('test warning message');
-        assert.strictEqual(
-          text,
+        expect(text).toBe(
           'WARN:@google-cloud/error-reporting: test warning message',
         );
       });
       it('Should print ERROR logs by default', () => {
         const logger = createLogger();
         logger.error('test error message');
-        assert.strictEqual(
-          text,
+        expect(text).toBe(
           'ERROR:@google-cloud/error-reporting: test error message',
         );
       });

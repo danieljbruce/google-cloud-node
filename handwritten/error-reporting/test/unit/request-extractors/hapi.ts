@@ -14,7 +14,6 @@
 
 import * as hapi from '@hapi/hapi';
 import {URL} from 'url';
-import {describe, it} from 'mocha';
 
 import {hapiRequestInformationExtractor} from '../../../src/request-extractors/hapi';
 import {Fuzzer} from '../../../utils/fuzzer';
@@ -153,7 +152,7 @@ describe('hapiRequestInformationExtractor behaviour', () => {
         referrer: 'www.ANOTHER-TEST.com',
         remoteAddress: '0.0.0.1',
       };
-      
+
       deepStrictEqual(
         hapiRequestInformationExtractor(REQUEST as {} as hapi.Request),
         EXPECTED,

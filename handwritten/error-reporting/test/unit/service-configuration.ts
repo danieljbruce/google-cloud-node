@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, beforeEach, after, it} from 'mocha';
 import {FakeConfiguration as Configuration} from '../fixtures/configuration';
 import {deepStrictEqual} from '../util';
 const level = process.env.GCLOUD_ERRORS_LOGLEVEL;
@@ -62,7 +60,7 @@ describe('Testing service configuration', () => {
   beforeEach(() => {
     sterilizeServiceConfigEnv();
   });
-  after(() => {
+  afterAll(() => {
     restoreServiceConfigEnv();
   });
   it(
@@ -286,9 +284,9 @@ describe('Testing service configuration', () => {
         },
         logger,
       );
-      assert.strictEqual(c.getServiceContext().service, 'customService');
+      expect(c.getServiceContext().service).toBe('customService');
       // The user specified version should be used
-      assert.strictEqual(c.getServiceContext().version, '2.0');
+      expect(c.getServiceContext().version).toBe('2.0');
     },
   );
   it(
@@ -297,8 +295,8 @@ describe('Testing service configuration', () => {
       'not specified a service name or version',
     () => {
       const c = new Configuration({}, logger);
-      assert.strictEqual(c.getServiceContext().service, 'node');
-      assert.strictEqual(c.getServiceContext().version, undefined);
+      expect(c.getServiceContext().service).toBe('node');
+      expect(c.getServiceContext().version).toBeUndefined();
     },
   );
   it(
@@ -317,8 +315,8 @@ describe('Testing service configuration', () => {
         kRevision: null,
       });
       const c = new Configuration({}, logger);
-      assert.strictEqual(c.getServiceContext().service, 'node');
-      assert.strictEqual(c.getServiceContext().version, undefined);
+      expect(c.getServiceContext().service).toBe('node');
+      expect(c.getServiceContext().version).toBeUndefined();
     },
   );
   it(
@@ -349,8 +347,8 @@ describe('Testing service configuration', () => {
       kRevision: 'custom-revision',
     });
     const c = new Configuration({}, logger);
-    assert.strictEqual(c.getServiceContext().service, 'custom-service');
-    assert.strictEqual(c.getServiceContext().version, 'custom-revision');
+    expect(c.getServiceContext().service).toBe('custom-service');
+    expect(c.getServiceContext().version).toBe('custom-revision');
   });
   it('A Configuration gives priority to K_SERVICE and K_REVISION env variables', () => {
     setEnv({
@@ -363,7 +361,7 @@ describe('Testing service configuration', () => {
       kRevision: 'k-revision',
     });
     const c = new Configuration({}, logger);
-    assert.strictEqual(c.getServiceContext().service, 'k-service');
-    assert.strictEqual(c.getServiceContext().version, 'k-revision');
+    expect(c.getServiceContext().service).toBe('k-service');
+    expect(c.getServiceContext().version).toBe('k-revision');
   });
 });

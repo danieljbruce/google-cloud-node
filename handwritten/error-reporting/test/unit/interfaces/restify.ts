@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import {EventEmitter} from 'events';
 import * as restify from 'restify';
 
@@ -37,20 +35,12 @@ describe('restifyInterface', () => {
   describe('Attachment to the uncaughtException event', () => {
     it('Should attach one listener after instantiation', () => {
       const ee = new EventEmitter();
-      assert.strictEqual(
-        ee.listenerCount(UNCAUGHT_EVENT),
-        0,
-        'Listeners on event should be zero',
-      );
+      expect(ee.listenerCount(UNCAUGHT_EVENT)).toBe(0);
       // return the bound function which the user will actually interface with
       const errorHandlerInstance = restifyInterface(null!, null!);
       // execute the handler the user will use with the stubbed server instance
       errorHandlerInstance(ee as restify.Server);
-      assert.strictEqual(
-        ee.listenerCount(UNCAUGHT_EVENT),
-        1,
-        'Listeners on event should now be one',
-      );
+      expect(ee.listenerCount(UNCAUGHT_EVENT)).toBe(1);
     });
   });
   describe('Request handler lifecycle events', () => {
@@ -59,9 +49,9 @@ describe('restifyInterface', () => {
     const requestHandlerInstance = errorHandlerInstance(ee as restify.Server);
     describe('default path on invalid input', () => {
       it('Should not throw', () => {
-        assert.doesNotThrow(() => {
+        expect(() => {
           requestHandlerInstance(null!, null!, noOp);
-        });
+        }).not.toThrow();
       });
     });
     describe('default path without req/res error', () => {
@@ -70,36 +60,36 @@ describe('restifyInterface', () => {
       const res = new EventEmitter();
       (res as {} as {statusCode: number}).statusCode = 200;
       it('Should have 0 listeners on the finish event', () => {
-        assert.strictEqual(res.listenerCount(FINISH), 0);
+        expect(res.listenerCount(FINISH)).toBe(0);
       });
       it('Should not throw while handling the req/res objects', () => {
-        assert.doesNotThrow(() => {
+        expect(() => {
           requestHandlerInstance(
             req as restify.Request,
             res as restify.Response,
             noOp,
           );
-        });
+        }).not.toThrow();
       });
       it('Should have 1 listener', () => {
-        assert.strictEqual(res.listenerCount(FINISH), 1);
+        expect(res.listenerCount(FINISH)).toBe(1);
       });
       it('Should not throw when emitting the finish event', () => {
-        assert.doesNotThrow(() => {
+        expect(() => {
           res.emit(FINISH);
-        });
+        }).not.toThrow();
       });
     });
     describe('default path with req/res error', () => {
       ee.removeAllListeners();
       const client = {
         sendError() {
-          assert(true, 'sendError should be called');
+          expect(true).toBe(true);
         },
       };
       const config = {
         getServiceContext() {
-          assert(true, 'getServiceContext should be called');
+          expect(true).toBe(true);
           return {
             service: 'stub-service',
             version: 'stub-version',
@@ -121,34 +111,34 @@ describe('restifyInterface', () => {
       const res = new EventEmitter();
       (res as {} as {statusCode: number}).statusCode = 500;
       it('Should have 0 Listeners on the finish event', () => {
-        assert.strictEqual(res.listenerCount(FINISH), 0);
+        expect(res.listenerCount(FINISH)).toBe(0);
       });
       it('Should not throw on instantiation', () => {
-        assert.doesNotThrow(() => {
+        expect(() => {
           requestHandlerInstance(
             req as restify.Request,
             res as restify.Response,
             noOp,
           );
-        });
+        }).not.toThrow();
       });
       it('Should have 1 listener on the finish event', () => {
-        assert.strictEqual(res.listenerCount(FINISH), 1);
+        expect(res.listenerCount(FINISH)).toBe(1);
       });
       it('Should not throw on emission of the finish event', () => {
-        assert.doesNotThrow(() => {
+        expect(() => {
           res.emit(FINISH);
-        });
+        }).not.toThrow();
       });
       describe('Exercise the uncaughtException event path', () => {
         it('Should call the sendError function property', done => {
           client.sendError = () => {
-            assert(true, 'sendError should be called');
+            expect(true).toBe(true);
             done();
           };
-          assert.doesNotThrow(() => {
+          expect(() => {
             ee.emit(UNCAUGHT_EVENT);
-          });
+          }).not.toThrow();
         });
       });
     });

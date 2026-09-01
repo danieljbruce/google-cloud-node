@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-
 import {ErrorMessage} from '../../../src/classes/error-message';
 import {RequestHandler} from '../../../src/google-apis/auth-client';
 import {makeExpressHandler as expressInterface} from '../../../src/interfaces/express';
@@ -28,10 +25,9 @@ describe('expressInterface', () => {
     describe('Given invalid input', () => {
       it('Should not throw errors', () => {
         const f = new Fuzzer();
-        assert.doesNotThrow(() => {
+        expect(() => {
           f.fuzzFunctionForTypes(expressInterface, ['object', 'object']);
-          return;
-        });
+        }).not.toThrow();
       });
     });
   });

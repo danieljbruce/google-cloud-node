@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
 import * as stringify from 'json-stable-stringify';
 
 export type Anything = {} | undefined | null;
@@ -20,7 +19,7 @@ export type Anything = {} | undefined | null;
 export function deepStrictEqual(
   actual: Anything,
   expected: Anything,
-  message?: string,
+  _message?: string,
 ) {
-  assert.deepStrictEqual(stringify(actual), stringify(expected), message);
+  expect(stringify(actual)).toBe(stringify(expected));
 }

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import {RequestInformationContainer} from '../../../src/classes/request-information-container';
 import {Fuzzer} from '../../../utils/fuzzer';
 import {deepStrictEqual} from '../../util';
@@ -57,7 +55,7 @@ describe('RequestInformationContainer', () => {
     });
     it('Should return the default value for statusCode', () => {
       cbFn = () => {
-        assert.strictEqual(ric.statusCode, 0);
+        expect(ric.statusCode).toBe(0);
       };
       f.fuzzFunctionForTypes(ric.setStatusCode, ['number'], cbFn, ric);
     });
@@ -67,27 +65,27 @@ describe('RequestInformationContainer', () => {
     const VALID_NUMBER_INPUT = 500;
     it('Should assign the value to the url property', () => {
       ric.setUrl(VALID_STRING_INPUT);
-      assert.strictEqual(ric.url, VALID_STRING_INPUT);
+      expect(ric.url).toBe(VALID_STRING_INPUT);
     });
     it('Should assign the value to the method property', () => {
       ric.setMethod(VALID_STRING_INPUT);
-      assert.strictEqual(ric.method, VALID_STRING_INPUT);
+      expect(ric.method).toBe(VALID_STRING_INPUT);
     });
     it('Should assign the value to the referrer property', () => {
       ric.setReferrer(VALID_STRING_INPUT);
-      assert.strictEqual(ric.referrer, VALID_STRING_INPUT);
+      expect(ric.referrer).toBe(VALID_STRING_INPUT);
     });
     it('Should assign the value to the userAgent property', () => {
       ric.setUserAgent(VALID_STRING_INPUT);
-      assert.strictEqual(ric.userAgent, VALID_STRING_INPUT);
+      expect(ric.userAgent).toBe(VALID_STRING_INPUT);
     });
     it('Should assign the value to remoteAddress property', () => {
       ric.setRemoteAddress(VALID_STRING_INPUT);
-      assert.strictEqual(ric.remoteAddress, VALID_STRING_INPUT);
+      expect(ric.remoteAddress).toBe(VALID_STRING_INPUT);
     });
     it('Should assign the value to statusCode property', () => {
       ric.setStatusCode(VALID_NUMBER_INPUT);
-      assert.strictEqual(ric.statusCode, VALID_NUMBER_INPUT);
+      expect(ric.statusCode).toBe(VALID_NUMBER_INPUT);
     });
   });
 });
