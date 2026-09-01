@@ -19,7 +19,6 @@
 import {util} from '@google-cloud/common';
 import * as pfy from '@google-cloud/promisify';
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import * as extend from 'extend';
 import * as proxyquire from 'proxyquire';
 import * as sinon from 'sinon';
@@ -101,7 +100,7 @@ describe('BatchTransaction', () => {
   let BatchTransaction: typeof bt.BatchTransaction;
   let batchTransaction: bt.BatchTransaction;
 
-  before(() => {
+  beforeAll(() => {
     BatchTransaction = proxyquire('../src/batch-transaction.js', {
       '@google-cloud/precise-date': {PreciseDate: FakeTimestamp},
       '@google-cloud/promisify': fakePfy,

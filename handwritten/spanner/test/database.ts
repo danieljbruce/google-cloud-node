@@ -17,7 +17,6 @@
 /* eslint-disable prefer-rest-params */
 
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {EventEmitter} from 'events';
 import * as extend from 'extend';
 import {ApiError, util} from '@google-cloud/common';
@@ -284,7 +283,7 @@ describe('Database', () => {
 
   let database;
 
-  before(() => {
+  beforeAll(() => {
     Database = proxyquire('../src/database.js', {
       './common-grpc/service-object': {
         GrpcServiceObject: FakeGrpcServiceObject,
@@ -360,11 +359,11 @@ describe('Database', () => {
     });
 
     describe('when multiplexed session is disabled', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
       });
 
-      after(() => {
+      afterAll(() => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
       });
 

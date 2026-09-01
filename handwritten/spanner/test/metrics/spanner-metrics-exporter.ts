@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import * as sinon from 'sinon';
 import {MeterProvider, MetricReader} from '@opentelemetry/sdk-metrics';
 import {GoogleAuth} from 'google-auth-library';
 import {
@@ -46,8 +44,8 @@ const auth = new GoogleAuth();
 describe('CustomExporter', () => {
   it('should construct an exporter', () => {
     const exporter = new CloudMonitoringMetricsExporter({auth}, PROJECT_ID);
-    assert.ok(typeof exporter.export === 'function');
-    assert.ok(typeof exporter.shutdown === 'function');
+    expect(typeof exporter.export).toBe('function');
+    expect(typeof exporter.shutdown).toBe('function');
   });
 
   it('should construct an exporter with credentials', () => {
@@ -57,20 +55,20 @@ describe('CustomExporter', () => {
         private_key: '',
       },
     });
-    auth.getProjectId = sinon.stub().resolves(PROJECT_ID);
+    auth.getProjectId = jest.fn().mockResolvedValue(PROJECT_ID);
     const exporter = new CloudMonitoringMetricsExporter({auth}, PROJECT_ID);
 
-    assert(exporter);
+    expect(exporter).toBeTruthy();
   });
 
   it('should be able to shutdown', async () => {
     const exporter = new CloudMonitoringMetricsExporter({auth}, PROJECT_ID);
-    await assert.doesNotReject(exporter.shutdown());
+    await expect(exporter.shutdown()).resolves.not.toThrow();
   });
 
   it('should be able to force flush', async () => {
     const exporter = new CloudMonitoringMetricsExporter({auth}, PROJECT_ID);
-    await assert.doesNotReject(exporter.forceFlush());
+    await expect(exporter.forceFlush()).resolves.not.toThrow();
   });
 });
 
@@ -163,9 +161,7 @@ describe('Export', () => {
       throw errors;
     }
 
-    const sendTimeSeriesStub = sinon
-      .stub(exporter as any, '_sendTimeSeries')
-      .resolves();
+    const sendTimeSeriesStub = jest.spyOn(exporter as any, '_sendTimeSeries').mockResolvedValue(undefined as any);
 
     await new Promise<ExportResult>(resolve => {
       exporter.export(resourceMetrics, result => {
@@ -176,11 +172,11 @@ describe('Export', () => {
       });
     });
 
-    assert(sendTimeSeriesStub.calledOnce);
+    expect(sendTimeSeriesStub).toHaveBeenCalledTimes(1);
 
-    const [timeseries] = sendTimeSeriesStub.getCall(0).args;
+    const [timeseries] = sendTimeSeriesStub.mock.calls[0] as any[];
 
-    assert.strictEqual(timeseries.length, 6);
+    expect(timeseries.length).toBe(6);
   });
 
   it('should exit early if resource metrics are empty', async () => {
@@ -189,9 +185,7 @@ describe('Export', () => {
     if (errors.length !== 0) {
       throw errors;
     }
-    const sendTimeSeriesStub = sinon
-      .stub(exporter as any, '_sendTimeSeries')
-      .resolves();
+    const sendTimeSeriesStub = jest.spyOn(exporter as any, '_sendTimeSeries').mockResolvedValue(undefined as any);
 
     await new Promise<ExportResult>(resolve => {
       exporter.export(resourceMetrics, result => {
@@ -202,29 +196,27 @@ describe('Export', () => {
       });
     });
 
-    assert(sendTimeSeriesStub.notCalled);
+    expect(sendTimeSeriesStub).not.toHaveBeenCalled();
   });
 
   it('should handle failed send during time series export with callback', async () => {
-    const sendTimeSeriesStub = sinon
-      .stub(exporter as any, '_sendTimeSeries')
-      .rejects(new Error('Network error'));
+    const sendTimeSeriesStub = jest.spyOn(exporter as any, '_sendTimeSeries').mockRejectedValue(new Error('Network error'));
 
     attempt_counter.add(10, metricAttributes);
 
     const {resourceMetrics} = await reader.collect();
 
-    const resultCallbackSpy = sinon.spy();
+    const resultCallbackSpy = jest.fn();
 
     exporter.export(resourceMetrics, resultCallbackSpy);
 
     await new Promise(resolve => setImmediate(resolve));
 
-    const callbackResult = resultCallbackSpy.getCall(0).args[0];
-    assert.strictEqual(callbackResult.code, ExportResultCode.FAILED);
-    assert.strictEqual(callbackResult.error.message, 'Network error');
+    const callbackResult = resultCallbackSpy.mock.calls[0][0];
+    expect(callbackResult.code).toBe(ExportResultCode.FAILED);
+    expect(callbackResult.error.message).toBe('Network error');
 
-    assert(sendTimeSeriesStub.calledOnce);
+    expect(sendTimeSeriesStub).toHaveBeenCalledTimes(1);
   });
 
   it('should batch exports into multiple calls', async () => {
@@ -236,10 +228,8 @@ describe('Export', () => {
 
     const {resourceMetrics} = await reader.collect();
 
-    const sendTimeSeriesStub = sinon
-      .stub(exporter as any, '_sendTimeSeries')
-      .resolves();
-    const resultCallbackSpy = sinon.spy();
+    const sendTimeSeriesStub = jest.spyOn(exporter as any, '_sendTimeSeries').mockResolvedValue(undefined as any);
+    const resultCallbackSpy = jest.fn();
 
     exporter.export(resourceMetrics, resultCallbackSpy);
 
@@ -249,21 +239,12 @@ describe('Export', () => {
     const expectedNumberOfCalls = Math.ceil(
       numberOfDistinctMetrics / MAX_BATCH_EXPORT_SIZE,
     );
-    assert.strictEqual(sendTimeSeriesStub.callCount, expectedNumberOfCalls);
-    assert.strictEqual(
-      sendTimeSeriesStub.getCall(0).args[0].length,
-      MAX_BATCH_EXPORT_SIZE,
-    );
-    assert.strictEqual(
-      sendTimeSeriesStub.getCall(1).args[0].length,
-      MAX_BATCH_EXPORT_SIZE,
-    );
-    assert.strictEqual(
-      sendTimeSeriesStub.getCall(2).args[0].length,
-      numberOfDistinctMetrics % MAX_BATCH_EXPORT_SIZE,
-    );
+    expect(sendTimeSeriesStub).toHaveBeenCalledTimes(expectedNumberOfCalls);
+    expect((sendTimeSeriesStub.mock.calls[0][0] as any).length).toBe(MAX_BATCH_EXPORT_SIZE);
+    expect((sendTimeSeriesStub.mock.calls[1][0] as any).length).toBe(MAX_BATCH_EXPORT_SIZE);
+    expect((sendTimeSeriesStub.mock.calls[2][0] as any).length).toBe(numberOfDistinctMetrics % MAX_BATCH_EXPORT_SIZE);
 
-    const callbackResult = resultCallbackSpy.getCall(0).args[0];
-    assert.strictEqual(callbackResult.code, ExportResultCode.SUCCESS);
+    const callbackResult = resultCallbackSpy.mock.calls[0][0];
+    expect(callbackResult.code).toBe(ExportResultCode.SUCCESS);
   });
 });

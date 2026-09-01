@@ -18,7 +18,6 @@
 
 import * as pfy from '@google-cloud/promisify';
 import * as assert from 'assert';
-import {before, beforeEach, describe, it} from 'mocha';
 import * as proxyquire from 'proxyquire';
 import {
   CLOUD_RESOURCE_HEADER,
@@ -94,7 +93,7 @@ describe('Session', () => {
 
   const NAME = 'session-name';
 
-  before(() => {
+  beforeAll(() => {
     Session = proxyquire('../src/session.js', {
       './common-grpc/service-object': {
         GrpcServiceObject: FakeGrpcServiceObject,

@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {before, after, beforeEach, afterEach, describe, it} from 'mocha';
 import * as sinon from 'sinon';
 import {context, trace} from '@opentelemetry/api';
 import {NodeTracerProvider} from '@opentelemetry/sdk-trace-node';
@@ -39,7 +38,7 @@ describe('OpenTelemetry Context Isolation Tests', () => {
     _observabilityOptions: {},
   } as unknown as Database;
 
-  before(() => {
+  beforeAll(() => {
     _resetTracingEnabledForTest();
     ensureInitialContextManagerSet();
 
@@ -50,7 +49,7 @@ describe('OpenTelemetry Context Isolation Tests', () => {
     _resetTracingEnabledForTest();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await provider.shutdown();
   });
 

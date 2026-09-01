@@ -14,38 +14,42 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {beforeEach, afterEach, describe, it} from 'mocha';
-import * as events from 'events';
-import * as sinon from 'sinon';
-import {Database} from '../src/database';
-import {Session} from '../src/session';
-import {MultiplexedSession} from '../src/multiplexed-session';
-import {Transaction} from '../src/transaction';
-import {FakeTransaction} from './session-pool';
-import {grpc} from 'google-gax';
+import * as events from "events";
+import {Database} from "../src/database";
+import {Session} from "../src/session";
+import {MultiplexedSession} from "../src/multiplexed-session";
+import {Transaction} from "../src/transaction";
+import {grpc} from "google-gax";
 
-describe('MultiplexedSession', () => {
-  let multiplexedSession;
+class FakeTransaction {
+  options: any;
+  _affinityKey: any;
+  constructor(options?: any) {
+    this.options = options;
+  }
+  async begin(): Promise<void> {}
+}
+
+describe("MultiplexedSession", () => {
+  let multiplexedSession: any;
 
   function noop() {}
   const DATABASE = {
     createSession: noop,
-    databaseRole: 'parent_role',
+    databaseRole: "parent_role",
   } as unknown as Database;
 
-  let fakeMuxSession;
-  let createSessionStub;
-  const sandbox = sinon.createSandbox();
+  let fakeMuxSession: any;
+  let createSessionStub: any;
 
-  const createSession = (name = 'id', props?): Session => {
+  const createSession = (name = "id", props?: any): Session => {
     props = props || {multiplexed: true};
 
     return Object.assign(new Session(DATABASE, name), props, {
-      create: sandbox.stub().resolves(),
-      transaction: sandbox.stub().callsFake(() => {
+      create: jest.fn().mockResolvedValue(undefined as any),
+      transaction: jest.fn().mockImplementation(() => {
         const txn = new FakeTransaction();
-        (txn as any)._affinityKey = 'mock-uuid';
+        txn._affinityKey = "mock-uuid";
         return txn;
       }),
     });
@@ -53,53 +57,51 @@ describe('MultiplexedSession', () => {
 
   beforeEach(() => {
     fakeMuxSession = createSession();
-    createSessionStub = sandbox
-      .stub(DATABASE, 'createSession')
-      .withArgs({multiplexed: true})
-      .callsFake(() => {
-        return Promise.resolve([fakeMuxSession]);
+    createSessionStub = jest
+      .spyOn(DATABASE, "createSession")
+      .mockImplementation((opts?: any) => {
+        return Promise.resolve([fakeMuxSession]) as any;
       });
     multiplexedSession = new MultiplexedSession(DATABASE);
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
-  describe('instantiation', () => {
-    it('should correctly initialize the fields', () => {
-      assert.strictEqual(multiplexedSession.database, DATABASE);
-      assert.strictEqual(multiplexedSession.refreshRate, 7);
-      assert.deepStrictEqual(multiplexedSession._multiplexedSession, null);
-      assert(multiplexedSession instanceof events.EventEmitter);
-      assert.strictEqual(
+  describe("instantiation", () => {
+    it("should correctly initialize the fields", () => {
+      expect(multiplexedSession.database).toBe(DATABASE);
+      expect(multiplexedSession.refreshRate).toBe(7);
+      expect(multiplexedSession._multiplexedSession).toBeNull();
+      expect(multiplexedSession instanceof events.EventEmitter).toBeTruthy();
+      expect(
         (multiplexedSession as MultiplexedSession)._sharedMuxSessionWaitPromise,
-        null,
-      );
+      ).toBeNull();
     });
   });
 
-  describe('createSession', () => {
-    let _createSessionStub;
-    let _maintainStub;
+  describe("createSession", () => {
+    let _createSessionStub: any;
+    let _maintainStub: any;
 
     beforeEach(() => {
-      _maintainStub = sandbox.stub(multiplexedSession, '_maintain');
-      _createSessionStub = sandbox
-        .stub(multiplexedSession, '_createSession')
-        .resolves();
+      _maintainStub = jest.spyOn(multiplexedSession, "_maintain").mockImplementation(() => {});
+      _createSessionStub = jest
+        .spyOn(multiplexedSession, "_createSession")
+        .mockResolvedValue(undefined as any);
     });
 
-    it('should create mux session', () => {
+    it("should create mux session", () => {
       multiplexedSession.createSession();
-      assert.strictEqual(_createSessionStub.callCount, 1);
+      expect(_createSessionStub).toHaveBeenCalledTimes(1);
     });
 
-    it('should start housekeeping', done => {
+    it("should start housekeeping", done => {
       multiplexedSession.createSession();
       setImmediate(() => {
         try {
-          assert.strictEqual(_maintainStub.callCount, 1);
+          expect(_maintainStub).toHaveBeenCalledTimes(1);
           done();
         } catch (err) {
           done(err);
@@ -107,117 +109,126 @@ describe('MultiplexedSession', () => {
       });
     });
 
-    it('should not throw error when database not found', async () => {
+    it("should not throw error when database not found", async () => {
       const error = {
         code: grpc.status.NOT_FOUND,
-        message: 'Database not found',
+        message: "Database not found",
       } as grpc.ServiceError;
       const multiplexedSession = new MultiplexedSession(DATABASE);
-      sandbox.stub(multiplexedSession, '_createSession').rejects(error);
+      jest.spyOn(multiplexedSession, "_createSession").mockRejectedValue(error);
 
       try {
         await multiplexedSession.createSession();
       } catch (err) {
-        assert.ifError(err);
+        expect(err).toBeFalsy();
       }
     });
   });
 
-  describe('_maintain', () => {
-    let clock;
-    let createSessionStub;
+  describe("_maintain", () => {
+    let createSessionStub: any;
 
     beforeEach(() => {
-      createSessionStub = sandbox
-        .stub(multiplexedSession, '_createSession')
-        .resolves();
-      clock = sandbox.useFakeTimers();
+      createSessionStub = jest
+        .spyOn(multiplexedSession, "_createSession")
+        .mockResolvedValue(undefined as any);
+      jest.useFakeTimers();
     });
 
     afterEach(() => {
-      clock.restore();
+      jest.useRealTimers();
     });
 
-    it('should set an interval to refresh mux sessions', () => {
+    it("should set an interval to refresh mux sessions", () => {
       const expectedInterval =
         multiplexedSession.refreshRate! * 24 * 60 * 60000;
 
       multiplexedSession._maintain();
-      clock.tick(expectedInterval);
-      assert.strictEqual(createSessionStub.callCount, 1);
+      jest.advanceTimersByTime(expectedInterval);
+      expect(createSessionStub).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('_createSession', () => {
-    it('should create the mux sessions with multiplexed option', async () => {
+  describe("_createSession", () => {
+    it("should create the mux sessions with multiplexed option", async () => {
       await multiplexedSession._createSession();
-      assert.strictEqual(createSessionStub.callCount, 1);
-      assert.deepStrictEqual(createSessionStub.lastCall.args[0], {
+      expect(createSessionStub).toHaveBeenCalledTimes(1);
+      expect(createSessionStub.mock.calls[createSessionStub.mock.calls.length - 1][0]).toEqual({
         multiplexed: true,
       });
     });
 
-    it('should reject with any request errors', async () => {
-      const error = new Error('create session error');
-      createSessionStub.rejects(error);
+    it("should reject with any request errors", async () => {
+      const error = new Error("create session error");
+      createSessionStub.mockRejectedValue(error);
 
       try {
         await multiplexedSession._createSession();
-        throw new Error('Should not make it this far.');
+        throw new Error("Should not make it this far.");
       } catch (e) {
-        assert.strictEqual(e, error);
+        expect(e).toBe(error);
       }
     });
   });
 
-  describe('getSession', () => {
-    it('should acquire a session', done => {
-      sandbox.stub(multiplexedSession, '_getSession').resolves(fakeMuxSession);
-      multiplexedSession.getSession((err, session) => {
-        assert.ifError(err);
-        assert.strictEqual(session, fakeMuxSession);
-        done();
+  describe("getSession", () => {
+    it("should acquire a session", done => {
+      jest.spyOn(multiplexedSession, "_getSession").mockResolvedValue(fakeMuxSession as any);
+      multiplexedSession.getSession((err: any, session: any) => {
+        try {
+          expect(err).toBeFalsy();
+          expect(session).toBe(fakeMuxSession);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
-    it('should pass any errors to the callback', done => {
-      const error = new Error('err');
-      sandbox.stub(multiplexedSession, '_getSession').rejects(error);
-      multiplexedSession.getSession(err => {
-        assert.strictEqual(err, error);
-        done();
+    it("should pass any errors to the callback", done => {
+      const error = new Error("err");
+      jest.spyOn(multiplexedSession, "_getSession").mockRejectedValue(error);
+      multiplexedSession.getSession((err: any) => {
+        try {
+          expect(err).toBe(error);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
-    it('should pass back the session and txn with affinity key', done => {
-      sandbox.stub(multiplexedSession, '_getSession').resolves(fakeMuxSession);
-      multiplexedSession.getSession((err, session, txn) => {
-        assert.ifError(err);
-        assert.strictEqual(session, fakeMuxSession);
-        assert(txn);
-        assert(txn._affinityKey);
-        assert.strictEqual(typeof txn._affinityKey, 'string');
-        assert(txn._affinityKey.length > 0);
-        done();
+    it("should pass back the session and txn with affinity key", done => {
+      jest.spyOn(multiplexedSession, "_getSession").mockResolvedValue(fakeMuxSession as any);
+      multiplexedSession.getSession((err: any, session: any, txn: any) => {
+        try {
+          expect(err).toBeFalsy();
+          expect(session).toBe(fakeMuxSession);
+          expect(txn).toBeTruthy();
+          expect(txn._affinityKey).toBeTruthy();
+          expect(typeof txn._affinityKey).toBe("string");
+          expect(txn._affinityKey.length > 0).toBeTruthy();
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
   });
 
-  describe('_getSession', () => {
-    it('should return a session if one is available (Cache Hit)', async () => {
-      const createSessionStub = sandbox
-        .stub(multiplexedSession, '_createSession')
-        .resolves(fakeMuxSession);
+  describe("_getSession", () => {
+    it("should return a session if one is available (Cache Hit)", async () => {
+      const createSessionStub = jest
+        .spyOn(multiplexedSession, "_createSession")
+        .mockResolvedValue(fakeMuxSession as any);
       multiplexedSession._multiplexedSession = fakeMuxSession;
-      assert.doesNotThrow(async () => {
-        const session = await multiplexedSession._getSession();
-        assert.strictEqual(session, fakeMuxSession);
-      });
+      const session = await multiplexedSession._getSession();
+      expect(session).toBe(fakeMuxSession);
       // ensure _createSession was not called
-      sinon.assert.notCalled(createSessionStub);
+      expect(createSessionStub).not.toHaveBeenCalled();
     });
 
-    it('should wait for a pending session to become available (Join Existing)', async () => {
+    it("should wait for a pending session to become available (Join Existing)", async () => {
       const multiplexedSession = new MultiplexedSession(DATABASE);
 
       // create a manual lock to simulate another request currently running
@@ -230,9 +241,9 @@ describe('MultiplexedSession', () => {
       multiplexedSession._sharedMuxSessionWaitPromise = pendingLock;
 
       // stub _createSession to verify it is NOT called (since we are joining an existing one)
-      const createSessionStub = sandbox
-        .stub(multiplexedSession, '_createSession')
-        .resolves();
+      const createSessionStub = jest
+        .spyOn(multiplexedSession, "_createSession")
+        .mockResolvedValue(undefined as any);
 
       // call _getSession() but do not await it yet
       // it will hit the "await this._sharedMuxSessionWaitPromise" line and pause there
@@ -247,50 +258,48 @@ describe('MultiplexedSession', () => {
 
       // wait for the method to finish
       const session = await getSessionPromise;
-      assert.strictEqual(session, fakeMuxSession);
+      expect(session).toBe(fakeMuxSession);
 
       // ensure _createSession was not called
-      sinon.assert.notCalled(createSessionStub);
+      expect(createSessionStub).not.toHaveBeenCalled();
     });
 
-    it('should create a new session if none exists and no creation is in progress', async () => {
+    it("should create a new session if none exists and no creation is in progress", async () => {
       // ensure _multiplexedSession & _sharedMuxSessionWaitPromise is null
       multiplexedSession._multiplexedSession = null;
       multiplexedSession._sharedMuxSessionWaitPromise = null;
 
       // stub _createSession to simulate success
-      const createSessionStub = sandbox
-        .stub(multiplexedSession, '_createSession')
-        .callsFake(async () => {
+      const createSessionStub = jest
+        .spyOn(multiplexedSession, "_createSession")
+        .mockImplementation(async () => {
           multiplexedSession._multiplexedSession = fakeMuxSession;
         });
 
-      assert.doesNotThrow(async () => {
-        const session = await multiplexedSession._getSession();
-        assert.strictEqual(session, fakeMuxSession);
-      });
+      const session = await multiplexedSession._getSession();
+      expect(session).toBe(fakeMuxSession);
 
       // ensure _createSession was called
-      sinon.assert.calledOnce(createSessionStub);
+      expect(createSessionStub).toHaveBeenCalledTimes(1);
     });
 
-    it('should propagate errors if session creation fails', async () => {
-      const fakeError = new Error('Network Error');
+    it("should propagate errors if session creation fails", async () => {
+      const fakeError = new Error("Network Error");
       // ensure that _multiplexedSession is null
       multiplexedSession._multiplexedSession = null;
 
       // stub creation to fail
-      const createSessionStub = sandbox
-        .stub(multiplexedSession, '_createSession')
-        .rejects(fakeError);
+      const createSessionStub = jest
+        .spyOn(multiplexedSession, "_createSession")
+        .mockRejectedValue(fakeError);
 
       try {
         await multiplexedSession._getSession();
       } catch (err) {
-        assert.strictEqual(err, fakeError);
+        expect(err).toBe(fakeError);
       }
       // ensure _createSession was called
-      sinon.assert.calledOnce(createSessionStub);
+      expect(createSessionStub).toHaveBeenCalledTimes(1);
     });
   });
 });

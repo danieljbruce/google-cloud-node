@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import {EventEmitter} from 'events';
 import * as proxyquire from 'proxyquire';
 import * as sinon from 'sinon';
@@ -76,7 +75,7 @@ describe('Transaction', () => {
   let transaction;
   let snapshot;
 
-  before(() => {
+  beforeAll(() => {
     const txns = proxyquire('../src/transaction', {
       '@google-cloud/promisify': {promisifyAll: PROMISIFY_ALL},
       './codec': {codec},
@@ -115,7 +114,7 @@ describe('Transaction', () => {
     traceExporter.reset();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await tracerProvider.shutdown();
   });
 
@@ -176,7 +175,7 @@ describe('Transaction', () => {
 
           const expectedEventNames = [
             'Begin Transaction',
-            'Transaction Creation Done',
+            'Transaction Creation jest.DoneCallback',
           ];
           assert.deepStrictEqual(
             actualEventNames,
@@ -708,7 +707,7 @@ describe('Transaction', () => {
           `span names mismatch:\n\tGot:  ${actualSpanNames}\n\tWant: ${expectedSpanNames}`,
         );
 
-        const expectedEventNames = ['Starting Commit', 'Commit Done'];
+        const expectedEventNames = ['Starting Commit', 'Commit jest.DoneCallback'];
         assert.deepStrictEqual(
           actualEventNames,
           expectedEventNames,

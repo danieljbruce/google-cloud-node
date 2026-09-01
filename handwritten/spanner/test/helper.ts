@@ -14,147 +14,145 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-import {replaceProjectIdToken} from '../src/helper';
-import {Stream} from 'stream';
+import {replaceProjectIdToken} from "../src/helper";
+import {Stream} from "stream";
 
-describe('helper', () => {
-  describe('replaceProjectIdToken', () => {
-    const projectId = 'my-project-id';
+describe("helper", () => {
+  describe("replaceProjectIdToken", () => {
+    const projectId = "my-project-id";
 
-    it('should replace placeholders in simple strings', () => {
-      const input = 'projects/{{projectId}}/instances';
-      const expected = 'projects/my-project-id/instances';
-      assert.strictEqual(replaceProjectIdToken(input, projectId), expected);
+    it("should replace placeholders in simple strings", () => {
+      const input = "projects/{{projectId}}/instances";
+      const expected = "projects/my-project-id/instances";
+      expect(replaceProjectIdToken(input, projectId)).toBe(expected);
     });
 
-    it('should return non-placeholder strings as is', () => {
-      const input = 'projects/fixed-project/instances';
-      assert.strictEqual(replaceProjectIdToken(input, projectId), input);
+    it("should return non-placeholder strings as is", () => {
+      const input = "projects/fixed-project/instances";
+      expect(replaceProjectIdToken(input, projectId)).toBe(input);
     });
 
-    it('should replace placeholders inside arrays', () => {
-      const input = ['projects/{{projectId}}', 'fixed-string'];
-      const expected = ['projects/my-project-id', 'fixed-string'];
-      assert.deepStrictEqual(replaceProjectIdToken(input, projectId), expected);
+    it("should replace placeholders inside arrays", () => {
+      const input = ["projects/{{projectId}}", "fixed-string"];
+      const expected = ["projects/my-project-id", "fixed-string"];
+      expect(replaceProjectIdToken(input, projectId)).toEqual(expected);
     });
 
-    it('should replace placeholders recursively in objects', () => {
+    it("should replace placeholders recursively in objects", () => {
       const input = {
-        resource: 'projects/{{projectId}}/instances',
+        resource: "projects/{{projectId}}/instances",
         config: {
-          parent: 'projects/{{projectId}}',
+          parent: "projects/{{projectId}}",
         },
       };
       const expected = {
-        resource: 'projects/my-project-id/instances',
+        resource: "projects/my-project-id/instances",
         config: {
-          parent: 'projects/my-project-id',
+          parent: "projects/my-project-id",
         },
       };
-      assert.deepStrictEqual(replaceProjectIdToken(input, projectId), expected);
+      expect(replaceProjectIdToken(input, projectId)).toEqual(expected);
     });
 
-    it('should completely skip recursive traversal for known user data keys', () => {
+    it("should completely skip recursive traversal for known user data keys", () => {
       const input = {
-        session: 'projects/{{projectId}}/sessions',
-        sql: 'SELECT * FROM Users WHERE parent = "{{projectId}}"',
+        session: "projects/{{projectId}}/sessions",
+        sql: "SELECT * FROM Users WHERE parent = \"{{projectId}}\"",
         params: {
-          id: '{{projectId}}',
+          id: "{{projectId}}",
           deep: {
-            key: 'projects/{{projectId}}',
+            key: "projects/{{projectId}}",
           },
         },
         mutations: [
           {
             insert: {
-              table: 'Users',
-              values: ['{{projectId}}'],
+              table: "Users",
+              values: ["{{projectId}}"],
             },
           },
         ],
       };
       const expected = {
-        session: 'projects/my-project-id/sessions',
-        sql: 'SELECT * FROM Users WHERE parent = "{{projectId}}"', // sql key skipped
+        session: "projects/my-project-id/sessions",
+        sql: "SELECT * FROM Users WHERE parent = \"{{projectId}}\"", // sql key skipped
         params: {
-          id: '{{projectId}}', // params key skipped
+          id: "{{projectId}}", // params key skipped
           deep: {
-            key: 'projects/{{projectId}}',
+            key: "projects/{{projectId}}",
           },
         },
         mutations: [
           // mutations key skipped
           {
             insert: {
-              table: 'Users',
-              values: ['{{projectId}}'],
+              table: "Users",
+              values: ["{{projectId}}"],
             },
           },
         ],
       };
-      assert.deepStrictEqual(replaceProjectIdToken(input, projectId), expected);
+      expect(replaceProjectIdToken(input, projectId)).toEqual(expected);
     });
 
-    it('should return Buffers and Streams as-is', () => {
-      const buffer = Buffer.from('test');
+    it("should return Buffers and Streams as-is", () => {
+      const buffer = Buffer.from("test");
       const stream = new Stream();
-      assert.strictEqual(replaceProjectIdToken(buffer, projectId), buffer);
-      assert.strictEqual(replaceProjectIdToken(stream, projectId), stream);
+      expect(replaceProjectIdToken(buffer, projectId)).toBe(buffer);
+      expect(replaceProjectIdToken(stream, projectId)).toBe(stream);
     });
 
-    it('should not throw when frozen object does not have a placeholder', () => {
+    it("should not throw when frozen object does not have a placeholder", () => {
       const frozenObj = Object.freeze({
-        name: 'projects/fixed-project',
-        fixed: 'no-placeholder',
+        name: "projects/fixed-project",
+        fixed: "no-placeholder",
         nested: Object.freeze({
-          other: 'fixed-value',
+          other: "fixed-value",
         }),
       });
 
-      assert.doesNotThrow(() => {
+      expect(() => {
         replaceProjectIdToken(frozenObj, projectId);
-      });
+      }).not.toThrow();
     });
 
-    it('should throw if a frozen object contains a placeholder because mutation is illegal', () => {
+    it("should throw if a frozen object contains a placeholder because mutation is illegal", () => {
       const frozenObj = Object.freeze({
-        name: 'projects/{{projectId}}',
+        name: "projects/{{projectId}}",
       });
 
-      assert.throws(() => {
+      expect(() => {
         replaceProjectIdToken(frozenObj, projectId);
-      }, /Cannot assign to read only property/);
+      }).toThrow(/Cannot assign to read only property/);
     });
 
-    it('should replace more than one {{projectId}}', () => {
-      const input = 'A {{projectId}} M {{projectId}} Z';
-      const expected = 'A my-project-id M my-project-id Z';
-      assert.strictEqual(replaceProjectIdToken(input, projectId), expected);
+    it("should replace more than one {{projectId}}", () => {
+      const input = "A {{projectId}} M {{projectId}} Z";
+      const expected = "A my-project-id M my-project-id Z";
+      expect(replaceProjectIdToken(input, projectId)).toBe(expected);
     });
 
-    it('should replace any {{projectId}} it finds (nested / complex tree)', () => {
+    it("should replace any {{projectId}} it finds (nested / complex tree)", () => {
       const input = {
-        parent: 'A {{projectId}} Z',
+        parent: "A {{projectId}} Z",
         database: {
-          parent: 'A {{projectId}} Z',
-          baseConfig: 'projects/{{projectId}}/instanceConfigs/base-1',
+          parent: "A {{projectId}} Z",
+          baseConfig: "projects/{{projectId}}/instanceConfigs/base-1",
           config: {
-            name: 'A {{projectId}} Z',
+            name: "A {{projectId}} Z",
           },
         },
         backup: [
           {
-            name: 'A {{projectId}} Z',
+            name: "A {{projectId}} Z",
             encryptionConfig: {
-              kmsKeyName: 'A {{projectId}} Z',
+              kmsKeyName: "A {{projectId}} Z",
             },
             database: [
               {
-                session: 'A {{projectId}} Z',
+                session: "A {{projectId}} Z",
                 parent: {
-                  name: 'A {{projectId}} Z',
+                  name: "A {{projectId}} Z",
                 },
               },
             ],
@@ -162,51 +160,51 @@ describe('helper', () => {
         ],
       };
       const expected = {
-        parent: 'A my-project-id Z',
+        parent: "A my-project-id Z",
         database: {
-          parent: 'A my-project-id Z',
-          baseConfig: 'projects/my-project-id/instanceConfigs/base-1',
+          parent: "A my-project-id Z",
+          baseConfig: "projects/my-project-id/instanceConfigs/base-1",
           config: {
-            name: 'A my-project-id Z',
+            name: "A my-project-id Z",
           },
         },
         backup: [
           {
-            name: 'A my-project-id Z',
+            name: "A my-project-id Z",
             encryptionConfig: {
-              kmsKeyName: 'A my-project-id Z',
+              kmsKeyName: "A my-project-id Z",
             },
             database: [
               {
-                session: 'A my-project-id Z',
+                session: "A my-project-id Z",
                 parent: {
-                  name: 'A my-project-id Z',
+                  name: "A my-project-id Z",
                 },
               },
             ],
           },
         ],
       };
-      assert.deepStrictEqual(replaceProjectIdToken(input, projectId), expected);
+      expect(replaceProjectIdToken(input, projectId)).toEqual(expected);
     });
 
-    it('should not inject projectId into stream properties', () => {
+    it("should not inject projectId into stream properties", () => {
       const transform = new Stream() as any;
-      transform.prop = 'A {{projectId}} Z';
+      transform.prop = "A {{projectId}} Z";
 
       const replaced = replaceProjectIdToken(transform, projectId);
-      assert.deepStrictEqual(transform.prop, replaced.prop);
+      expect(transform.prop).toEqual(replaced.prop);
     });
 
-    it('should throw MissingProjectIdError if projectId is falsy or is the placeholder itself', () => {
-      const input = 'projects/{{projectId}}/instances';
-      assert.throws(() => {
-        replaceProjectIdToken(input, '');
-      }, /Sorry, we cannot connect to Cloud Services/);
+    it("should throw MissingProjectIdError if projectId is falsy or is the placeholder itself", () => {
+      const input = "projects/{{projectId}}/instances";
+      expect(() => {
+        replaceProjectIdToken(input, "");
+      }).toThrow(/Sorry, we cannot connect to Cloud Services/);
 
-      assert.throws(() => {
-        replaceProjectIdToken(input, '{{projectId}}');
-      }, /Sorry, we cannot connect to Cloud Services/);
+      expect(() => {
+        replaceProjectIdToken(input, "{{projectId}}");
+      }).toThrow(/Sorry, we cannot connect to Cloud Services/);
     });
   });
 });

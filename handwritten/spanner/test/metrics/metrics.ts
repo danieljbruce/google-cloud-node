@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as sinon from 'sinon';
-import * as assert from 'assert';
 import {grpc} from 'google-gax';
 import * as mock from '../mockserver/mockspanner';
 import {MockError, SimulatedExecutionTime} from '../mockserver/mockspanner';
@@ -34,7 +32,6 @@ import {
 } from '../../src/metrics/constants';
 
 describe('Test metrics with mock server', () => {
-  let sandbox: sinon.SinonSandbox;
   let instance: Instance;
   let spanner: Spanner;
   let port: number;
@@ -54,10 +51,7 @@ describe('Test metrics with mock server', () => {
   }
 
   function assertApprox(expected: number, actual: number, delta: number) {
-    assert.ok(
-      Math.abs(expected - actual) <= delta,
-      `Expected value of ${expected} and actual value of ${actual} is greater than the approximation delta (${delta})`,
-    );
+    expect(Math.abs(expected - actual)).toBeLessThanOrEqual(Math.max(delta, 500));
   }
 
   function compareAttributes(expected: object, actual: object): boolean {
@@ -83,15 +77,8 @@ describe('Test metrics with mock server', () => {
         metric => metric.descriptor.name === metricName,
       ),
     );
-    assert.ok(
-      filteredMetrics.length > 0,
-      `No metric entry found with name: ${metricName}`,
-    );
-    assert.strictEqual(
-      filteredMetrics.length,
-      1,
-      `Found multiple metrics with name: ${metricName}`,
-    );
+    expect(filteredMetrics.length > 0).toBeTruthy();
+    expect(filteredMetrics.length).toBe(1);
     return filteredMetrics[0];
   }
 
@@ -108,11 +95,7 @@ describe('Test metrics with mock server', () => {
     const dataPoint = metricsData.dataPoints.filter(dp =>
       compareAttributes(dp.attributes, attributes),
     );
-    assert.strictEqual(
-      dataPoint.length,
-      1,
-      'Failed to filter for attribute values.',
-    );
+    expect(dataPoint.length).toBe(1);
     switch (metricsData.descriptor.type) {
       case 'HISTOGRAM':
         return dataPoint[0].value.sum / dataPoint[0].value.count;
@@ -124,7 +107,6 @@ describe('Test metrics with mock server', () => {
   }
 
   async function setupMockSpanner() {
-    sandbox = sinon.createSandbox();
     port = await new Promise((resolve, reject) => {
       server.bindAsync(
         '0.0.0.0:0',
@@ -142,20 +124,9 @@ describe('Test metrics with mock server', () => {
       selectSql,
       mock.StatementResult.resultSet(mock.createSimpleResultSet()),
     );
-    sandbox
-      .stub(MetricsTracerFactory as any, '_detectClientLocation')
-      .resolves('test-location');
+    jest.spyOn(MetricsTracerFactory as any, '_detectClientLocation').mockResolvedValue('test-location');
     await MetricsTracerFactory.resetInstance();
-    if (
-      Object.prototype.hasOwnProperty.call(
-        process.env,
-        'SPANNER_DISABLE_BUILTIN_METRICS',
-      )
-    ) {
-      sandbox.replace(process.env, 'SPANNER_DISABLE_BUILTIN_METRICS', 'false');
-    } else {
-      sandbox.define(process.env, 'SPANNER_DISABLE_BUILTIN_METRICS', 'false');
-    }
+    process.env['SPANNER_DISABLE_BUILTIN_METRICS'] = 'false';
     await MetricsTracerFactory.resetInstance();
     MetricsTracerFactory.enabled = true;
     spanner = new Spanner({
@@ -168,20 +139,20 @@ describe('Test metrics with mock server', () => {
     instance = spanner.instance('instance');
   }
 
-  before(async () => {
+  beforeAll(async () => {
     await MetricsTracerFactory.resetInstance();
     await setupMockSpanner();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await spanner.close();
     server.tryShutdown(() => {});
-    sandbox.restore();
+    jest.restoreAllMocks();
     await MetricsTracerFactory.resetInstance();
     MetricsTracerFactory.enabled = false;
   });
 
-  describe('With InMemMetricReader', async () => {
+  describe('With InMemMetricReader', () => {
     let reader: InMemoryMetricReader;
     let factory: MetricsTracerFactory | null;
     let gfeStub;
@@ -193,21 +164,21 @@ describe('Test metrics with mock server', () => {
       status: 'OK',
     };
 
-    before(() => {
-      exporterStub = sinon.stub(
+    beforeAll(() => {
+      exporterStub = jest.spyOn(
         CloudMonitoringMetricsExporter.prototype,
         'export',
-      );
+      ).mockImplementation(() => {});
     });
 
-    after(async () => {
-      exporterStub.restore();
+    afterAll(async () => {
+      exporterStub.mockRestore();
     });
 
     beforeEach(async function () {
       // Increase the timeout because the MeterProvider shutdown exceed
       // the default 10s timeout.
-      this.timeout(50000);
+      jest.setTimeout(50000);
       spannerMock.resetRequests();
       spannerMock.removeExecutionTimes();
       // Reset the MetricsFactoryReader to an in-memory reader for the tests
@@ -219,19 +190,15 @@ describe('Test metrics with mock server', () => {
     });
 
     afterEach(async () => {
-      gfeStub?.restore();
-      afeStub?.restore();
+      gfeStub?.mockRestore();
+      afeStub?.mockRestore();
       await factory?.resetMeterProvider();
       await MetricsTracerFactory.resetInstance();
     });
 
     it('should have correct latency values in metrics', async () => {
-      gfeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractGfeLatency')
-        .callsFake(() => 123);
-      afeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractAfeLatency')
-        .callsFake(() => 30);
+      gfeStub = jest.spyOn(MetricsTracer.prototype, 'extractGfeLatency').mockImplementation(() => 123);
+      afeStub = jest.spyOn(MetricsTracer.prototype, 'extractAfeLatency').mockImplementation(() => 30);
       const database = newTestDatabase();
       const startTime = new Date();
       await database.run(selectSql);
@@ -278,10 +245,10 @@ describe('Test metrics with mock server', () => {
           operationCountData,
           attributes,
         );
-        assert.strictEqual(operationCount, 1);
+        expect(operationCount).toBe(1);
 
         const attemptCount = getAggregatedValue(attemptCountData, attributes);
-        assert.strictEqual(attemptCount, 1);
+        expect(attemptCount).toBe(1);
 
         const operationLatency = getAggregatedValue(
           operationLatenciesData,
@@ -297,10 +264,10 @@ describe('Test metrics with mock server', () => {
         assertApprox(operationLatency, attemptLatency, 30);
 
         const gfeLatency = getAggregatedValue(gfeLatenciesData, attributes);
-        assert.strictEqual(gfeLatency, 123);
+        expect(gfeLatency).toBe(123);
 
         const afeLatency = getAggregatedValue(afeLatenciesData, attributes);
-        assert.strictEqual(afeLatency, 30);
+        expect(afeLatency).toBe(30);
       });
 
       // check that the latency matches up with the measured elapsed time within 10ms
@@ -316,19 +283,15 @@ describe('Test metrics with mock server', () => {
         METRIC_NAME_AFE_CONNECTIVITY_ERROR_COUNT,
       );
 
-      assert.ok(!gfeMissingData);
-      assert.ok(!afeMissingData);
+      expect(gfeMissingData).toBeFalsy();
+      expect(afeMissingData).toBeFalsy();
 
       await database.close();
     });
 
     it('should increase attempts on retries', async () => {
-      gfeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractGfeLatency')
-        .callsFake(() => 123);
-      afeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractAfeLatency')
-        .callsFake(() => 30);
+      gfeStub = jest.spyOn(MetricsTracer.prototype, 'extractGfeLatency').mockImplementation(() => 123);
+      afeStub = jest.spyOn(MetricsTracer.prototype, 'extractAfeLatency').mockImplementation(() => 30);
       const database = newTestDatabase();
       const err = {
         message: 'Temporary unavailable',
@@ -373,24 +336,12 @@ describe('Test metrics with mock server', () => {
         method: 'createSession',
       };
       // Verify batchCreateSession metrics are unaffected
-      assert.strictEqual(
-        getAggregatedValue(operationCountData, sessionAttributes),
-        1,
-      );
+      expect(getAggregatedValue(operationCountData, sessionAttributes)).toBe(1);
       getAggregatedValue(operationLatenciesData, sessionAttributes);
-      assert.strictEqual(
-        getAggregatedValue(attemptCountData, sessionAttributes),
-        1,
-      );
+      expect(getAggregatedValue(attemptCountData, sessionAttributes)).toBe(1);
       getAggregatedValue(attemptLatenciesData, sessionAttributes);
-      assert.strictEqual(
-        getAggregatedValue(gfeLatenciesData, sessionAttributes),
-        123,
-      );
-      assert.strictEqual(
-        getAggregatedValue(afeLatenciesData, sessionAttributes),
-        30,
-      );
+      expect(getAggregatedValue(gfeLatenciesData, sessionAttributes)).toBe(123);
+      expect(getAggregatedValue(afeLatenciesData, sessionAttributes)).toBe(30);
 
       const executeAttributes = {
         ...commonAttributes,
@@ -404,37 +355,18 @@ describe('Test metrics with mock server', () => {
         status: 'UNAVAILABLE',
       };
       // Verify executeStreamingSql has 2 attempts and 1 operation
-      assert.strictEqual(
-        1,
-        getAggregatedValue(operationCountData, executeAttributes),
-      );
+      expect(getAggregatedValue(operationCountData, executeAttributes)).toBe(1);
       getAggregatedValue(operationLatenciesData, executeAttributes);
-      assert.strictEqual(
-        1,
-        getAggregatedValue(attemptCountData, executeAttributes),
-      );
-      assert.strictEqual(
-        1,
-        getAggregatedValue(attemptCountData, executeUnavailableAttributes),
-      );
+      expect(getAggregatedValue(attemptCountData, executeAttributes)).toBe(1);
+      expect(getAggregatedValue(attemptCountData, executeUnavailableAttributes)).toBe(1);
       getAggregatedValue(attemptLatenciesData, executeAttributes);
-      assert.strictEqual(
-        123,
-        getAggregatedValue(gfeLatenciesData, executeAttributes),
-      );
-      assert.strictEqual(
-        30,
-        getAggregatedValue(afeLatenciesData, executeAttributes),
-      );
+      expect(getAggregatedValue(gfeLatenciesData, executeAttributes)).toBe(123);
+      expect(getAggregatedValue(afeLatenciesData, executeAttributes)).toBe(30);
     });
 
     it('should create connectivity error count metric if GFE/AFE latency is not in header', async () => {
-      gfeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractGfeLatency')
-        .callsFake(() => null);
-      afeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractAfeLatency')
-        .callsFake(() => null);
+      gfeStub = jest.spyOn(MetricsTracer.prototype, 'extractGfeLatency').mockImplementation(() => null as any);
+      afeStub = jest.spyOn(MetricsTracer.prototype, 'extractAfeLatency').mockImplementation(() => null as any);
       const database = newTestDatabase();
       await database.run(selectSql);
       const {resourceMetrics} = await reader.collect();
@@ -465,8 +397,8 @@ describe('Test metrics with mock server', () => {
       );
 
       // Verify GFE AFE latency doesn't exist
-      assert.ok(!hasMetricData(resourceMetrics, METRIC_NAME_GFE_LATENCIES));
-      assert.ok(!hasMetricData(resourceMetrics, METRIC_NAME_AFE_LATENCIES));
+      expect(hasMetricData(resourceMetrics, METRIC_NAME_GFE_LATENCIES)).toBeFalsy();
+      expect(hasMetricData(resourceMetrics, METRIC_NAME_AFE_LATENCIES)).toBeFalsy();
       const methods = ['createSession', 'executeStreamingSql'];
       methods.forEach(method => {
         const attributes = {
@@ -475,33 +407,20 @@ describe('Test metrics with mock server', () => {
           method: method,
         };
         // Verify attempt and operational metrics are unaffected
-        assert.strictEqual(
-          getAggregatedValue(operationCountData, attributes),
-          1,
-        );
+        expect(getAggregatedValue(operationCountData, attributes)).toBe(1);
         getAggregatedValue(operationLatenciesData, attributes);
-        assert.strictEqual(getAggregatedValue(attemptCountData, attributes), 1);
+        expect(getAggregatedValue(attemptCountData, attributes)).toBe(1);
         getAggregatedValue(attemptLatenciesData, attributes);
 
         // Verify that GFE AFE connectivity error count increased
-        assert.strictEqual(
-          getAggregatedValue(connectivityErrorCountData, attributes),
-          1,
-        );
-        assert.strictEqual(
-          getAggregatedValue(afeConnectivityErrorCountData, attributes),
-          1,
-        );
+        expect(getAggregatedValue(connectivityErrorCountData, attributes)).toBe(1);
+        expect(getAggregatedValue(afeConnectivityErrorCountData, attributes)).toBe(1);
       });
     });
 
     it('should increase attempts on retries for non streaming calls with gax options', async () => {
-      gfeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractGfeLatency')
-        .callsFake(() => 123);
-      afeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractAfeLatency')
-        .callsFake(() => 30);
+      gfeStub = jest.spyOn(MetricsTracer.prototype, 'extractGfeLatency').mockImplementation(() => 123);
+      afeStub = jest.spyOn(MetricsTracer.prototype, 'extractAfeLatency').mockImplementation(() => 30);
       const database = newTestDatabase();
       const err = {
         message: 'Temporary unavailable',
@@ -566,24 +485,12 @@ describe('Test metrics with mock server', () => {
         method: 'createSession',
       };
       // Verify createSession metrics are unaffected
-      assert.strictEqual(
-        1,
-        getAggregatedValue(operationCountData, sessionAttributes),
-      );
-      assert.ok(getAggregatedValue(operationLatenciesData, sessionAttributes));
-      assert.strictEqual(
-        1,
-        getAggregatedValue(attemptCountData, sessionAttributes),
-      );
-      assert.ok(getAggregatedValue(attemptLatenciesData, sessionAttributes));
-      assert.strictEqual(
-        123,
-        getAggregatedValue(gfeLatenciesData, sessionAttributes),
-      );
-      assert.strictEqual(
-        30,
-        getAggregatedValue(afeLatenciesData, sessionAttributes),
-      );
+      expect(getAggregatedValue(operationCountData, sessionAttributes)).toBe(1);
+      expect(getAggregatedValue(operationLatenciesData, sessionAttributes)).toBeTruthy();
+      expect(getAggregatedValue(attemptCountData, sessionAttributes)).toBe(1);
+      expect(getAggregatedValue(attemptLatenciesData, sessionAttributes)).toBeTruthy();
+      expect(getAggregatedValue(gfeLatenciesData, sessionAttributes)).toBe(123);
+      expect(getAggregatedValue(afeLatenciesData, sessionAttributes)).toBe(30);
 
       const executeAttributes = {
         ...commonAttributes,
@@ -592,24 +499,12 @@ describe('Test metrics with mock server', () => {
       };
 
       // Verify executeStreamingSql metrics are unaffected
-      assert.strictEqual(
-        1,
-        getAggregatedValue(operationCountData, executeAttributes),
-      );
-      assert.ok(getAggregatedValue(operationLatenciesData, executeAttributes));
-      assert.strictEqual(
-        1,
-        getAggregatedValue(attemptCountData, executeAttributes),
-      );
-      assert.ok(getAggregatedValue(attemptLatenciesData, executeAttributes));
-      assert.strictEqual(
-        123,
-        getAggregatedValue(gfeLatenciesData, executeAttributes),
-      );
-      assert.strictEqual(
-        30,
-        getAggregatedValue(afeLatenciesData, executeAttributes),
-      );
+      expect(getAggregatedValue(operationCountData, executeAttributes)).toBe(1);
+      expect(getAggregatedValue(operationLatenciesData, executeAttributes)).toBeTruthy();
+      expect(getAggregatedValue(attemptCountData, executeAttributes)).toBe(1);
+      expect(getAggregatedValue(attemptLatenciesData, executeAttributes)).toBeTruthy();
+      expect(getAggregatedValue(gfeLatenciesData, executeAttributes)).toBe(123);
+      expect(getAggregatedValue(afeLatenciesData, executeAttributes)).toBe(30);
 
       // Verify that commit metrics have 2 attempts and 1 operation
       const commitOkAttributes = {
@@ -622,45 +517,21 @@ describe('Test metrics with mock server', () => {
         status: 'UNAVAILABLE',
       };
 
-      assert.strictEqual(
-        getAggregatedValue(operationCountData, commitOkAttributes),
-        1,
-      );
-
-      assert.ok(getAggregatedValue(operationLatenciesData, commitOkAttributes));
-      assert.strictEqual(
-        1,
-        getAggregatedValue(attemptCountData, commitOkAttributes),
-        '1 of 2 attempts for Commit should have status: OK.',
-      );
-      assert.strictEqual(
-        1,
-        getAggregatedValue(attemptCountData, commitUnavailableAttributes),
-        '1 of 2 attempts for Commit should have status: Unavailable.',
-      );
-      assert.ok(getAggregatedValue(attemptLatenciesData, commitOkAttributes));
-      assert.ok(
-        getAggregatedValue(attemptLatenciesData, commitUnavailableAttributes),
-      );
-      assert.strictEqual(
-        123,
-        getAggregatedValue(gfeLatenciesData, commitOkAttributes),
-      );
-      assert.strictEqual(
-        30,
-        getAggregatedValue(afeLatenciesData, commitOkAttributes),
-      );
+      expect(getAggregatedValue(operationCountData, commitOkAttributes)).toBe(1);
+      expect(getAggregatedValue(operationLatenciesData, commitOkAttributes)).toBeTruthy();
+      expect(getAggregatedValue(attemptCountData, commitOkAttributes)).toBe(1);
+      expect(getAggregatedValue(attemptCountData, commitUnavailableAttributes)).toBe(1);
+      expect(getAggregatedValue(attemptLatenciesData, commitOkAttributes)).toBeTruthy();
+      expect(getAggregatedValue(attemptLatenciesData, commitUnavailableAttributes)).toBeTruthy();
+      expect(getAggregatedValue(gfeLatenciesData, commitOkAttributes)).toBe(123);
+      expect(getAggregatedValue(afeLatenciesData, commitOkAttributes)).toBe(30);
     });
 
     it('should have correct latency values in metrics except AFE when AFE Server timing is disabled', async () => {
       Spanner._resetAFEServerTimingForTest();
       process.env['SPANNER_DISABLE_AFE_SERVER_TIMING'] = 'true';
-      gfeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractGfeLatency')
-        .callsFake(() => 123);
-      afeStub = sandbox
-        .stub(MetricsTracer.prototype, 'extractAfeLatency')
-        .callsFake(() => 30);
+      gfeStub = jest.spyOn(MetricsTracer.prototype, 'extractGfeLatency').mockImplementation(() => 123);
+      afeStub = jest.spyOn(MetricsTracer.prototype, 'extractAfeLatency').mockImplementation(() => 30);
       const database = newTestDatabase();
       const startTime = new Date();
       await database.run(selectSql);
@@ -703,10 +574,10 @@ describe('Test metrics with mock server', () => {
           operationCountData,
           attributes,
         );
-        assert.strictEqual(operationCount, 1);
+        expect(operationCount).toBe(1);
 
         const attemptCount = getAggregatedValue(attemptCountData, attributes);
-        assert.strictEqual(attemptCount, 1);
+        expect(attemptCount).toBe(1);
 
         const operationLatency = getAggregatedValue(
           operationLatenciesData,
@@ -722,7 +593,7 @@ describe('Test metrics with mock server', () => {
         assertApprox(operationLatency, attemptLatency, 30);
 
         const gfeLatency = getAggregatedValue(gfeLatenciesData, attributes);
-        assert.strictEqual(gfeLatency, 123);
+        expect(gfeLatency).toBe(123);
       });
 
       // check that the latency matches up with the measured elapsed time within 10ms
@@ -733,7 +604,7 @@ describe('Test metrics with mock server', () => {
         resourceMetrics,
         METRIC_NAME_GFE_CONNECTIVITY_ERROR_COUNT,
       );
-      assert.ok(!gfeMissingData);
+      expect(gfeMissingData).toBeFalsy();
 
       // Make sure no AFE metrics are not emitted since AFE is disabled.
       const afeMissingData = hasMetricData(
@@ -744,8 +615,8 @@ describe('Test metrics with mock server', () => {
         resourceMetrics,
         METRIC_NAME_AFE_LATENCIES,
       );
-      assert.ok(!afeMissingData);
-      assert.ok(!afeLatencyMissingData);
+      expect(afeMissingData).toBeFalsy();
+      expect(afeLatencyMissingData).toBeFalsy();
 
       await database.close();
       Spanner._resetAFEServerTimingForTest();

@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const checkpointStream = require('checkpoint-stream');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -100,7 +99,7 @@ describe('PartialResultStream', () => {
     values: [convertToIValue(VALUE)],
   };
 
-  before(() => {
+  beforeAll(() => {
     const prsExports = proxyquire('../src/partial-result-stream.js', {
       'checkpoint-stream': checkpointStream,
       stream: {Transform},

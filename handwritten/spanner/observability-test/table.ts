@@ -16,7 +16,6 @@
 
 import * as pfy from '@google-cloud/promisify';
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import * as extend from 'extend';
 import * as proxyquire from 'proxyquire';
 import * as sinon from 'sinon';
@@ -88,7 +87,7 @@ describe('Table', () => {
     requestOptions: {transactionTag: 'transaction-tag'},
   };
 
-  before(() => {
+  beforeAll(() => {
     Table = proxyquire('../src/table.js', {
       '@google-cloud/promisify': fakePfy,
     }).Table;

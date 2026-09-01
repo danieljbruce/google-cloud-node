@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import {after, before, beforeEach, describe, Done, it} from 'mocha';
 import * as assert from 'assert';
 import {grpc, Status, ServiceError} from 'google-gax';
 // eslint-disable-next-line n/no-extraneous-import
@@ -301,7 +300,7 @@ describe('Spanner with mock server', () => {
     xGoogReqIDInterceptor.reset();
   });
 
-  before(async () => {
+  beforeAll(async () => {
     sandbox = sinon.createSandbox();
     port = await new Promise((resolve, reject) => {
       server.bindAsync(
@@ -363,7 +362,7 @@ describe('Spanner with mock server', () => {
     instance = spanner.instance('instance');
   });
 
-  after(async () => {
+  afterAll(async () => {
     await spanner.close();
     server.tryShutdown(() => {});
     delete process.env.SPANNER_EMULATOR_HOST;
@@ -1959,7 +1958,7 @@ describe('Spanner with mock server', () => {
         );
       }
 
-      before(() => {
+      beforeAll(() => {
         spannerWithLARDisabled = new Spanner({
           servicePath: 'localhost',
           port,
@@ -2143,11 +2142,11 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when multiplexed session is disabled for read-only', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
       });
       it('should make a request to BatchCreateSessions', async () => {
@@ -2250,11 +2249,11 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when only GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS is disabled', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
       });
 
@@ -2276,12 +2275,12 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when only GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS is disabled', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS =
           'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env
           .GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS;
       });
@@ -2304,13 +2303,13 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when multiplexed session is disabled for partitioned ops', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS =
           'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
         delete process.env
           .GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS;
@@ -2371,11 +2370,11 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when only GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS is disabled', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
       });
 
@@ -2409,11 +2408,11 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when only GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW is disabled', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW = 'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW;
       });
 
@@ -2447,12 +2446,12 @@ describe('Spanner with mock server', () => {
     });
 
     describe('when multiplexed session is disabled for r/w', () => {
-      before(() => {
+      beforeAll(() => {
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
         process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW = 'false';
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
         delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW;
       });
@@ -2612,7 +2611,7 @@ describe('Spanner with mock server', () => {
         );
       }
 
-      before(() => {
+      beforeAll(() => {
         process.env.SPANNER_OPTIMIZER_VERSION = OPTIMIZER_VERSION;
         process.env.SPANNER_OPTIMIZER_STATISTICS_PACKAGE =
           OPTIMIZER_STATISTICS_PACKAGE;
@@ -2626,7 +2625,7 @@ describe('Spanner with mock server', () => {
         instanceWithEnvVar = spannerWithEnvVar.instance('instance');
       });
 
-      after(async () => {
+      afterAll(async () => {
         delete process.env.SPANNER_OPTIMIZER_VERSION;
         delete process.env.SPANNER_OPTIMIZER_STATISTICS_PACKAGE;
       });
@@ -2873,14 +2872,14 @@ describe('Spanner with mock server', () => {
   });
 
   describe('session-not-found', () => {
-    before(() => {
+    beforeAll(() => {
       process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
       process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS =
         'false';
       process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW = 'false';
     });
 
-    after(async () => {
+    afterAll(async () => {
       delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
       delete process.env
         .GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS;
@@ -3030,7 +3029,7 @@ describe('Spanner with mock server', () => {
       });
     });
 
-    function runTransactionWithExpectedSessionRetry(db: Database, done: Done) {
+    function runTransactionWithExpectedSessionRetry(db: Database, done: jest.DoneCallback) {
       db.runTransaction((err, transaction) => {
         assert.ifError(err);
         transaction!.run(selectSql, (err, rows) => {
@@ -3314,14 +3313,14 @@ describe('Spanner with mock server', () => {
   });
 
   describe('session-pool', () => {
-    before(() => {
+    beforeAll(() => {
       process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
       process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS =
         'false';
       process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW = 'false';
     });
 
-    after(async () => {
+    afterAll(async () => {
       delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
       delete process.env
         .GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_PARTITIONED_OPS;
@@ -4246,10 +4245,10 @@ describe('Spanner with mock server', () => {
 
     describe('batch-readonly-transaction', () => {
       describe('when multiplexed session is disabled', () => {
-        before(() => {
+        beforeAll(() => {
           process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS = 'false';
         });
-        after(async () => {
+        afterAll(async () => {
           delete process.env.GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS;
         });
         it('should use session from pool', async () => {
@@ -7156,7 +7155,7 @@ describe('Spanner with mock server', () => {
     provider.register();
     _resetTracingEnabledForTest();
 
-    after(async () => {
+    afterAll(async () => {
       await provider.shutdown();
     });
 
@@ -7253,7 +7252,7 @@ describe('Spanner with mock server', () => {
       await exporter.reset();
     });
 
-    after(async () => {
+    afterAll(async () => {
       await provider.shutdown();
     });
 

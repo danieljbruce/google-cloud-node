@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import * as sinon from 'sinon';
 import {_TEST_ONLY} from '../../src/metrics/transform';
 import {
   AggregationTemporality,
@@ -76,12 +74,12 @@ describe('transform', () => {
     protected async onForceFlush(): Promise<void> {}
   }
 
-  before(() => {
-    sandbox = sinon.createSandbox();
-    mockFactory = sandbox.createStubInstance(MetricsTracerFactory);
-    sandbox.stub(mockFactory, 'clientUid').get(() => 'test_uid');
-    sandbox.stub(mockFactory, 'clientName').get(() => 'test_name');
-    sandbox.stub(MetricsTracerFactory, 'getInstance').returns(mockFactory);
+  beforeAll(() => {
+    mockFactory = {
+      clientUid: 'test_uid',
+      clientName: 'test_name',
+    };
+    jest.spyOn(MetricsTracerFactory, 'getInstance').mockReturnValue(mockFactory as any);
 
     reader = new InMemoryMetricReader();
     resource = new Resource({
@@ -191,8 +189,8 @@ describe('transform', () => {
     };
   });
 
-  after(() => {
-    sandbox.restore();
+  afterAll(() => {
+    jest.restoreAllMocks();
   });
 
   it('normalizes label keys', () => {
@@ -204,12 +202,12 @@ describe('transform', () => {
       ['hyphens-dots.slashes/', 'hyphens_dots_slashes_'],
       ['non_letters_:£¢$∞', 'non_letters______'],
     ].map(([key, expected]) => {
-      assert.strictEqual(_normalizeLabelKey(key), expected);
+      expect(_normalizeLabelKey(key)).toBe(expected);
     });
   });
 
   it('should convert metric types to GCM metric kinds', () => {
-    assert.strictEqual(_transformMetricKind(metricSum), MetricKind.CUMULATIVE);
+    expect(_transformMetricKind(metricSum)).toBe(MetricKind.CUMULATIVE);
 
     const nonMonotonicMetricSum = {
       dataPoints: [],
@@ -219,26 +217,22 @@ describe('transform', () => {
       descriptor: {} as any,
     } as SumMetricData;
 
-    assert.strictEqual(
-      _transformMetricKind(nonMonotonicMetricSum),
-      MetricKind.GAUGE,
+    expect(
+      _transformMetricKind(nonMonotonicMetricSum)).toBe(MetricKind.GAUGE,
     );
 
-    assert.strictEqual(_transformMetricKind(metricGauge), MetricKind.GAUGE);
+    expect(_transformMetricKind(metricGauge)).toBe(MetricKind.GAUGE);
 
-    assert.strictEqual(
-      _transformMetricKind(metricHistogram),
-      MetricKind.CUMULATIVE,
+    expect(
+      _transformMetricKind(metricHistogram)).toBe(MetricKind.CUMULATIVE,
     );
 
-    assert.strictEqual(
-      _transformMetricKind(metricExponentialHistogram),
-      MetricKind.CUMULATIVE,
+    expect(
+      _transformMetricKind(metricExponentialHistogram)).toBe(MetricKind.CUMULATIVE,
     );
 
-    assert.strictEqual(
-      _transformMetricKind(metricUnknown),
-      MetricKind.UNSPECIFIED,
+    expect(
+      _transformMetricKind(metricUnknown)).toBe(MetricKind.UNSPECIFIED,
     );
   });
 
@@ -247,59 +241,51 @@ describe('transform', () => {
     const resourceLabels = _extractLabels(resource, 'project_id');
 
     // Metric Labels
-    assert.strictEqual(dataLabels.metricLabels['client_uid'], 'test_uid');
-    assert.strictEqual(dataLabels.metricLabels['client_name'], 'test_name');
-    assert.strictEqual(dataLabels.metricLabels['database'], 'database_id');
-    assert.strictEqual(dataLabels.metricLabels['method'], 'test_method');
-    assert.strictEqual(dataLabels.metricLabels['status'], 'test_status');
+    expect(dataLabels.metricLabels['client_uid']).toBe('test_uid');
+    expect(dataLabels.metricLabels['client_name']).toBe('test_name');
+    expect(dataLabels.metricLabels['database']).toBe('database_id');
+    expect(dataLabels.metricLabels['method']).toBe('test_method');
+    expect(dataLabels.metricLabels['status']).toBe('test_status');
 
     // Resource Labels
-    assert.strictEqual(
-      resourceLabels.monitoredResourceLabels['project_id'],
-      'project_id',
+    expect(
+      resourceLabels.monitoredResourceLabels['project_id']).toBe('project_id',
     );
-    assert.strictEqual(
-      resourceLabels.monitoredResourceLabels['instance_id'],
-      'instance_id',
+    expect(
+      resourceLabels.monitoredResourceLabels['instance_id']).toBe('instance_id',
     );
-    assert.strictEqual(
-      resourceLabels.monitoredResourceLabels['instance_config'],
-      'test_config',
+    expect(
+      resourceLabels.monitoredResourceLabels['instance_config']).toBe('test_config',
     );
-    assert.strictEqual(
-      resourceLabels.monitoredResourceLabels['location'],
-      'test_location',
+    expect(
+      resourceLabels.monitoredResourceLabels['location']).toBe('test_location',
     );
-    assert.strictEqual(
-      resourceLabels.monitoredResourceLabels['client_hash'],
-      'test_hash',
+    expect(
+      resourceLabels.monitoredResourceLabels['client_hash']).toBe('test_hash',
     );
 
     // Other Labels
-    assert(!('other' in dataLabels.metricLabels));
-    assert(!('other' in resourceLabels.metricLabels));
-    assert(!('other' in dataLabels.monitoredResourceLabels));
-    assert(!('other' in resourceLabels.monitoredResourceLabels));
+    expect('other' in dataLabels.metricLabels).toBeFalsy();
+    expect('other' in resourceLabels.metricLabels).toBeFalsy();
+    expect('other' in dataLabels.monitoredResourceLabels).toBeFalsy();
+    expect('other' in resourceLabels.monitoredResourceLabels).toBeFalsy();
   });
 
   it('should transform otel value types to GCM value types', () => {
-    assert.strictEqual(_transformValueType(metricSum), ValueType.INT64);
+    expect(_transformValueType(metricSum)).toBe(ValueType.INT64);
 
-    assert.strictEqual(_transformValueType(metricGauge), ValueType.DOUBLE);
+    expect(_transformValueType(metricGauge)).toBe(ValueType.DOUBLE);
 
-    assert.strictEqual(
-      _transformValueType(metricHistogram),
-      ValueType.DISTRIBUTION,
+    expect(
+      _transformValueType(metricHistogram)).toBe(ValueType.DISTRIBUTION,
     );
 
-    assert.strictEqual(
-      _transformValueType(metricExponentialHistogram),
-      ValueType.DISTRIBUTION,
+    expect(
+      _transformValueType(metricExponentialHistogram)).toBe(ValueType.DISTRIBUTION,
     );
 
-    assert.strictEqual(
-      _transformValueType(metricUnknown),
-      ValueType.VALUE_TYPE_UNSPECIFIED,
+    expect(
+      _transformValueType(metricUnknown)).toBe(ValueType.VALUE_TYPE_UNSPECIFIED,
     );
   });
 
@@ -313,10 +299,7 @@ describe('transform', () => {
         endTime: _formatHrTimeToGcmTime(sumDataPoint.endTime),
       },
     };
-    assert.deepStrictEqual(
-      _transformPoint(metricSum, sumDataPoint),
-      sumExpectation,
-    );
+    expect(_transformPoint(metricSum, sumDataPoint)).toEqual(sumExpectation);
 
     const gaugeExpectation = {
       value: {
@@ -327,10 +310,7 @@ describe('transform', () => {
       },
     };
 
-    assert.deepStrictEqual(
-      _transformPoint(metricGauge, gaugeDataPoint),
-      gaugeExpectation,
-    );
+    expect(_transformPoint(metricGauge, gaugeDataPoint)).toEqual(gaugeExpectation);
 
     const histogramExpectation = {
       value: {
@@ -354,10 +334,7 @@ describe('transform', () => {
       },
     };
 
-    assert.deepStrictEqual(
-      _transformPoint(metricHistogram, histogramDataPoint),
-      histogramExpectation,
-    );
+    expect(_transformPoint(metricHistogram, histogramDataPoint)).toEqual(histogramExpectation);
 
     const exponentialHistogramExpectation = {
       interval: {
@@ -382,20 +359,14 @@ describe('transform', () => {
       },
     };
 
-    assert.deepStrictEqual(
-      _transformPoint(
-        metricExponentialHistogram,
-        exponentialHistogramDataPoint,
-      ),
-      exponentialHistogramExpectation,
-    );
+    expect(_transformPoint(metricExponentialHistogram, exponentialHistogramDataPoint)).toEqual(exponentialHistogramExpectation);
   });
 
   it('should create a MonitoredResource with spanner type', () => {
     const labels = {};
     const resource = _transformResource(labels);
-    assert(resource);
-    assert.strictEqual(resource.type, SPANNER_RESOURCE_TYPE);
+    expect(resource).toBeTruthy();
+    expect(resource.type).toBe(SPANNER_RESOURCE_TYPE);
   });
 
   it('should convert otel metrics to GCM TimeSeries', async () => {
@@ -420,18 +391,17 @@ describe('transform', () => {
       resourceMetrics,
       'project_id',
     );
-    assert.strictEqual(timeseries.length, 1);
+    expect(timeseries.length).toBe(1);
 
     // Verify the contents of the TimeSeries
     const ts = timeseries[0];
 
-    assert.strictEqual(ts.valueType, 'INT64');
+    expect(ts.valueType).toBe('INT64');
 
-    assert.strictEqual(ts.points?.length, 1);
+    expect(ts.points?.length).toBe(1);
 
-    assert.strictEqual(
-      (ts.points[0].value as {int64Value: string})?.int64Value,
-      '3',
+    expect(
+      (ts.points[0].value as {int64Value: string})?.int64Value).toBe('3',
     );
   });
 
@@ -464,6 +434,6 @@ describe('transform', () => {
       'project_id',
     );
 
-    assert.strictEqual(timeseries.length, 0);
+    expect(timeseries.length).toBe(0);
   });
 });

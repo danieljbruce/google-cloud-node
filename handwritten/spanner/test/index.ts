@@ -17,7 +17,6 @@
 /* eslint-disable prefer-rest-params */
 
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import * as extend from 'extend';
 import * as path from 'path';
 import * as proxyquire from 'proxyquire';
@@ -184,7 +183,7 @@ describe('Spanner', () => {
     projectId: 'project-id',
   };
 
-  before(() => {
+  beforeAll(() => {
     Spanner = proxyquire('../src', {
       './common-grpc/service': {
         GrpcService: FakeGrpcService,

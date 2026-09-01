@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
 import * as extend from 'extend';
 import PQueue from 'p-queue';
 import * as proxyquire from 'proxyquire';
@@ -78,7 +77,7 @@ describe('SessionPool', () => {
     });
   };
 
-  before(() => {
+  beforeAll(() => {
     SessionPool = proxyquire('../src/session-pool.js', {
       'p-queue': FakePQueue,
       'stack-trace': fakeStackTrace,
