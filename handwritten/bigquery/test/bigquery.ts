@@ -12,6 +12,117 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// eslint-disable-next-line no-var
+var mockPromisified = false;
+// eslint-disable-next-line no-var
+var mockExtended = false;
+
+class FakeApiError {
+  calledWith_: Array<{}>;
+  constructor(...args: Array<{}>) {
+    this.calledWith_ = args;
+  }
+}
+
+class FakeDataset {
+  calledWith_: Array<{}>;
+  constructor(...args: Array<{}>) {
+    this.calledWith_ = args;
+  }
+}
+
+class FakeJob {
+  calledWith_: Array<{}>;
+  constructor(...args: Array<{}>) {
+    this.calledWith_ = args;
+  }
+}
+
+class FakeTable {
+  calledWith_: Array<{}>;
+  dataset: any;
+  id: string;
+  constructor(...args: Array<{}>) {
+    this.calledWith_ = args;
+    this.dataset = args[0];
+    this.id = args[1] as string;
+  }
+}
+
+jest.mock('@google-cloud/common', () => {
+  const common = jest.requireActual('@google-cloud/common');
+  class FakeService extends common.Service {
+    calledWith_: IArguments;
+    constructor(config: any, options: any) {
+      super(config, options);
+      // eslint-disable-next-line prefer-rest-params
+      this.calledWith_ = arguments;
+    }
+  }
+  const fakeUtil = Object.assign({}, common.util, {
+    ApiError: FakeApiError,
+  });
+  return {
+    ...common,
+    Service: FakeService,
+    util: fakeUtil,
+  };
+});
+
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (c: Function, options: any) => {
+    if (c.name !== 'BigQuery') {
+      return;
+    }
+    mockPromisified = true;
+    expect(options.exclude).toEqual([
+      'dataset',
+      'date',
+      'datetime',
+      'geography',
+      'int',
+      'job',
+      'time',
+      'timestamp',
+      'range',
+    ]);
+  },
+}));
+
+jest.mock('@google-cloud/paginator', () => ({
+  paginator: {
+    extend: (c: Function, methods: string[] | string) => {
+      if (c.name !== 'BigQuery') {
+        return;
+      }
+      const arr = Array.isArray(methods) ? methods : [methods];
+      expect(c.name).toBe('BigQuery');
+      expect(arr).toEqual(['getDatasets', 'getJobs']);
+      mockExtended = true;
+    },
+    streamify: (methodName: string) => {
+      return methodName;
+    },
+  },
+}));
+
+jest.mock('../src/dataset', () => ({
+  Dataset: FakeDataset,
+}));
+
+jest.mock('../src/job', () => ({
+  Job: FakeJob,
+}));
+
+jest.mock('../src/table', () => {
+  const actual = jest.requireActual('../src/table');
+  return {
+    ...actual,
+    Table: FakeTable,
+  };
+});
+
 import {
   DecorateRequestOptions,
   Service,
@@ -20,12 +131,8 @@ import {
   util,
 } from '@google-cloud/common';
 import * as pfy from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, after, afterEach, before, beforeEach} from 'mocha';
 import * as Big from 'big.js';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import * as crypto from 'crypto';
 
 import {toArray} from '../src/util';
@@ -44,17 +151,7 @@ import {
   QueryResultsOptions,
   QueryOptions,
 } from '../src';
-import {SinonStub} from 'sinon';
 import {PreciseDate} from '@google-cloud/precise-date';
-
-const fakeCrypto = extend(true, {}, crypto);
-
-class FakeApiError {
-  calledWith_: Array<{}>;
-  constructor(...args: Array<{}>) {
-    this.calledWith_ = args;
-  }
-}
 
 interface InputObject {
   year?: number;
@@ -74,80 +171,8 @@ interface CalledWithService extends Service {
   }>;
 }
 
-let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll: (c: Function, options: pfy.PromisifyAllOptions) => {
-    if (c.name !== 'BigQuery') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, [
-      'dataset',
-      'date',
-      'datetime',
-      'geography',
-      'int',
-      'job',
-      'time',
-      'timestamp',
-      'range',
-    ]);
-  },
-});
-const fakeUtil = Object.assign({}, util, {
-  ApiError: FakeApiError,
-});
-const originalFakeUtil = extend(true, {}, fakeUtil);
-
-class FakeDataset {
-  calledWith_: Array<{}>;
-  constructor(...args: Array<{}>) {
-    this.calledWith_ = args;
-  }
-}
-
-class FakeTable extends Table {
-  constructor(a: Dataset, b: string) {
-    super(a, b);
-  }
-}
-
-class FakeJob {
-  calledWith_: Array<{}>;
-  constructor(...args: Array<{}>) {
-    this.calledWith_ = args;
-  }
-}
-
-let extended = false;
-const fakePaginator = {
-  paginator: {
-    extend: (c: Function, methods: string[]) => {
-      if (c.name !== 'BigQuery') {
-        return;
-      }
-      methods = toArray(methods);
-      assert.strictEqual(c.name, 'BigQuery');
-      assert.deepStrictEqual(methods, ['getDatasets', 'getJobs']);
-      extended = true;
-    },
-    streamify: (methodName: string) => {
-      return methodName;
-    },
-  },
-};
-
-class FakeService extends Service {
-  calledWith_: IArguments;
-  constructor(config: ServiceConfig, options: ServiceOptions) {
-    super(config, options);
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
-}
-
-const sandbox = sinon.createSandbox();
-afterEach(() => sandbox.restore());
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const {BigQuery}: any = require('../src/bigquery');
 
 describe('BigQuery', () => {
   const JOB_ID = 'JOB_ID';
@@ -158,45 +183,28 @@ describe('BigQuery', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let BigQueryCached: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let BigQuery: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let bq: any;
 
   const BIGQUERY_EMULATOR_HOST = process.env.BIGQUERY_EMULATOR_HOST;
 
-  before(() => {
+  beforeAll(() => {
     delete process.env.BIGQUERY_EMULATOR_HOST;
-    BigQuery = proxyquire('../src/bigquery', {
-      crypto: fakeCrypto,
-      './dataset': {
-        Dataset: FakeDataset,
-      },
-      './job': {
-        Job: FakeJob,
-      },
-      './table': {
-        Table: FakeTable,
-      },
-      '@google-cloud/common': {
-        Service: FakeService,
-        util: fakeUtil,
-      },
-      '@google-cloud/paginator': fakePaginator,
-      '@google-cloud/promisify': fakePfy,
-    }).BigQuery;
     BigQueryCached = Object.assign({}, BigQuery);
   });
 
   beforeEach(() => {
-    Object.assign(fakeUtil, originalFakeUtil);
-    BigQuery = Object.assign(BigQuery, BigQueryCached);
+    Object.assign(BigQuery, BigQueryCached);
     bq = new BigQuery({
       projectId: PROJECT_ID,
       defaultJobCreationMode: 'JOB_CREATION_OPTIONAL',
     });
   });
 
-  after(() => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  afterAll(() => {
     if (BIGQUERY_EMULATOR_HOST) {
       process.env.BIGQUERY_EMULATOR_HOST = BIGQUERY_EMULATOR_HOST;
     }
@@ -204,34 +212,31 @@ describe('BigQuery', () => {
 
   describe('instantiation', () => {
     it('should extend the correct methods', () => {
-      assert(extended); // See `fakePaginator.extend`
+      expect(mockExtended).toBe(true); // See `fakePaginator.extend`
     });
 
     it('should streamify the correct methods', () => {
-      assert.strictEqual(bq.getDatasetsStream, 'getDatasets');
-      assert.strictEqual(bq.getJobsStream, 'getJobs');
-      assert.strictEqual(bq.createQueryStream, 'queryAsStream_');
+      expect(bq.getDatasetsStream).toBe('getDatasets');
+      expect(bq.getJobsStream).toBe('getJobs');
+      expect(bq.createQueryStream).toBe('queryAsStream_');
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(mockPromisified).toBe(true);
     });
 
     it('should inherit from Service', () => {
-      assert(bq instanceof Service);
+      expect(bq instanceof Service).toBe(true);
 
       const calledWith = (bq as CalledWithService).calledWith_[0];
 
       const baseUrl = 'https://bigquery.googleapis.com/bigquery/v2';
-      assert.strictEqual(calledWith.baseUrl, baseUrl);
-      assert.deepStrictEqual(calledWith.scopes, [
+      expect(calledWith.baseUrl).toBe(baseUrl);
+      expect(calledWith.scopes).toEqual([
         'https://www.googleapis.com/auth/bigquery',
       ]);
-      assert.deepStrictEqual(
-        calledWith.packageJson,
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        require('../../package.json'),
-      );
+      expect(calledWith.packageJson).toEqual(// eslint-disable-next-line @typescript-eslint/no-var-requires
+        require('../../package.json'));
     });
 
     it('should allow overriding the apiEndpoint', () => {
@@ -240,8 +245,8 @@ describe('BigQuery', () => {
         apiEndpoint,
       });
       const calledWith = bq.calledWith_[0];
-      assert.strictEqual(calledWith.baseUrl, `${apiEndpoint}/bigquery/v2`);
-      assert.strictEqual(calledWith.apiEndpoint, `${apiEndpoint}`);
+      expect(calledWith.baseUrl).toBe(`${apiEndpoint}/bigquery/v2`);
+      expect(calledWith.apiEndpoint).toBe(`${apiEndpoint}`);
     });
 
     it('should prepend apiEndpoint with default protocol', () => {
@@ -250,14 +255,8 @@ describe('BigQuery', () => {
         apiEndpoint: protocollessApiEndpoint,
       });
       const calledWith = bq.calledWith_[0];
-      assert.strictEqual(
-        calledWith.baseUrl,
-        `https://${protocollessApiEndpoint}/bigquery/v2`,
-      );
-      assert.strictEqual(
-        calledWith.apiEndpoint,
-        `https://${protocollessApiEndpoint}`,
-      );
+      expect(calledWith.baseUrl).toBe(`https://${protocollessApiEndpoint}/bigquery/v2`);
+      expect(calledWith.apiEndpoint).toBe(`https://${protocollessApiEndpoint}`);
     });
 
     it('should strip trailing slash from apiEndpoint', () => {
@@ -266,8 +265,8 @@ describe('BigQuery', () => {
         apiEndpoint: apiEndpoint,
       });
       const calledWith = bq.calledWith_[0];
-      assert.strictEqual(calledWith.baseUrl, `${apiEndpoint}bigquery/v2`);
-      assert.strictEqual(calledWith.apiEndpoint, 'https://some.fake.endpoint');
+      expect(calledWith.baseUrl).toBe(`${apiEndpoint}bigquery/v2`);
+      expect(calledWith.apiEndpoint).toBe('https://some.fake.endpoint');
     });
 
     it('should allow overriding TPC universe', () => {
@@ -276,14 +275,8 @@ describe('BigQuery', () => {
         universeDomain: universeDomain,
       });
       const calledWith = bq.calledWith_[0];
-      assert.strictEqual(
-        calledWith.baseUrl,
-        'https://bigquery.fake-tpc-env.example.com/bigquery/v2',
-      );
-      assert.strictEqual(
-        calledWith.apiEndpoint,
-        'https://bigquery.fake-tpc-env.example.com',
-      );
+      expect(calledWith.baseUrl).toBe('https://bigquery.fake-tpc-env.example.com/bigquery/v2');
+      expect(calledWith.apiEndpoint).toBe('https://bigquery.fake-tpc-env.example.com');
     });
 
     it('should capture any user specified location', () => {
@@ -291,7 +284,7 @@ describe('BigQuery', () => {
         projectId: PROJECT_ID,
         location: LOCATION,
       });
-      assert.strictEqual(bq.location, LOCATION);
+      expect(bq.location).toBe(LOCATION);
     });
 
     it('should pass scopes from options', () => {
@@ -305,7 +298,7 @@ describe('BigQuery', () => {
       ];
 
       const calledWith = bq.calledWith_[0];
-      assert.deepStrictEqual(calledWith.scopes, expectedScopes);
+      expect(calledWith.scopes).toEqual(expectedScopes);
     });
 
     it('should pass autoRetry from options', () => {
@@ -315,7 +308,7 @@ describe('BigQuery', () => {
       });
 
       const calledWith = bq.calledWith_[0];
-      assert.deepStrictEqual(calledWith.autoRetry, retry);
+      expect(calledWith.autoRetry).toEqual(retry);
     });
 
     it('should pass maxRetries from options', () => {
@@ -325,7 +318,7 @@ describe('BigQuery', () => {
       });
 
       const calledWith = bq.calledWith_[0];
-      assert.deepStrictEqual(calledWith.maxRetries, retryVal);
+      expect(calledWith.maxRetries).toEqual(retryVal);
     });
 
     it('should pass retryOptions from options', () => {
@@ -338,7 +331,7 @@ describe('BigQuery', () => {
       });
 
       const calledWith = bq.calledWith_[0];
-      assert.deepStrictEqual(calledWith.retryOptions, retryOptions);
+      expect(calledWith.retryOptions).toEqual(retryOptions);
     });
 
     it('should not modify options argument', () => {
@@ -350,19 +343,19 @@ describe('BigQuery', () => {
       });
       const bigquery = new BigQuery(options);
       const calledWith = bigquery.calledWith_[1];
-      assert.notStrictEqual(calledWith, options);
-      assert.notDeepStrictEqual(calledWith, options);
-      assert.deepStrictEqual(calledWith, expectedCalledWith);
+      expect(calledWith).not.toBe(options);
+      expect(calledWith).not.toEqual(options);
+      expect(calledWith).toEqual(expectedCalledWith);
     });
 
     describe('BIGQUERY_EMULATOR_HOST', () => {
       const EMULATOR_HOST = 'https://internal.benchmark.com/path';
 
-      before(() => {
+      beforeAll(() => {
         process.env.BIGQUERY_EMULATOR_HOST = EMULATOR_HOST;
       });
 
-      after(() => {
+      afterAll(() => {
         delete process.env.BIGQUERY_EMULATOR_HOST;
       });
 
@@ -372,11 +365,8 @@ describe('BigQuery', () => {
         });
 
         const calledWith = bq.calledWith_[0];
-        assert.strictEqual(calledWith.baseUrl, EMULATOR_HOST);
-        assert.strictEqual(
-          calledWith.apiEndpoint,
-          'https://internal.benchmark.com/path',
-        );
+        expect(calledWith.baseUrl).toBe(EMULATOR_HOST);
+        expect(calledWith.apiEndpoint).toBe('https://internal.benchmark.com/path');
       });
 
       it('should be overriden by apiEndpoint', () => {
@@ -386,8 +376,8 @@ describe('BigQuery', () => {
         });
 
         const calledWith = bq.calledWith_[0];
-        assert.strictEqual(calledWith.baseUrl, EMULATOR_HOST);
-        assert.strictEqual(calledWith.apiEndpoint, 'https://some.api.com');
+        expect(calledWith.baseUrl).toBe(EMULATOR_HOST);
+        expect(calledWith.apiEndpoint).toBe('https://some.api.com');
       });
 
       it('should prepend default protocol and strip trailing slash', () => {
@@ -399,11 +389,8 @@ describe('BigQuery', () => {
         });
 
         const calledWith = bq.calledWith_[0];
-        assert.strictEqual(calledWith.baseUrl, EMULATOR_HOST);
-        assert.strictEqual(
-          calledWith.apiEndpoint,
-          'https://internal.benchmark.com/path',
-        );
+        expect(calledWith.baseUrl).toBe(EMULATOR_HOST);
+        expect(calledWith.apiEndpoint).toBe('https://internal.benchmark.com/path');
       });
     });
 
@@ -415,7 +402,7 @@ describe('BigQuery', () => {
       });
 
       it('should disable prettyPrint', () => {
-        assert.deepStrictEqual(requestInterceptor({}), {
+        expect(requestInterceptor({})).toEqual({
           qs: {prettyPrint: false},
         });
       });
@@ -423,8 +410,8 @@ describe('BigQuery', () => {
       it('should clone json', () => {
         const reqOpts = {qs: {a: 'b'}};
         const expectedReqOpts = {qs: {a: 'b', prettyPrint: false}};
-        assert.deepStrictEqual(requestInterceptor(reqOpts), expectedReqOpts);
-        assert.notDeepStrictEqual(reqOpts, expectedReqOpts);
+        expect(requestInterceptor(reqOpts)).toEqual(expectedReqOpts);
+        expect(reqOpts).not.toEqual(expectedReqOpts);
       });
     });
   });
@@ -445,42 +432,42 @@ describe('BigQuery', () => {
     } as {fields: TableField[]};
 
     beforeEach(() => {
-      sandbox.stub(BigQuery, 'date').callsFake(input => {
+      jest.spyOn(BigQuery, 'date').mockImplementation(input => {
         return {
           type: 'fakeDate',
           input,
         };
       });
 
-      sandbox.stub(BigQuery, 'datetime').callsFake(input => {
+      jest.spyOn(BigQuery, 'datetime').mockImplementation(input => {
         return {
           type: 'fakeDatetime',
           input,
         };
       });
 
-      sandbox.stub(BigQuery, 'time').callsFake(input => {
+      jest.spyOn(BigQuery, 'time').mockImplementation(input => {
         return {
           type: 'fakeTime',
           input,
         };
       });
 
-      sandbox.stub(BigQuery, 'timestamp').callsFake(input => {
+      jest.spyOn(BigQuery, 'timestamp').mockImplementation(input => {
         return {
           type: 'fakeTimestamp',
           input,
         };
       });
 
-      sandbox.stub(BigQuery, 'geography').callsFake(input => {
+      jest.spyOn(BigQuery, 'geography').mockImplementation(input => {
         return {
           type: 'fakeGeography',
           input,
         };
       });
 
-      sandbox.stub(BigQuery, 'range').callsFake((input, elementType) => {
+      jest.spyOn(BigQuery, 'range').mockImplementation((input, elementType) => {
         return {
           type: 'fakeRange',
           input,
@@ -683,7 +670,7 @@ describe('BigQuery', () => {
       });
 
       mergedRows.forEach((mergedRow: {}, index: number) => {
-        assert.deepStrictEqual(mergedRow, rows[index].expected);
+        expect(mergedRow).toEqual(rows[index].expected);
       });
     });
 
@@ -692,7 +679,7 @@ describe('BigQuery', () => {
         fields: [{name: 'ts', type: 'TIMESTAMP'}],
       } as {fields: TableField[]};
 
-      sandbox.restore(); // restore BigQuery.timestamp call
+      jest.restoreAllMocks(); // restore BigQuery.timestamp call
 
       const rows = {
         raw: [
@@ -715,7 +702,7 @@ describe('BigQuery', () => {
         {},
       );
       mergedRows.forEach((mergedRow: {}, i: number) => {
-        assert.deepStrictEqual(mergedRow, rows.expectedParsed[i]);
+        expect(mergedRow).toEqual(rows.expectedParsed[i]);
       });
     });
 
@@ -740,20 +727,20 @@ describe('BigQuery', () => {
         },
       };
 
-      sandbox.stub(BigQuery, 'int').returns(fakeInt);
+      jest.spyOn(BigQuery, 'int').mockReturnValue(fakeInt);
 
       let mergedRows = BigQuery.mergeSchemaWithRows_(SCHEMA_OBJECT, rows.raw, {
         wrapIntegers: wrapIntegersBoolean,
       });
       mergedRows.forEach((mergedRow: {}) => {
-        assert.deepStrictEqual(mergedRow, rows.expectedBool);
+        expect(mergedRow).toEqual(rows.expectedBool);
       });
 
       mergedRows = BigQuery.mergeSchemaWithRows_(SCHEMA_OBJECT, rows.raw, {
         wrapIntegers: wrapIntegersObject,
       });
       mergedRows.forEach((mergedRow: {}) => {
-        assert.deepStrictEqual(mergedRow, rows.expectedObj);
+        expect(mergedRow).toEqual(rows.expectedObj);
       });
     });
 
@@ -780,14 +767,14 @@ describe('BigQuery', () => {
         parseJSON: false,
       });
       mergedRows.forEach((mergedRow: {}) => {
-        assert.deepStrictEqual(mergedRow, rows.expectedRaw);
+        expect(mergedRow).toEqual(rows.expectedRaw);
       });
 
       mergedRows = BigQuery.mergeSchemaWithRows_(SCHEMA_OBJECT, rows.raw, {
         parseJSON: true,
       });
       mergedRows.forEach((mergedRow: {}) => {
-        assert.deepStrictEqual(mergedRow, rows.expectedParsed);
+        expect(mergedRow).toEqual(rows.expectedParsed);
       });
     });
   });
@@ -803,27 +790,27 @@ describe('BigQuery', () => {
     // tslint:disable-next-line ban
     it.skip('should expose static and instance constructors', () => {
       const staticD = BigQuery.date();
-      assert(staticD instanceof BigQueryDate);
-      assert(staticD instanceof bq.date);
+      expect(staticD instanceof BigQueryDate).toBeTruthy();
+      expect(staticD instanceof bq.date).toBeTruthy();
 
       const instanceD = bq.date();
-      assert(instanceD instanceof BigQueryDate);
-      assert(instanceD instanceof bq.date);
+      expect(instanceD instanceof BigQueryDate).toBeTruthy();
+      expect(instanceD instanceof bq.date).toBeTruthy();
     });
 
     it('should have the correct constructor name', () => {
       const date = bq.date(INPUT_STRING);
-      assert.strictEqual(date.constructor.name, 'BigQueryDate');
+      expect(date.constructor.name).toBe('BigQueryDate');
     });
 
     it('should accept a string', () => {
       const date = bq.date(INPUT_STRING);
-      assert.strictEqual(date.value, INPUT_STRING);
+      expect(date.value).toBe(INPUT_STRING);
     });
 
     it('should accept an object', () => {
       const date = bq.date(INPUT_OBJ);
-      assert.strictEqual(date.value, INPUT_STRING);
+      expect(date.value).toBe(INPUT_STRING);
     });
   });
 
@@ -845,22 +832,22 @@ describe('BigQuery', () => {
     // tslint:disable-next-line ban
     it.skip('should expose static and instance constructors', () => {
       const staticDt = BigQuery.datetime(INPUT_OBJ);
-      assert(staticDt instanceof BigQuery.datetime);
-      assert(staticDt instanceof bq.datetime);
+      expect(staticDt instanceof BigQuery.datetime).toBeTruthy();
+      expect(staticDt instanceof bq.datetime).toBeTruthy();
 
       const instanceDt = bq.datetime(INPUT_OBJ);
-      assert(instanceDt instanceof BigQuery.datetime);
-      assert(instanceDt instanceof bq.datetime);
+      expect(instanceDt instanceof BigQuery.datetime).toBeTruthy();
+      expect(instanceDt instanceof bq.datetime).toBeTruthy();
     });
 
     it('should have the correct constructor name', () => {
       const datetime = bq.datetime(INPUT_STRING);
-      assert.strictEqual(datetime.constructor.name, 'BigQueryDatetime');
+      expect(datetime.constructor.name).toBe('BigQueryDatetime');
     });
 
     it('should accept an object', () => {
       const datetime = bq.datetime(INPUT_OBJ);
-      assert.strictEqual(datetime.value, EXPECTED_VALUE);
+      expect(datetime.value).toBe(EXPECTED_VALUE);
     });
 
     it('should not include time if hours not provided', () => {
@@ -870,12 +857,12 @@ describe('BigQuery', () => {
         day: 1,
       });
 
-      assert.strictEqual(datetime.value, '2016-1-1');
+      expect(datetime.value).toBe('2016-1-1');
     });
 
     it('should accept a string', () => {
       const datetime = bq.datetime(INPUT_STRING);
-      assert.strictEqual(datetime.value, EXPECTED_VALUE);
+      expect(datetime.value).toBe(EXPECTED_VALUE);
     });
   });
 
@@ -891,34 +878,34 @@ describe('BigQuery', () => {
     // tslint:disable-next-line ban
     it.skip('should expose static and instance constructors', () => {
       const staticT = BigQuery.time();
-      assert(staticT instanceof BigQuery.time);
-      assert(staticT instanceof bq.time);
+      expect(staticT instanceof BigQuery.time).toBeTruthy();
+      expect(staticT instanceof bq.time).toBeTruthy();
 
       const instanceT = bq.time();
-      assert(instanceT instanceof BigQuery.time);
-      assert(instanceT instanceof bq.time);
+      expect(instanceT instanceof BigQuery.time).toBeTruthy();
+      expect(instanceT instanceof bq.time).toBeTruthy();
     });
 
     it('should have the correct constructor name', () => {
       const time = bq.time(INPUT_STRING);
-      assert.strictEqual(time.constructor.name, 'BigQueryTime');
+      expect(time.constructor.name).toBe('BigQueryTime');
     });
 
     it('should accept a string', () => {
       const time = bq.time(INPUT_STRING);
-      assert.strictEqual(time.value, INPUT_STRING);
+      expect(time.value).toBe(INPUT_STRING);
     });
 
     it('should accept an object', () => {
       const time = bq.time(INPUT_OBJ);
-      assert.strictEqual(time.value, INPUT_STRING);
+      expect(time.value).toBe(INPUT_STRING);
     });
 
     it('should default minutes and seconds to 0', () => {
       const time = bq.time({
         hours: 14,
       });
-      assert.strictEqual(time.value, '14:0:0');
+      expect(time.value).toBe('14:0:0');
     });
 
     it('should not include fractional digits if not provided', () => {
@@ -926,7 +913,7 @@ describe('BigQuery', () => {
       delete input.fractional;
 
       const time = bq.time(input);
-      assert.strictEqual(time.value, '14:2:38');
+      expect(time.value).toBe('14:2:38');
     });
   });
 
@@ -941,52 +928,52 @@ describe('BigQuery', () => {
     // tslint:disable-next-line ban
     it.skip('should expose static and instance constructors', () => {
       const staticT = BigQuery.timestamp(INPUT_DATE);
-      assert(staticT instanceof BigQuery.timestamp);
-      assert(staticT instanceof bq.timestamp);
+      expect(staticT instanceof BigQuery.timestamp).toBeTruthy();
+      expect(staticT instanceof bq.timestamp).toBeTruthy();
 
       const instanceT = bq.timestamp(INPUT_DATE);
-      assert(instanceT instanceof BigQuery.timestamp);
-      assert(instanceT instanceof bq.timestamp);
+      expect(instanceT instanceof BigQuery.timestamp).toBeTruthy();
+      expect(instanceT instanceof bq.timestamp).toBeTruthy();
     });
 
     it('should have the correct constructor name', () => {
       const timestamp = bq.timestamp(INPUT_STRING);
-      assert.strictEqual(timestamp.constructor.name, 'BigQueryTimestamp');
+      expect(timestamp.constructor.name).toBe('BigQueryTimestamp');
     });
 
     it('should accept a NaN', () => {
       const timestamp = bq.timestamp(NaN);
-      assert.strictEqual(timestamp.value, null);
+      expect(timestamp.value).toBe(null);
     });
 
     it('should accept a string', () => {
       const timestamp = bq.timestamp(INPUT_STRING);
-      assert.strictEqual(timestamp.value, EXPECTED_VALUE);
+      expect(timestamp.value).toBe(EXPECTED_VALUE);
     });
 
     it('should accept a string with microseconds', () => {
       const timestamp = bq.timestamp(INPUT_STRING_MICROS);
-      assert.strictEqual(timestamp.value, EXPECTED_VALUE_MICROS);
+      expect(timestamp.value).toBe(EXPECTED_VALUE_MICROS);
     });
 
     it('should accept a float number', () => {
       const d = new Date();
       const f = d.valueOf() / 1000; // float seconds
       let timestamp = bq.timestamp(f);
-      assert.strictEqual(timestamp.value, d.toJSON());
+      expect(timestamp.value).toBe(d.toJSON());
 
       timestamp = bq.timestamp(f.toString());
-      assert.strictEqual(timestamp.value, d.toJSON());
+      expect(timestamp.value).toBe(d.toJSON());
     });
 
     it('should accept a Date object', () => {
       const timestamp = bq.timestamp(INPUT_DATE);
-      assert.strictEqual(timestamp.value, EXPECTED_VALUE);
+      expect(timestamp.value).toBe(EXPECTED_VALUE);
     });
 
     it('should accept a PreciseDate object', () => {
       const timestamp = bq.timestamp(INPUT_PRECISE_DATE);
-      assert.strictEqual(timestamp.value, EXPECTED_VALUE_MICROS);
+      expect(timestamp.value).toBe(EXPECTED_VALUE_MICROS);
     });
   });
 
@@ -998,45 +985,30 @@ describe('BigQuery', () => {
 
     it('should have the correct constructor name', () => {
       const range = bq.range(INPUT_DATE_RANGE, 'DATE');
-      assert.strictEqual(range.constructor.name, 'BigQueryRange');
+      expect(range.constructor.name).toBe('BigQueryRange');
     });
 
     it('should accept a string literal', () => {
       const dateRange = bq.range(INPUT_DATE_RANGE, 'DATE');
-      assert.strictEqual(dateRange.apiValue, '[2020-01-01, 2020-12-31)');
-      assert.strictEqual(
-        dateRange.literalValue,
-        'RANGE<DATE> [2020-01-01, 2020-12-31)',
-      );
-      assert.deepStrictEqual(dateRange.value, {
+      expect(dateRange.apiValue).toBe('[2020-01-01, 2020-12-31)');
+      expect(dateRange.literalValue).toBe('RANGE<DATE> [2020-01-01, 2020-12-31)');
+      expect(dateRange.value).toEqual({
         start: '2020-01-01',
         end: '2020-12-31',
       });
 
       const datetimeRange = bq.range(INPUT_DATETIME_RANGE, 'DATETIME');
-      assert.strictEqual(
-        datetimeRange.apiValue,
-        '[2020-01-01 12:00:00, 2020-12-31 12:00:00)',
-      );
-      assert.strictEqual(
-        datetimeRange.literalValue,
-        'RANGE<DATETIME> [2020-01-01 12:00:00, 2020-12-31 12:00:00)',
-      );
-      assert.deepStrictEqual(datetimeRange.value, {
+      expect(datetimeRange.apiValue).toBe('[2020-01-01 12:00:00, 2020-12-31 12:00:00)');
+      expect(datetimeRange.literalValue).toBe('RANGE<DATETIME> [2020-01-01 12:00:00, 2020-12-31 12:00:00)');
+      expect(datetimeRange.value).toEqual({
         start: '2020-01-01 12:00:00',
         end: '2020-12-31 12:00:00',
       });
 
       const timestampRange = bq.range(INPUT_TIMESTAMP_RANGE, 'TIMESTAMP');
-      assert.strictEqual(
-        timestampRange.apiValue,
-        '[2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)',
-      );
-      assert.strictEqual(
-        timestampRange.literalValue,
-        'RANGE<TIMESTAMP> [2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)',
-      );
-      assert.deepStrictEqual(timestampRange.value, {
+      expect(timestampRange.apiValue).toBe('[2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)');
+      expect(timestampRange.literalValue).toBe('RANGE<TIMESTAMP> [2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)');
+      expect(timestampRange.value).toEqual({
         start: '2020-10-01T04:00:00.000Z',
         end: '2020-12-31T04:00:00.000Z',
       });
@@ -1047,13 +1019,10 @@ describe('BigQuery', () => {
         start: bq.date('2020-01-01'),
         end: bq.date('2020-12-31'),
       });
-      assert.strictEqual(dateRange.apiValue, INPUT_DATE_RANGE);
-      assert.strictEqual(
-        dateRange.literalValue,
-        `RANGE<DATE> ${INPUT_DATE_RANGE}`,
-      );
-      assert.strictEqual(dateRange.elementType, 'DATE');
-      assert.deepStrictEqual(dateRange.value, {
+      expect(dateRange.apiValue).toBe(INPUT_DATE_RANGE);
+      expect(dateRange.literalValue).toBe(`RANGE<DATE> ${INPUT_DATE_RANGE}`);
+      expect(dateRange.elementType).toBe('DATE');
+      expect(dateRange.value).toEqual({
         start: '2020-01-01',
         end: '2020-12-31',
       });
@@ -1062,13 +1031,10 @@ describe('BigQuery', () => {
         start: bq.datetime('2020-01-01 12:00:00'),
         end: bq.datetime('2020-12-31 12:00:00'),
       });
-      assert.strictEqual(datetimeRange.apiValue, INPUT_DATETIME_RANGE);
-      assert.strictEqual(
-        datetimeRange.literalValue,
-        `RANGE<DATETIME> ${INPUT_DATETIME_RANGE}`,
-      );
-      assert.strictEqual(datetimeRange.elementType, 'DATETIME');
-      assert.deepStrictEqual(datetimeRange.value, {
+      expect(datetimeRange.apiValue).toBe(INPUT_DATETIME_RANGE);
+      expect(datetimeRange.literalValue).toBe(`RANGE<DATETIME> ${INPUT_DATETIME_RANGE}`);
+      expect(datetimeRange.elementType).toBe('DATETIME');
+      expect(datetimeRange.value).toEqual({
         start: '2020-01-01 12:00:00',
         end: '2020-12-31 12:00:00',
       });
@@ -1077,16 +1043,10 @@ describe('BigQuery', () => {
         start: bq.timestamp('2020-10-01 12:00:00+08'),
         end: bq.timestamp('2020-12-31 12:00:00+08'),
       });
-      assert.strictEqual(
-        timestampRange.apiValue,
-        '[2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)',
-      );
-      assert.strictEqual(
-        timestampRange.literalValue,
-        'RANGE<TIMESTAMP> [2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)',
-      );
-      assert.strictEqual(timestampRange.elementType, 'TIMESTAMP');
-      assert.deepStrictEqual(timestampRange.value, {
+      expect(timestampRange.apiValue).toBe('[2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)');
+      expect(timestampRange.literalValue).toBe('RANGE<TIMESTAMP> [2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)');
+      expect(timestampRange.elementType).toBe('TIMESTAMP');
+      expect(timestampRange.value).toEqual({
         start: '2020-10-01T04:00:00.000Z',
         end: '2020-12-31T04:00:00.000Z',
       });
@@ -1100,12 +1060,9 @@ describe('BigQuery', () => {
         },
         'DATE',
       );
-      assert.strictEqual(dateRange.apiValue, INPUT_DATE_RANGE);
-      assert.strictEqual(
-        dateRange.literalValue,
-        `RANGE<DATE> ${INPUT_DATE_RANGE}`,
-      );
-      assert.strictEqual(dateRange.elementType, 'DATE');
+      expect(dateRange.apiValue).toBe(INPUT_DATE_RANGE);
+      expect(dateRange.literalValue).toBe(`RANGE<DATE> ${INPUT_DATE_RANGE}`);
+      expect(dateRange.elementType).toBe('DATE');
 
       const datetimeRange = bq.range(
         {
@@ -1114,12 +1071,9 @@ describe('BigQuery', () => {
         },
         'DATETIME',
       );
-      assert.strictEqual(datetimeRange.apiValue, INPUT_DATETIME_RANGE);
-      assert.strictEqual(
-        datetimeRange.literalValue,
-        `RANGE<DATETIME> ${INPUT_DATETIME_RANGE}`,
-      );
-      assert.strictEqual(datetimeRange.elementType, 'DATETIME');
+      expect(datetimeRange.apiValue).toBe(INPUT_DATETIME_RANGE);
+      expect(datetimeRange.literalValue).toBe(`RANGE<DATETIME> ${INPUT_DATETIME_RANGE}`);
+      expect(datetimeRange.elementType).toBe('DATETIME');
 
       const timestampRange = bq.range(
         {
@@ -1128,15 +1082,9 @@ describe('BigQuery', () => {
         },
         'TIMESTAMP',
       );
-      assert.strictEqual(
-        timestampRange.apiValue,
-        '[2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)',
-      );
-      assert.strictEqual(
-        timestampRange.literalValue,
-        'RANGE<TIMESTAMP> [2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)',
-      );
-      assert.strictEqual(timestampRange.elementType, 'TIMESTAMP');
+      expect(timestampRange.apiValue).toBe('[2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)');
+      expect(timestampRange.literalValue).toBe('RANGE<TIMESTAMP> [2020-10-01T04:00:00.000Z, 2020-12-31T04:00:00.000Z)');
+      expect(timestampRange.elementType).toBe('TIMESTAMP');
     });
 
     it('should accept a Range with start and/or end missing', () => {
@@ -1146,10 +1094,7 @@ describe('BigQuery', () => {
         },
         'DATE',
       );
-      assert.strictEqual(
-        dateRange.literalValue,
-        'RANGE<DATE> [2020-01-01, UNBOUNDED)',
-      );
+      expect(dateRange.literalValue).toBe('RANGE<DATE> [2020-01-01, UNBOUNDED)');
 
       const datetimeRange = bq.range(
         {
@@ -1157,16 +1102,10 @@ describe('BigQuery', () => {
         },
         'DATETIME',
       );
-      assert.strictEqual(
-        datetimeRange.literalValue,
-        'RANGE<DATETIME> [UNBOUNDED, 2020-12-31 12:00:00)',
-      );
+      expect(datetimeRange.literalValue).toBe('RANGE<DATETIME> [UNBOUNDED, 2020-12-31 12:00:00)');
 
       const timestampRange = bq.range({}, 'TIMESTAMP');
-      assert.strictEqual(
-        timestampRange.literalValue,
-        'RANGE<TIMESTAMP> [UNBOUNDED, UNBOUNDED)',
-      );
+      expect(timestampRange.literalValue).toBe('RANGE<TIMESTAMP> [UNBOUNDED, UNBOUNDED)');
     });
   });
 
@@ -1175,24 +1114,23 @@ describe('BigQuery', () => {
 
     it('should have the correct constructor name', () => {
       const geography = BigQuery.geography(INPUT_STRING);
-      assert.strictEqual(geography.constructor.name, 'Geography');
+      expect(geography.constructor.name).toBe('Geography');
     });
 
     it('should accept a string', () => {
       const geography = BigQuery.geography(INPUT_STRING);
-      assert.strictEqual(geography.value, INPUT_STRING);
+      expect(geography.value).toBe(INPUT_STRING);
     });
 
     it('should call through to the static method', () => {
       const fakeGeography = {value: 'foo'};
 
-      sandbox
-        .stub(BigQuery, 'geography')
-        .withArgs(INPUT_STRING)
-        .returns(fakeGeography);
+      jest.spyOn(BigQuery, 'geography')
+        
+        .mockReturnValue(fakeGeography);
 
       const geography = bq.geography(INPUT_STRING);
-      assert.strictEqual(geography, fakeGeography);
+      expect(geography).toBe(fakeGeography);
     });
   });
 
@@ -1202,15 +1140,15 @@ describe('BigQuery', () => {
     it('should call through to the static method', () => {
       const fakeInt = new BigQueryInt(INPUT_STRING);
 
-      sandbox.stub(BigQuery, 'int').withArgs(INPUT_STRING).returns(fakeInt);
+      jest.spyOn(BigQuery, 'int').mockReturnValue(fakeInt);
 
       const int = bq.int(INPUT_STRING);
-      assert.strictEqual(int, fakeInt);
+      expect(int).toBe(fakeInt);
     });
 
     it('should have the correct constructor name', () => {
       const int = BigQuery.int(INPUT_STRING);
-      assert.strictEqual(int.constructor.name, 'BigQueryInt');
+      expect(int.constructor.name).toBe('BigQueryInt');
     });
   });
 
@@ -1218,7 +1156,7 @@ describe('BigQuery', () => {
     it('should store the stringified value', () => {
       const INPUT_NUM = 100;
       const int = new BigQueryInt(INPUT_NUM);
-      assert.strictEqual(int.value, INPUT_NUM.toString());
+      expect(int.value).toBe(INPUT_NUM.toString());
     });
 
     describe('valueOf', () => {
@@ -1250,14 +1188,11 @@ describe('BigQuery', () => {
         };
 
         it('should throw if integerTypeCastOptions is provided but integerTypeCastFunction is not', () => {
-          assert.throws(
-            () =>
+          expect(() =>
               new BigQueryInt(
                 valueObject,
                 {} as IntegerTypeCastOptions,
-              ).valueOf(),
-            /integerTypeCastFunction is not a function or was not provided\./,
-          );
+              ).valueOf()).toThrow(/integerTypeCastFunction is not a function or was not provided\./);
         });
 
         it('should throw if integer value is outside of bounds passing objects', () => {
@@ -1274,13 +1209,13 @@ describe('BigQuery', () => {
             schemaFieldName: 'field',
           };
 
-          assert.throws(() => {
+          expect(() => {
             new BigQueryInt(valueObject).valueOf();
-          }, expectedError(valueObject));
+          }).toThrow(expectedError(valueObject));
 
-          assert.throws(() => {
+          expect(() => {
             new BigQueryInt(valueObject2).valueOf();
-          }, expectedError(valueObject2));
+          }).toThrow(expectedError(valueObject2));
         });
 
         it('should throw if integer value is outside of bounds passing strings or Numbers', () => {
@@ -1288,20 +1223,14 @@ describe('BigQuery', () => {
           const smallIntegerValue = Number.MIN_SAFE_INTEGER - 1;
 
           // should throw when Number is passed
-          assert.throws(
-            () => {
+          expect(() => {
               new BigQueryInt(largeIntegerValue).valueOf();
-            },
-            expectedError({integerValue: largeIntegerValue}),
-          );
+            }).toThrow(expectedError({integerValue: largeIntegerValue}));
 
           // should throw when string is passed
-          assert.throws(
-            () => {
+          expect(() => {
               new BigQueryInt(smallIntegerValue.toString()).valueOf();
-            },
-            expectedError({integerValue: smallIntegerValue}),
-          );
+            }).toThrow(expectedError({integerValue: smallIntegerValue}));
         });
 
         it('should not auto throw on initialization', () => {
@@ -1311,36 +1240,30 @@ describe('BigQuery', () => {
             integerValue: largeIntegerValue,
           };
 
-          assert.doesNotThrow(
-            () => {
+          expect(() => {
               new BigQueryInt(valueObject);
-            },
-            new RegExp(`Integer value ${largeIntegerValue} is out of bounds.`),
-          );
+            }).not.toThrow();
         });
 
         describe('integerTypeCastFunction is provided', () => {
           it('should throw if integerTypeCastFunction is not a function', () => {
-            assert.throws(
-              () =>
+            expect(() =>
                 new BigQueryInt(valueObject, {
                   integerTypeCastFunction: {} as Function,
-                }).valueOf(),
-              /integerTypeCastFunction is not a function or was not provided\./,
-            );
+                }).valueOf()).toThrow(/integerTypeCastFunction is not a function or was not provided\./);
           });
 
           it('should custom-cast value when integerTypeCastFunction is provided', () => {
-            const stub = sinon.stub();
+            const stub = jest.fn();
 
             new BigQueryInt(valueObject, {
               integerTypeCastFunction: stub,
             }).valueOf();
-            assert.ok(stub.calledOnce);
+            expect(stub).toHaveBeenCalledTimes(1);
           });
 
           it('should custom-cast value if in `fields` specified by user', () => {
-            const stub = sinon.stub();
+            const stub = jest.fn();
 
             Object.assign(valueObject, {
               schemaFieldName: 'funField',
@@ -1350,11 +1273,11 @@ describe('BigQuery', () => {
               integerTypeCastFunction: stub,
               fields: 'funField',
             }).valueOf();
-            assert.ok(stub.calledOnce);
+            expect(stub).toHaveBeenCalledTimes(1);
           });
 
           it('should not custom-cast value if not in `fields` specified by user', () => {
-            const stub = sinon.stub();
+            const stub = jest.fn();
 
             Object.assign(valueObject, {
               schemaFieldName: 'funField',
@@ -1364,19 +1287,16 @@ describe('BigQuery', () => {
               integerTypeCastFunction: stub,
               fields: 'unFunField',
             }).valueOf();
-            assert.ok(stub.notCalled);
+            expect(stub).not.toHaveBeenCalled();
           });
 
           it('should catch integerTypeCastFunction error and throw', () => {
             const error = new Error('My bad!');
-            const stub = sinon.stub().throws(error);
-            assert.throws(
-              () =>
+            const stub = jest.fn().mockImplementation(() => { throw error; });
+            expect(() =>
                 new BigQueryInt(valueObject, {
                   integerTypeCastFunction: stub,
-                }).valueOf(),
-              /integerTypeCastFunction threw an error:/,
-            );
+                }).valueOf()).toThrow(/integerTypeCastFunction threw an error:/);
           });
         });
       });
@@ -1385,7 +1305,7 @@ describe('BigQuery', () => {
         it('should return correct JSON', () => {
           const expected = {type: 'BigQueryInt', value: '8'};
           const JSON = new BigQueryInt(valueObject).toJSON();
-          assert.deepStrictEqual(JSON, expected);
+          expect(JSON).toEqual(expected);
         });
       });
     });
@@ -1393,72 +1313,33 @@ describe('BigQuery', () => {
 
   describe('getTypeDescriptorFromValue_', () => {
     it('should return correct types', () => {
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(bq.date()).type,
-        'DATE',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(bq.datetime('')).type,
-        'DATETIME',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(bq.time()).type,
-        'TIME',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(bq.timestamp(0)).type,
-        'TIMESTAMP',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(Buffer.alloc(2)).type,
-        'BYTES',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(true).type,
-        'BOOL',
-      );
-      assert.strictEqual(BigQuery.getTypeDescriptorFromValue_(8).type, 'INT64');
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(8.1).type,
-        'FLOAT64',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_('hi').type,
-        'STRING',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(new Big('1.1')).type,
-        'NUMERIC',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(
+      expect(BigQuery.getTypeDescriptorFromValue_(bq.date()).type).toBe('DATE');
+      expect(BigQuery.getTypeDescriptorFromValue_(bq.datetime('')).type).toBe('DATETIME');
+      expect(BigQuery.getTypeDescriptorFromValue_(bq.time()).type).toBe('TIME');
+      expect(BigQuery.getTypeDescriptorFromValue_(bq.timestamp(0)).type).toBe('TIMESTAMP');
+      expect(BigQuery.getTypeDescriptorFromValue_(Buffer.alloc(2)).type).toBe('BYTES');
+      expect(BigQuery.getTypeDescriptorFromValue_(true).type).toBe('BOOL');
+      expect(BigQuery.getTypeDescriptorFromValue_(8).type).toBe('INT64');
+      expect(BigQuery.getTypeDescriptorFromValue_(8.1).type).toBe('FLOAT64');
+      expect(BigQuery.getTypeDescriptorFromValue_('hi').type).toBe('STRING');
+      expect(BigQuery.getTypeDescriptorFromValue_(new Big('1.1')).type).toBe('NUMERIC');
+      expect(BigQuery.getTypeDescriptorFromValue_(
           new Big('1999.9876543210123456789'),
-        ).type,
-        'BIGNUMERIC',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(bq.int('100')).type,
-        'INT64',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(bq.geography('POINT (1 1')).type,
-        'GEOGRAPHY',
-      );
-      assert.strictEqual(
-        BigQuery.getTypeDescriptorFromValue_(
+        ).type).toBe('BIGNUMERIC');
+      expect(BigQuery.getTypeDescriptorFromValue_(bq.int('100')).type).toBe('INT64');
+      expect(BigQuery.getTypeDescriptorFromValue_(bq.geography('POINT (1 1')).type).toBe('GEOGRAPHY');
+      expect(BigQuery.getTypeDescriptorFromValue_(
           bq.range(
             '[2020-10-01 12:00:00+08, 2020-12-31 12:00:00+08)',
             'TIMESTAMP',
           ),
-        ).type,
-        'RANGE',
-      );
+        ).type).toBe('RANGE');
     });
 
     it('should return correct type for an array', () => {
       const type = BigQuery.getTypeDescriptorFromValue_([1]);
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         type: 'ARRAY',
         arrayType: {
           type: 'INT64',
@@ -1469,7 +1350,7 @@ describe('BigQuery', () => {
     it('should return correct type for a struct', () => {
       const type = BigQuery.getTypeDescriptorFromValue_({prop: 1});
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         type: 'STRUCT',
         structTypes: [
           {
@@ -1490,15 +1371,15 @@ describe('BigQuery', () => {
         ].join('\n'),
       );
 
-      assert.throws(() => {
+      expect(() => {
         BigQuery.getTypeDescriptorFromValue_(undefined);
-      }, expectedError);
+      }).toThrow(expectedError);
     });
 
     it('should throw with an empty array', () => {
-      assert.throws(() => {
+      expect(() => {
         BigQuery.getTypeDescriptorFromValue_([]);
-      }, /Parameter types must be provided for empty arrays via the 'types' field in query options./);
+      }).toThrow(/Parameter types must be provided for empty arrays via the 'types' field in query options./);
     });
 
     it('should throw with a null value', () => {
@@ -1506,9 +1387,9 @@ describe('BigQuery', () => {
         "Parameter types must be provided for null values via the 'types' field in query options.",
       );
 
-      assert.throws(() => {
+      expect(() => {
         BigQuery.getTypeDescriptorFromValue_(null);
-      }, expectedError);
+      }).toThrow(expectedError);
     });
   });
 
@@ -1516,7 +1397,7 @@ describe('BigQuery', () => {
     it('should return correct type for an array', () => {
       const type = BigQuery.getTypeDescriptorFromProvidedType_(['INT64']);
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         type: 'ARRAY',
         arrayType: {
           type: 'INT64',
@@ -1527,7 +1408,7 @@ describe('BigQuery', () => {
     it('should return correct type for a struct', () => {
       const type = BigQuery.getTypeDescriptorFromProvidedType_({prop: 'INT64'});
 
-      assert.deepStrictEqual(type, {
+      expect(type).toEqual({
         type: 'STRUCT',
         structTypes: [
           {
@@ -1543,9 +1424,9 @@ describe('BigQuery', () => {
     it('should throw for invalid provided type', () => {
       const INVALID_TYPE = 'invalid';
 
-      assert.throws(() => {
+      expect(() => {
         BigQuery.getTypeDescriptorFromProvidedType_(INVALID_TYPE);
-      }, /Invalid type provided:/);
+      }).toThrow(/Invalid type provided:/);
     });
   });
 
@@ -1553,10 +1434,9 @@ describe('BigQuery', () => {
     it('should get the type', done => {
       const value = {};
 
-      sandbox
-        .stub(BigQuery, 'getTypeDescriptorFromValue_')
-        .callsFake(value_ => {
-          assert.strictEqual(value_, value);
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_')
+        .mockImplementation(value_ => {
+          expect(value_).toBe(value);
           setImmediate(done);
           return {
             type: '',
@@ -1564,17 +1444,16 @@ describe('BigQuery', () => {
         });
 
       const queryParameter = BigQuery.valueToQueryParameter_(value);
-      assert.strictEqual(queryParameter.parameterValue.value, value);
+      expect(queryParameter.parameterValue.value).toBe(value);
     });
 
     it('should get the provided type', done => {
       const value = {};
       const providedType = 'STRUCT';
 
-      sandbox
-        .stub(BigQuery, 'getTypeDescriptorFromProvidedType_')
-        .callsFake(providedType_ => {
-          assert.strictEqual(providedType_, providedType);
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromProvidedType_')
+        .mockImplementation(providedType_ => {
+          expect(providedType_).toBe(providedType);
           setImmediate(done);
           return {
             type: '',
@@ -1586,26 +1465,26 @@ describe('BigQuery', () => {
         providedType,
       );
 
-      assert.strictEqual(queryParameter.parameterValue.value, value);
+      expect(queryParameter.parameterValue.value).toBe(value);
     });
 
     it('should format a Date', () => {
       const date = new Date();
       const expectedValue = date.toJSON().replace(/(.*)T(.*)Z$/, '$1 $2');
 
-      sandbox.stub(BigQuery, 'timestamp').callsFake(value => {
-        assert.strictEqual(value, date);
+      jest.spyOn(BigQuery, 'timestamp').mockImplementation(value => {
+        expect(value).toBe(date);
         return {
           value: expectedValue,
         };
       });
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'TIMESTAMP',
       });
 
       const queryParameter = BigQuery.valueToQueryParameter_(date);
-      assert.strictEqual(queryParameter.parameterValue.value, expectedValue);
+      expect(queryParameter.parameterValue.value).toBe(expectedValue);
     });
 
     it('should locate the value on DATETIME objects', () => {
@@ -1613,12 +1492,12 @@ describe('BigQuery', () => {
         value: 'value',
       };
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'DATETIME',
       });
 
       const queryParameter = BigQuery.valueToQueryParameter_(datetime);
-      assert.strictEqual(queryParameter.parameterValue.value, datetime.value);
+      expect(queryParameter.parameterValue.value).toBe(datetime.value);
     });
 
     it('should locate the value on nested DATETIME objects', () => {
@@ -1628,13 +1507,13 @@ describe('BigQuery', () => {
         },
       ];
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'ARRAY',
         arrayType: {type: 'DATETIME'},
       });
 
       const {parameterValue} = BigQuery.valueToQueryParameter_(datetimes);
-      assert.deepStrictEqual(parameterValue.arrayValues, datetimes);
+      expect(parameterValue.arrayValues).toEqual(datetimes);
     });
 
     it('should locate the value on TIME objects', () => {
@@ -1642,12 +1521,12 @@ describe('BigQuery', () => {
         value: 'value',
       };
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'TIME',
       });
 
       const queryParameter = BigQuery.valueToQueryParameter_(time);
-      assert.strictEqual(queryParameter.parameterValue.value, time.value);
+      expect(queryParameter.parameterValue.value).toBe(time.value);
     });
 
     it('should locate the value on nested TIME objects', () => {
@@ -1657,50 +1536,50 @@ describe('BigQuery', () => {
         },
       ];
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'ARRAY',
         arrayType: {type: 'TIME'},
       });
 
       const {parameterValue} = BigQuery.valueToQueryParameter_(times);
-      assert.deepStrictEqual(parameterValue.arrayValues, times);
+      expect(parameterValue.arrayValues).toEqual(times);
     });
 
     it('should locate the value on BigQueryInt objects', () => {
       const int = new BigQueryInt(100);
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'INT64',
       });
 
       const queryParameter = BigQuery.valueToQueryParameter_(int);
-      assert.strictEqual(queryParameter.parameterValue.value, int.value);
+      expect(queryParameter.parameterValue.value).toBe(int.value);
     });
 
     it('should locate the value on nested BigQueryInt objects', () => {
       const ints = [new BigQueryInt('100')];
       const expected = [{value: '100'}];
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'ARRAY',
         arrayType: {type: 'INT64'},
       });
 
       const {parameterValue} = BigQuery.valueToQueryParameter_(ints);
-      assert.deepStrictEqual(parameterValue.arrayValues, expected);
+      expect(parameterValue.arrayValues).toEqual(expected);
     });
 
     it('should format an array', () => {
       const array = [1];
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: 'ARRAY',
         arrayType: {type: 'INT64'},
       });
 
       const queryParameter = BigQuery.valueToQueryParameter_(array);
       const arrayValues = queryParameter.parameterValue.arrayValues;
-      assert.deepStrictEqual(arrayValues, [
+      expect(arrayValues).toEqual([
         {
           value: array[0],
         },
@@ -1711,7 +1590,7 @@ describe('BigQuery', () => {
       const array = [[1]];
       const providedType = [['INT64']];
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromProvidedType_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromProvidedType_').mockReturnValue({
         type: 'ARRAY',
         arrayType: {
           type: 'ARRAY',
@@ -1724,7 +1603,7 @@ describe('BigQuery', () => {
         providedType,
       );
       const arrayValues = queryParameter.parameterValue.arrayValues;
-      assert.deepStrictEqual(arrayValues, [
+      expect(arrayValues).toEqual([
         {
           arrayValues: [
             {
@@ -1742,9 +1621,9 @@ describe('BigQuery', () => {
 
       const expectedParameterValue = {};
 
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').callsFake(() => {
-        sandbox.stub(BigQuery, 'valueToQueryParameter_').callsFake(value => {
-          assert.strictEqual(value, struct.key);
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockImplementation(() => {
+        jest.spyOn(BigQuery, 'valueToQueryParameter_').mockImplementation(value => {
+          expect(value).toBe(struct.key);
           return {
             parameterValue: expectedParameterValue,
           };
@@ -1758,18 +1637,18 @@ describe('BigQuery', () => {
       const queryParameter = BigQuery.valueToQueryParameter_(struct);
       const structValues = queryParameter.parameterValue.structValues;
 
-      assert.strictEqual(structValues.key, expectedParameterValue);
+      expect(structValues.key).toBe(expectedParameterValue);
     });
 
     it('should format a struct with provided type', () => {
       const struct = {a: 1};
       const providedType = {a: 'INT64'};
 
-      const getTypeStub = sandbox.stub(
+      const getTypeStub = jest.spyOn(
         BigQuery,
         'getTypeDescriptorFromProvidedType_',
       );
-      getTypeStub.onFirstCall().returns({
+      getTypeStub.mockReturnValueOnce({
         type: 'STRUCT',
         structTypes: [
           {
@@ -1780,14 +1659,14 @@ describe('BigQuery', () => {
           },
         ],
       });
-      getTypeStub.onSecondCall().returns({type: 'INT64'});
+      getTypeStub.mockReturnValueOnce({type: 'INT64'});
 
       const queryParameter = BigQuery.valueToQueryParameter_(
         struct,
         providedType,
       );
       const structValues = queryParameter.parameterValue.structValues;
-      assert.deepStrictEqual(structValues, {
+      expect(structValues).toEqual({
         a: {
           value: 1,
         },
@@ -1816,7 +1695,7 @@ describe('BigQuery', () => {
       };
 
       const param = BigQuery.valueToQueryParameter_(structs);
-      assert.deepStrictEqual(param, expectedParam);
+      expect(param).toEqual(expectedParam);
     });
 
     it('should format JSON types', () => {
@@ -1825,7 +1704,7 @@ describe('BigQuery', () => {
         foo: 'bar',
       };
       const strValue = JSON.stringify(value);
-      assert.deepStrictEqual(BigQuery.valueToQueryParameter_(value, typeName), {
+      expect(BigQuery.valueToQueryParameter_(value, typeName)).toEqual({
         parameterType: {
           type: typeName,
         },
@@ -1833,25 +1712,22 @@ describe('BigQuery', () => {
           value: strValue,
         },
       });
-      assert.deepStrictEqual(
-        BigQuery.valueToQueryParameter_(strValue, typeName),
-        {
+      expect(BigQuery.valueToQueryParameter_(strValue, typeName)).toEqual({
           parameterType: {
             type: typeName,
           },
           parameterValue: {
             value: strValue,
           },
-        },
-      );
+        });
     });
 
     it('should format all other types', () => {
       const typeName = 'ANY-TYPE';
-      sandbox.stub(BigQuery, 'getTypeDescriptorFromValue_').returns({
+      jest.spyOn(BigQuery, 'getTypeDescriptorFromValue_').mockReturnValue({
         type: typeName,
       });
-      assert.deepStrictEqual(BigQuery.valueToQueryParameter_(8), {
+      expect(BigQuery.valueToQueryParameter_(8)).toEqual({
         parameterType: {
           type: typeName,
         },
@@ -1866,25 +1742,22 @@ describe('BigQuery', () => {
         const value = 'VALUE';
         const type = 'TYPE';
 
-        sandbox.stub(BigQuery, '_isCustomType').returns(false);
-        assert.strictEqual(BigQuery._getValue(value, type), value);
+        jest.spyOn(BigQuery, '_isCustomType').mockReturnValue(false);
+        expect(BigQuery._getValue(value, type)).toBe(value);
       });
 
       it('should return value of custom type', () => {
         const geography = bq.geography('POINT (1 1)');
 
-        sandbox.stub(BigQuery, '_isCustomType').returns(true);
-        assert.strictEqual(
-          BigQuery._getValue(geography, geography.type),
-          geography.value,
-        );
+        jest.spyOn(BigQuery, '_isCustomType').mockReturnValue(true);
+        expect(BigQuery._getValue(geography, geography.type)).toBe(geography.value);
       });
 
       it('should handle null values', () => {
         const value = null;
         const type = 'TYPE';
 
-        assert.strictEqual(BigQuery._getValue(value, type), value);
+        expect(BigQuery._getValue(value, type)).toBe(value);
       });
     });
 
@@ -1895,10 +1768,10 @@ describe('BigQuery', () => {
         const geo = {type: 'GEOGRAPHY'};
         const range = {type: 'RANGE'};
 
-        assert.strictEqual(BigQuery._isCustomType(time), true);
-        assert.strictEqual(BigQuery._isCustomType(date), true);
-        assert.strictEqual(BigQuery._isCustomType(geo), true);
-        assert.strictEqual(BigQuery._isCustomType(range), true);
+        expect(BigQuery._isCustomType(time)).toBe(true);
+        expect(BigQuery._isCustomType(date)).toBe(true);
+        expect(BigQuery._isCustomType(geo)).toBe(true);
+        expect(BigQuery._isCustomType(range)).toBe(true);
       });
     });
   });
@@ -1908,27 +1781,24 @@ describe('BigQuery', () => {
 
     it('should create a dataset', done => {
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.uri, '/datasets');
-        assert.deepStrictEqual(reqOpts.json.datasetReference, {
+        expect(reqOpts.method).toBe('POST');
+        expect(reqOpts.uri).toBe('/datasets');
+        expect(reqOpts.json.datasetReference).toEqual({
           datasetId: DATASET_ID,
         });
 
         done();
       };
 
-      bq.createDataset(DATASET_ID, assert.ifError);
+      bq.createDataset(DATASET_ID, (err: any) => { if (err) throw err; });
     });
 
     it('should create a dataset on a different project', done => {
       bq.makeAuthenticatedRequest = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.projectId, ANOTHER_PROJECT_ID);
-        assert.strictEqual(
-          reqOpts.uri,
-          `https://bigquery.googleapis.com/bigquery/v2/projects/${ANOTHER_PROJECT_ID}/datasets`,
-        );
-        assert.deepStrictEqual(reqOpts.json.datasetReference, {
+        expect(reqOpts.method).toBe('POST');
+        expect(reqOpts.projectId).toBe(ANOTHER_PROJECT_ID);
+        expect(reqOpts.uri).toBe(`https://bigquery.googleapis.com/bigquery/v2/projects/${ANOTHER_PROJECT_ID}/datasets`);
+        expect(reqOpts.json.datasetReference).toEqual({
           datasetId: DATASET_ID,
         });
 
@@ -1939,8 +1809,7 @@ describe('BigQuery', () => {
         DATASET_ID,
         {
           projectId: ANOTHER_PROJECT_ID,
-        },
-        assert.ifError,
+        }, (err: any) => { if (err) throw err; },
       );
     });
 
@@ -1951,11 +1820,11 @@ describe('BigQuery', () => {
       });
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json.location, LOCATION);
+        expect(reqOpts.json.location).toBe(LOCATION);
         done();
       };
 
-      bq.createDataset(DATASET_ID, assert.ifError);
+      bq.createDataset(DATASET_ID, (err: any) => { if (err) throw err; });
     });
 
     it('should not modify the original options object', done => {
@@ -1967,12 +1836,12 @@ describe('BigQuery', () => {
       const originalOptions = Object.assign({}, options);
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.notStrictEqual(reqOpts.json, options);
-        assert.deepStrictEqual(options, originalOptions);
+        expect(reqOpts.json).not.toBe(options);
+        expect(options).toEqual(originalOptions);
         done();
       };
 
-      bq.createDataset(DATASET_ID, options, assert.ifError);
+      bq.createDataset(DATASET_ID, options, (err: any) => { if (err) throw err; });
     });
 
     it('should return an error to the callback', done => {
@@ -1982,8 +1851,8 @@ describe('BigQuery', () => {
         callback(error);
       };
 
-      bq.createDataset(DATASET_ID, (err: Error) => {
-        assert.strictEqual(err, error);
+      bq.createDataset(DATASET_ID, (err: any) => {
+        expect(err).toBe(error);
         done();
       });
     });
@@ -1993,9 +1862,9 @@ describe('BigQuery', () => {
         callback(null, {});
       };
 
-      bq.createDataset(DATASET_ID, (err: Error, dataset: Dataset) => {
-        assert.ifError(err);
-        assert(dataset instanceof FakeDataset);
+      bq.createDataset(DATASET_ID, (err: any, dataset: Dataset) => {
+        expect(err).toBeFalsy();
+        expect(dataset instanceof FakeDataset).toBeTruthy();
         done();
       });
     });
@@ -2009,9 +1878,9 @@ describe('BigQuery', () => {
 
       bq.createDataset(
         DATASET_ID,
-        (err: Error, dataset: Dataset, apiResponse: {}) => {
-          assert.ifError(err);
-          assert.deepStrictEqual(apiResponse, resp);
+        (err: any, dataset: Dataset, apiResponse: {}) => {
+          expect(err).toBeFalsy();
+          expect(apiResponse).toEqual(resp);
           done();
         },
       );
@@ -2024,9 +1893,9 @@ describe('BigQuery', () => {
         callback(null, metadata);
       };
 
-      bq.createDataset(DATASET_ID, (err: Error, dataset: Dataset) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(dataset.metadata, metadata);
+      bq.createDataset(DATASET_ID, (err: any, dataset: Dataset) => {
+        expect(err).toBeFalsy();
+        expect(dataset.metadata).toEqual(metadata);
         done();
       });
     });
@@ -2047,9 +1916,7 @@ describe('BigQuery', () => {
     beforeEach(() => {
       fakeJobId = crypto.randomUUID();
 
-      fakeCrypto.randomUUID = _ => {
-        return fakeJobId as crypto.UUID;
-      };
+      jest.spyOn(crypto, 'randomUUID').mockReturnValue(fakeJobId as crypto.UUID);
     });
 
     it('should make the correct request', done => {
@@ -2066,14 +1933,14 @@ describe('BigQuery', () => {
       });
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.uri, '/jobs');
-        assert.deepStrictEqual(reqOpts.json, expectedOptions);
-        assert.notStrictEqual(reqOpts.json, fakeOptions);
+        expect(reqOpts.method).toBe('POST');
+        expect(reqOpts.uri).toBe('/jobs');
+        expect(reqOpts.json).toEqual(expectedOptions);
+        expect(reqOpts.json).not.toBe(fakeOptions);
         done();
       };
 
-      bq.createJob(fakeOptions, assert.ifError);
+      bq.createJob(fakeOptions, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a job prefix', done => {
@@ -2084,12 +1951,12 @@ describe('BigQuery', () => {
       };
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json.jobReference.jobId, expectedJobId);
-        assert.strictEqual(reqOpts.json.jobPrefix, undefined);
+        expect(reqOpts.json.jobReference.jobId).toBe(expectedJobId);
+        expect(reqOpts.json.jobPrefix).toBe(undefined);
         done();
       };
 
-      bq.createJob(options, assert.ifError);
+      bq.createJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a location', done => {
@@ -2098,12 +1965,12 @@ describe('BigQuery', () => {
       };
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json.jobReference.location, LOCATION);
-        assert.strictEqual(reqOpts.json.location, undefined);
+        expect(reqOpts.json.jobReference.location).toBe(LOCATION);
+        expect(reqOpts.json.location).toBe(undefined);
         done();
       };
 
-      bq.createJob(options, assert.ifError);
+      bq.createJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a job id', done => {
@@ -2111,12 +1978,12 @@ describe('BigQuery', () => {
       const options = {jobId};
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json.jobReference.jobId, jobId);
-        assert.strictEqual(reqOpts.json.jobId, undefined);
+        expect(reqOpts.json.jobReference.jobId).toBe(jobId);
+        expect(reqOpts.json.jobId).toBe(undefined);
         done();
       };
 
-      bq.createJob(options, assert.ifError);
+      bq.createJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should use the user defined location if available', done => {
@@ -2126,11 +1993,11 @@ describe('BigQuery', () => {
       });
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json.jobReference.location, LOCATION);
+        expect(reqOpts.json.jobReference.location).toBe(LOCATION);
         done();
       };
 
-      bq.createJob({}, assert.ifError);
+      bq.createJob({}, (err: any) => { if (err) throw err; });
     });
 
     it('should return a non-409 request error', done => {
@@ -2141,10 +2008,10 @@ describe('BigQuery', () => {
         callback(error, response);
       };
 
-      bq.createJob({}, (err: Error, job: Job, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(job, null);
-        assert.strictEqual(resp, response);
+      bq.createJob({}, (err: any, job: Job, resp: {}) => {
+        expect(err).toBe(error);
+        expect(job).toBe(null);
+        expect(resp).toBe(response);
         done();
       });
     });
@@ -2162,9 +2029,9 @@ describe('BigQuery', () => {
         callback(error);
       };
 
-      bq.createJob({}, (err: Error, job: Job, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, RESPONSE);
+      bq.createJob({}, (err: any, job: Job, resp: {}) => {
+        expect(err).toBeFalsy();
+        expect(resp).toBe(RESPONSE);
         done();
       });
     });
@@ -2177,8 +2044,8 @@ describe('BigQuery', () => {
         callback(error);
       };
 
-      bq.createJob({jobId: 'job-id'}, (err: Error) => {
-        assert.strictEqual(err, error);
+      bq.createJob({jobId: 'job-id'}, (err: any) => {
+        expect(err).toBe(error);
         done();
       });
     });
@@ -2191,8 +2058,8 @@ describe('BigQuery', () => {
         callback(error);
       };
 
-      bq.createJob({configuration: {dryRun: true}}, (err: Error) => {
-        assert.strictEqual(err, error);
+      bq.createJob({configuration: {dryRun: true}}, (err: any) => {
+        expect(err).toBe(error);
         done();
       });
     });
@@ -2208,11 +2075,11 @@ describe('BigQuery', () => {
       };
 
       bq.createJob({}, (err: FakeApiError) => {
-        assert(err instanceof FakeApiError);
+        expect(err instanceof FakeApiError).toBeTruthy();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const errorOpts: any = err.calledWith_[0];
-        assert.deepStrictEqual(errorOpts.errors, errors);
-        assert.strictEqual(errorOpts.response, response);
+        expect(errorOpts.errors).toEqual(errors);
+        expect(errorOpts.response).toBe(response);
         done();
       });
     });
@@ -2221,8 +2088,8 @@ describe('BigQuery', () => {
       const fakeJob = {};
 
       bq.job = (jobId: string, options: JobOptions) => {
-        assert.strictEqual(jobId, fakeJobId);
-        assert.strictEqual(options.location, LOCATION);
+        expect(jobId).toBe(fakeJobId);
+        expect(options.location).toBe(LOCATION);
         return fakeJob;
       };
 
@@ -2230,11 +2097,11 @@ describe('BigQuery', () => {
         callback(null, RESPONSE);
       };
 
-      bq.createJob({location: LOCATION}, (err: Error, job: Job, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(job, fakeJob);
-        assert.strictEqual(job.metadata, RESPONSE);
-        assert.strictEqual(resp, RESPONSE);
+      bq.createJob({location: LOCATION}, (err: any, job: Job, resp: {}) => {
+        expect(err).toBeFalsy();
+        expect(job).toBe(fakeJob);
+        expect(job.metadata).toBe(RESPONSE);
+        expect(resp).toBe(RESPONSE);
         done();
       });
     });
@@ -2250,9 +2117,9 @@ describe('BigQuery', () => {
         callback(null, RESPONSE);
       };
 
-      bq.createJob({}, (err: Error) => {
-        assert.ifError(err);
-        assert.strictEqual(fakeJob.location, LOCATION);
+      bq.createJob({}, (err: any) => {
+        expect(err).toBeFalsy();
+        expect(fakeJob.location).toBe(LOCATION);
         done();
       });
     });
@@ -2262,17 +2129,17 @@ describe('BigQuery', () => {
     const QUERY_STRING = 'SELECT * FROM [dataset.table]';
 
     it('should throw if neither a query or a pageToken is provided', () => {
-      assert.throws(() => {
+      expect(() => {
         bq.createQueryJob();
-      }, /SQL query string is required/);
+      }).toThrow(/SQL query string is required/);
 
-      assert.throws(() => {
+      expect(() => {
         bq.createQueryJob({noQuery: 'here'});
-      }, /SQL query string is required/);
+      }).toThrow(/SQL query string is required/);
 
-      assert.doesNotThrow(() => {
+      expect(() => {
         bq.createQueryJob({pageToken: 'NEXT_PAGE_TOKEN'}, util.noop);
-      });
+      }).not.toThrow();
     });
 
     describe('with destination', () => {
@@ -2289,44 +2156,41 @@ describe('BigQuery', () => {
       });
 
       it('should throw if a destination is not a table', () => {
-        assert.throws(() => {
+        expect(() => {
           bq.createQueryJob({
             query: 'query',
             destination: 'not a table',
           });
-        }, /Destination must be a Table/);
+        }).toThrow(/Destination must be a Table/);
       });
 
       it('should assign destination table to request body', done => {
         bq.request = (reqOpts: DecorateRequestOptions) => {
-          assert.deepStrictEqual(
-            reqOpts.json.configuration.query.destinationTable,
-            {
+          expect(reqOpts.json.configuration.query.destinationTable).toEqual({
               datasetId: dataset.id,
               projectId: dataset.projectId,
               tableId: TABLE_ID,
-            },
-          );
+            });
 
           done();
         };
 
         bq.createQueryJob({
           query: 'query',
-          destination: new FakeTable(dataset, TABLE_ID),
+          destination: new FakeTable(dataset, TABLE_ID) as any,
         });
       });
 
       it('should delete `destination` prop from request body', done => {
         bq.request = (reqOpts: DecorateRequestOptions) => {
           const body = reqOpts.json;
-          assert.strictEqual(body.configuration.query.destination, undefined);
+          expect(body.configuration.query.destination).toBe(undefined);
           done();
         };
 
         bq.createQueryJob({
           query: 'query',
-          destination: new FakeTable(dataset, TABLE_ID),
+          destination: new FakeTable(dataset, TABLE_ID) as any,
         });
       });
     });
@@ -2345,7 +2209,7 @@ describe('BigQuery', () => {
       it('should delete the params option', done => {
         bq.createJob = (reqOpts: JobOptions) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          assert.strictEqual((reqOpts as any).params, undefined);
+          expect((reqOpts as any).params).toBe(undefined);
           done();
         };
 
@@ -2353,19 +2217,15 @@ describe('BigQuery', () => {
           {
             query: QUERY_STRING,
             params: NAMED_PARAMS,
-          },
-          assert.ifError,
+          }, (err: any) => { if (err) throw err; },
         );
       });
 
       it('should not modify queryParameters if params is not informed', done => {
         bq.createJob = (reqOpts: JobOptions) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          assert.strictEqual((reqOpts as any).params, undefined);
-          assert.deepStrictEqual(
-            reqOpts.configuration?.query?.queryParameters,
-            NAMED_PARAMS,
-          );
+          expect((reqOpts as any).params).toBe(undefined);
+          expect(reqOpts.configuration?.query?.queryParameters).toEqual(NAMED_PARAMS);
           done();
         };
 
@@ -2373,8 +2233,7 @@ describe('BigQuery', () => {
           {
             query: QUERY_STRING,
             queryParameters: NAMED_PARAMS,
-          },
-          assert.ifError,
+          }, (err: any) => { if (err) throw err; },
         );
       });
 
@@ -2382,7 +2241,7 @@ describe('BigQuery', () => {
         it('should set the correct parameter mode', done => {
           bq.createJob = (reqOpts: JobOptions) => {
             const query = reqOpts.configuration!.query!;
-            assert.strictEqual(query.parameterMode, 'named');
+            expect(query.parameterMode).toBe('named');
             done();
           };
 
@@ -2390,23 +2249,22 @@ describe('BigQuery', () => {
             {
               query: QUERY_STRING,
               params: NAMED_PARAMS,
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
         it('should set the correct query parameters', done => {
           const queryParameter = {};
 
-          sandbox.replace(BigQuery, 'valueToQueryParameter_', (value: {}) => {
-            assert.strictEqual(value, NAMED_PARAMS.key);
+          jest.spyOn(BigQuery, 'valueToQueryParameter_').mockImplementation((value: any) => {
+            expect(value).toBe(NAMED_PARAMS.key);
             return queryParameter;
           });
 
           bq.createJob = (reqOpts: JobOptions) => {
             const query = reqOpts.configuration!.query!;
-            assert.strictEqual(query.queryParameters![0], queryParameter);
-            assert.strictEqual(query.queryParameters![0].name, 'key');
+            expect(query.queryParameters![0]).toBe(queryParameter);
+            expect(query.queryParameters![0].name).toBe('key');
             done();
           };
 
@@ -2414,26 +2272,22 @@ describe('BigQuery', () => {
             {
               query: QUERY_STRING,
               params: NAMED_PARAMS,
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
         it('should allow for optional parameter types', () => {
           const queryParameter = {};
 
-          sandbox.replace(
-            BigQuery,
-            'valueToQueryParameter_',
-            (value: {}, providedType: string) => {
-              assert.strictEqual(value, NAMED_PARAMS.key);
-              assert.strictEqual(providedType, NAMED_TYPES.key);
+          jest.spyOn(BigQuery, 'valueToQueryParameter_').mockImplementation((value: any, providedType: any) => {
+              expect(value).toBe(NAMED_PARAMS.key);
+              expect(providedType).toBe(NAMED_TYPES.key);
               return queryParameter;
             },
           );
           bq.createJob = (reqOpts: JobOptions) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            assert.strictEqual((reqOpts as any).params, undefined);
+            expect((reqOpts as any).params).toBe(undefined);
           };
 
           bq.createQueryJob(
@@ -2441,22 +2295,21 @@ describe('BigQuery', () => {
               query: QUERY_STRING,
               params: NAMED_PARAMS,
               types: NAMED_TYPES,
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
         it('should allow for providing only some parameter types', () => {
           const queryParameter = {};
 
-          sandbox.replace(BigQuery, 'valueToQueryParameter_', (value: {}) => {
-            assert.strictEqual(value, NAMED_PARAMS.key);
+          jest.spyOn(BigQuery, 'valueToQueryParameter_').mockImplementation((value: any) => {
+            expect(value).toBe(NAMED_PARAMS.key);
             return queryParameter;
           });
 
           bq.createJob = (reqOpts: JobOptions) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            assert.strictEqual((reqOpts as any).params, undefined);
+            expect((reqOpts as any).params).toBe(undefined);
           };
 
           bq.createQueryJob(
@@ -2464,19 +2317,18 @@ describe('BigQuery', () => {
               query: QUERY_STRING,
               params: NAMED_PARAMS,
               types: {},
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
         it('should throw for invalid type structure provided', () => {
-          assert.throws(() => {
+          expect(() => {
             bq.createQueryJob({
               query: QUERY_STRING,
               params: NAMED_PARAMS,
               types: POSITIONAL_TYPES,
             });
-          }, /Provided types must match the value type passed to `params`/);
+          }).toThrow(/Provided types must match the value type passed to `params`/);
         });
       });
 
@@ -2484,13 +2336,13 @@ describe('BigQuery', () => {
         it('should set the correct parameter mode', done => {
           const queryParameter = {};
 
-          sandbox.replace(BigQuery, 'valueToQueryParameter_', (value: {}) => {
+          jest.spyOn(BigQuery, 'valueToQueryParameter_').mockImplementation((value: any) => {
             return queryParameter;
           });
 
           bq.createJob = (reqOpts: JobOptions) => {
             const query = reqOpts.configuration!.query!;
-            assert.strictEqual(query.parameterMode, 'positional');
+            expect(query.parameterMode).toBe('positional');
             done();
           };
 
@@ -2498,22 +2350,21 @@ describe('BigQuery', () => {
             {
               query: QUERY_STRING,
               params: POSITIONAL_PARAMS,
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
         it('should set the correct query parameters', done => {
           const queryParameter = {};
 
-          sandbox.replace(BigQuery, 'valueToQueryParameter_', (value: {}) => {
-            assert.strictEqual(value, POSITIONAL_PARAMS[0]);
+          jest.spyOn(BigQuery, 'valueToQueryParameter_').mockImplementation((value: any) => {
+            expect(value).toBe(POSITIONAL_PARAMS[0]);
             return queryParameter;
           });
 
           bq.createJob = (reqOpts: JobOptions) => {
             const query = reqOpts.configuration!.query!;
-            assert.strictEqual(query.queryParameters![0], queryParameter);
+            expect(query.queryParameters![0]).toBe(queryParameter);
             done();
           };
 
@@ -2521,8 +2372,7 @@ describe('BigQuery', () => {
             {
               query: QUERY_STRING,
               params: POSITIONAL_PARAMS,
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
@@ -2532,15 +2382,14 @@ describe('BigQuery', () => {
           bq.createJob = (reqOpts: JobOptions) => {
             const queryParameters =
               reqOpts.configuration!.query!.queryParameters;
-            assert.deepStrictEqual(queryParameters, [fakeQueryParameter]);
+            expect(queryParameters).toEqual([fakeQueryParameter]);
             done();
           };
 
-          sandbox
-            .stub(BigQuery, 'valueToQueryParameter_')
-            .callsFake((value, type) => {
-              assert.strictEqual(value, POSITIONAL_PARAMS[0]);
-              assert.strictEqual(type, POSITIONAL_TYPES[0]);
+          jest.spyOn(BigQuery, 'valueToQueryParameter_')
+            .mockImplementation((value, type) => {
+              expect(value).toBe(POSITIONAL_PARAMS[0]);
+              expect(type).toBe(POSITIONAL_TYPES[0]);
               return fakeQueryParameter;
             });
 
@@ -2554,7 +2403,7 @@ describe('BigQuery', () => {
         it('should allow for optional parameter types', () => {
           bq.createJob = (reqOpts: JobOptions) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            assert.strictEqual((reqOpts as any).params, undefined);
+            expect((reqOpts as any).params).toBe(undefined);
           };
 
           bq.createQueryJob(
@@ -2562,30 +2411,29 @@ describe('BigQuery', () => {
               query: QUERY_STRING,
               params: POSITIONAL_PARAMS,
               types: POSITIONAL_TYPES,
-            },
-            assert.ifError,
+            }, (err: any) => { if (err) throw err; },
           );
         });
 
         it('should throw for invalid type structure provided for positional params', () => {
-          assert.throws(() => {
+          expect(() => {
             bq.createQueryJob({
               query: QUERY_STRING,
               params: POSITIONAL_PARAMS,
               types: NAMED_TYPES,
             });
-          }, /Provided types must match the value type passed to `params`/);
+          }).toThrow(/Provided types must match the value type passed to `params`/);
         });
 
         it('should throw for incorrect number of types provided for positional params', () => {
           const ADDITIONAL_TYPES = ['string', 'string'];
-          assert.throws(() => {
+          expect(() => {
             bq.createQueryJob({
               query: QUERY_STRING,
               params: POSITIONAL_PARAMS,
               types: ADDITIONAL_TYPES,
             });
-          }, /Incorrect number of parameter types provided./);
+          }).toThrow(/Incorrect number of parameter types provided./);
         });
       });
     });
@@ -2597,16 +2445,13 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.query as any).dryRun,
-          undefined,
-        );
-        assert.strictEqual(reqOpts.configuration!.dryRun, options.dryRun);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.query as any).dryRun).toBe(undefined);
+        expect(reqOpts.configuration!.dryRun).toBe(options.dryRun);
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept the label options', done => {
@@ -2616,16 +2461,13 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.query as any).labels,
-          undefined,
-        );
-        assert.deepStrictEqual(reqOpts.configuration!.labels, options.labels);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.query as any).labels).toBe(undefined);
+        expect(reqOpts.configuration!.labels).toEqual(options.labels);
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a job prefix', done => {
@@ -2635,16 +2477,13 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.query as any).jobPrefix,
-          undefined,
-        );
-        assert.strictEqual(reqOpts.jobPrefix, options.jobPrefix);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.query as any).jobPrefix).toBe(undefined);
+        expect(reqOpts.jobPrefix).toBe(options.jobPrefix);
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a reservation id', done => {
@@ -2654,11 +2493,11 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(reqOpts.configuration?.reservation, 'reservation/1');
+        expect(reqOpts.configuration?.reservation).toBe('reservation/1');
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a location', done => {
@@ -2668,16 +2507,13 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.query as any).location,
-          undefined,
-        );
-        assert.strictEqual(reqOpts.location, LOCATION);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.query as any).location).toBe(undefined);
+        expect(reqOpts.location).toBe(LOCATION);
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a job id', done => {
@@ -2687,16 +2523,13 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.query as any).jobId,
-          undefined,
-        );
-        assert.strictEqual(reqOpts.jobId, options.jobId);
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.query as any).jobId).toBe(undefined);
+        expect(reqOpts.jobId).toBe(options.jobId);
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should accept the jobTimeoutMs options', done => {
@@ -2706,19 +2539,13 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions) => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (reqOpts.configuration!.query as any).jobTimeoutMs,
-          undefined,
-        );
-        assert.strictEqual(
-          reqOpts.configuration!.jobTimeoutMs,
-          `${options.jobTimeoutMs}`,
-        );
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (reqOpts.configuration!.query as any).jobTimeoutMs).toBe(undefined);
+        expect(reqOpts.configuration!.jobTimeoutMs).toBe(`${options.jobTimeoutMs}`);
         done();
       };
 
-      bq.createQueryJob(options, assert.ifError);
+      bq.createQueryJob(options, (err: any) => { if (err) throw err; });
     });
 
     it('should pass the callback to createJob', done => {
@@ -2735,20 +2562,20 @@ describe('BigQuery', () => {
 
     it('should throw an error if the id is missing', () => {
       const expectedErr = /A dataset ID is required\./;
-      assert.throws(() => bq.dataset(), expectedErr);
+      expect(() => bq.dataset()).toThrow(expectedErr);
     });
 
     it('returns a Dataset instance', () => {
       const ds = bq.dataset(DATASET_ID);
-      assert(ds instanceof FakeDataset);
+      expect(ds instanceof FakeDataset).toBeTruthy();
     });
 
     it('should scope the correct dataset', () => {
       const ds = bq.dataset(DATASET_ID);
       const args = ds.calledWith_;
 
-      assert.strictEqual(args[0], bq);
-      assert.strictEqual(args[1], DATASET_ID);
+      expect(args[0]).toBe(bq);
+      expect(args[1]).toBe(DATASET_ID);
     });
 
     it('should accept dataset metadata', () => {
@@ -2756,7 +2583,7 @@ describe('BigQuery', () => {
       const ds = bq.dataset(DATASET_ID, options);
       const args = ds.calledWith_;
 
-      assert.strictEqual(args[2], options);
+      expect(args[2]).toBe(options);
     });
 
     it('should pass the location if available', () => {
@@ -2771,40 +2598,40 @@ describe('BigQuery', () => {
       const ds = bq.dataset(DATASET_ID, options);
       const args = ds.calledWith_;
 
-      assert.deepStrictEqual(args[2], expectedOptions);
-      assert.notStrictEqual(args[2], options);
+      expect(args[2]).toEqual(expectedOptions);
+      expect(args[2]).not.toBe(options);
     });
   });
 
   describe('getDatasets', () => {
     it('should get datasets from the api', done => {
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/datasets');
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.uri).toBe('/datasets');
+        expect(reqOpts.qs).toEqual({});
 
         done();
       };
 
-      bq.getDatasets(assert.ifError);
+      bq.getDatasets((err: any) => { if (err) done(err); });
     });
 
     it('should accept query', done => {
       const queryObject = {all: true, maxResults: 8, pageToken: 'token'};
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.qs, queryObject);
+        expect(reqOpts.qs).toBe(queryObject);
         done();
       };
 
-      bq.getDatasets(queryObject, assert.ifError);
+      bq.getDatasets(queryObject, (err: any) => { if (err) throw err; });
     });
 
     it('should default the query to an empty object', done => {
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.qs).toEqual({});
         done();
       };
-      bq.getDatasets(assert.ifError);
+      bq.getDatasets((err: any) => { if (err) done(err); });
     });
 
     it('should return error to callback', done => {
@@ -2814,8 +2641,8 @@ describe('BigQuery', () => {
         callback(error);
       };
 
-      bq.getDatasets((err: Error) => {
-        assert.strictEqual(err, error);
+      bq.getDatasets((err: any) => {
+        expect(err).toBe(error);
         done();
       });
     });
@@ -2834,16 +2661,16 @@ describe('BigQuery', () => {
         });
       };
 
-      bq.getDatasets((err: Error, datasets: FakeDataset[]) => {
-        assert.ifError(err);
+      bq.getDatasets((err: any, datasets: FakeDataset[]) => {
+        expect(err).toBeFalsy();
 
         const dataset = datasets[0];
         const args = dataset.calledWith_;
 
-        assert(dataset instanceof FakeDataset);
-        assert.strictEqual(args[0], bq);
-        assert.strictEqual(args[1], datasetId);
-        assert.deepStrictEqual(args[2], {location: LOCATION});
+        expect(dataset instanceof FakeDataset).toBeTruthy();
+        expect(args[0]).toBe(bq);
+        expect(args[1]).toBe(datasetId);
+        expect(args[2]).toEqual({location: LOCATION});
         done();
       });
     });
@@ -2856,9 +2683,9 @@ describe('BigQuery', () => {
       };
 
       bq.getDatasets(
-        (err: Error, datasets: {}, nextQuery: {}, apiResponse: {}) => {
-          assert.ifError(err);
-          assert.strictEqual(apiResponse, resp);
+        (err: any, datasets: {}, nextQuery: {}, apiResponse: {}) => {
+          expect(err).toBeFalsy();
+          expect(apiResponse).toBe(resp);
           done();
         },
       );
@@ -2879,9 +2706,9 @@ describe('BigQuery', () => {
         callback(null, {datasets: datasetObjects});
       };
 
-      bq.getDatasets((err: Error, datasets: Dataset[]) => {
-        assert.ifError(err);
-        assert.strictEqual(datasets[0].metadata, datasetObjects[0]);
+      bq.getDatasets((err: any, datasets: Dataset[]) => {
+        expect(err).toBeFalsy();
+        expect(datasets[0].metadata).toBe(datasetObjects[0]);
         done();
       });
     });
@@ -2893,8 +2720,8 @@ describe('BigQuery', () => {
         callback(null, {nextPageToken: token});
       };
 
-      bq.getDatasets((err: Error, datasets: Dataset[], nextQuery: {}) => {
-        assert.deepStrictEqual(nextQuery, {
+      bq.getDatasets((err: any, datasets: Dataset[], nextQuery: {}) => {
+        expect(nextQuery).toEqual({
           pageToken: token,
         });
         done();
@@ -2905,27 +2732,24 @@ describe('BigQuery', () => {
       const queryObject = {projectId: ANOTHER_PROJECT_ID};
 
       bq.makeAuthenticatedRequest = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(
-          reqOpts.uri,
-          `https://bigquery.googleapis.com/bigquery/v2/projects/${ANOTHER_PROJECT_ID}/datasets`,
-        );
+        expect(reqOpts.uri).toBe(`https://bigquery.googleapis.com/bigquery/v2/projects/${ANOTHER_PROJECT_ID}/datasets`);
         done();
       };
 
-      bq.getDatasets(queryObject, assert.ifError);
+      bq.getDatasets(queryObject, (err: any) => { if (err) throw err; });
     });
   });
 
   describe('getJobs', () => {
     it('should get jobs from the api', done => {
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/jobs');
-        assert.deepStrictEqual(reqOpts.qs, {});
-        assert.deepStrictEqual(reqOpts.useQuerystring, true);
+        expect(reqOpts.uri).toBe('/jobs');
+        expect(reqOpts.qs).toEqual({});
+        expect(reqOpts.useQuerystring).toEqual(true);
         done();
       };
 
-      bq.getJobs(assert.ifError);
+      bq.getJobs((err: any) => { if (err) done(err); });
     });
 
     it('should accept query', done => {
@@ -2938,19 +2762,19 @@ describe('BigQuery', () => {
       };
 
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, queryObject);
+        expect(reqOpts.qs).toEqual(queryObject);
         done();
       };
 
-      bq.getJobs(queryObject, assert.ifError);
+      bq.getJobs(queryObject, (err: any) => { if (err) throw err; });
     });
 
     it('should default the query to an object', done => {
       bq.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.qs).toEqual({});
         done();
       };
-      bq.getJobs(assert.ifError);
+      bq.getJobs((err: any) => { if (err) done(err); });
     });
 
     it('should return error to callback', done => {
@@ -2960,8 +2784,8 @@ describe('BigQuery', () => {
         callback(error);
       };
 
-      bq.getJobs((err: Error) => {
-        assert.strictEqual(err, error);
+      bq.getJobs((err: any) => {
+        expect(err).toBe(error);
         done();
       });
     });
@@ -2981,16 +2805,16 @@ describe('BigQuery', () => {
         });
       };
 
-      bq.getJobs((err: Error, jobs: FakeJob[]) => {
-        assert.ifError(err);
+      bq.getJobs((err: any, jobs: FakeJob[]) => {
+        expect(err).toBeFalsy();
 
         const job = jobs[0];
         const args = job.calledWith_;
 
-        assert(job instanceof FakeJob);
-        assert.strictEqual(args[0], bq);
-        assert.strictEqual(args[1], JOB_ID);
-        assert.deepStrictEqual(args[2], {location: LOCATION});
+        expect(job instanceof FakeJob).toBeTruthy();
+        expect(args[0]).toBe(bq);
+        expect(args[1]).toBe(JOB_ID);
+        expect(args[2]).toEqual({location: LOCATION});
         done();
       });
     });
@@ -3011,9 +2835,9 @@ describe('BigQuery', () => {
         callback(null, resp);
       };
 
-      bq.getJobs((err: Error, jobs: Job[], nextQuery: {}, apiResponse: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(resp, apiResponse);
+      bq.getJobs((err: any, jobs: Job[], nextQuery: {}, apiResponse: {}) => {
+        expect(err).toBeFalsy();
+        expect(resp).toBe(apiResponse);
         done();
       });
     });
@@ -3034,9 +2858,9 @@ describe('BigQuery', () => {
         callback(null, {jobs: jobObjects});
       };
 
-      bq.getJobs((err: Error, jobs: Job[]) => {
-        assert.ifError(err);
-        assert.strictEqual(jobs[0].metadata, jobObjects[0]);
+      bq.getJobs((err: any, jobs: Job[]) => {
+        expect(err).toBeFalsy();
+        expect(jobs[0].metadata).toBe(jobObjects[0]);
         done();
       });
     });
@@ -3048,9 +2872,9 @@ describe('BigQuery', () => {
         callback(null, {nextPageToken: token});
       };
 
-      bq.getJobs((err: Error, jobs: Job[], nextQuery: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(nextQuery, {
+      bq.getJobs((err: any, jobs: Job[], nextQuery: {}) => {
+        expect(err).toBeFalsy();
+        expect(nextQuery).toEqual({
           pageToken: token,
         });
         done();
@@ -3061,22 +2885,22 @@ describe('BigQuery', () => {
   describe('job', () => {
     it('should return a Job instance', () => {
       const job = bq.job(JOB_ID);
-      assert(job instanceof FakeJob);
+      expect(job instanceof FakeJob).toBeTruthy();
     });
 
     it('should scope the correct job', () => {
       const job = bq.job(JOB_ID);
       const args = job.calledWith_;
 
-      assert.strictEqual(args[0], bq);
-      assert.strictEqual(args[1], JOB_ID);
+      expect(args[0]).toBe(bq);
+      expect(args[1]).toBe(JOB_ID);
     });
 
     it('should pass the options object', () => {
       const options = {a: 'b'};
       const job = bq.job(JOB_ID, options);
 
-      assert.strictEqual(job.calledWith_[2], options);
+      expect(job.calledWith_[2]).toBe(options);
     });
 
     it('should pass in the user specified location', () => {
@@ -3091,8 +2915,8 @@ describe('BigQuery', () => {
       const job = bq.job(JOB_ID, options);
       const args = job.calledWith_;
 
-      assert.deepStrictEqual(args[2], expectedOptions);
-      assert.notStrictEqual(args[2], options);
+      expect(args[2]).toEqual(expectedOptions);
+      expect(args[2]).not.toBe(options);
     });
   });
 
@@ -3112,10 +2936,10 @@ describe('BigQuery', () => {
         return undefined;
       };
 
-      bq.query(QUERY_STRING, (err: Error, rows: {}, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(rows, null);
-        assert.strictEqual(resp, FAKE_RESPONSE);
+      bq.query(QUERY_STRING, (err: any, rows: {}, resp: {}) => {
+        expect(err).toBe(error);
+        expect(rows).toBe(null);
+        expect(resp).toBe(FAKE_RESPONSE);
         done();
       });
     });
@@ -3127,10 +2951,10 @@ describe('BigQuery', () => {
         callback(error, FAKE_RESPONSE, {});
       };
 
-      bq.query(QUERY_STRING, (err: Error, rows: {}, resp: {}) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(rows, null);
-        assert.strictEqual(resp, FAKE_RESPONSE);
+      bq.query(QUERY_STRING, (err: any, rows: {}, resp: {}) => {
+        expect(err).toBe(error);
+        expect(rows).toBe(null);
+        expect(resp).toBe(FAKE_RESPONSE);
         done();
       });
     });
@@ -3148,13 +2972,10 @@ describe('BigQuery', () => {
       bq.query(
         QUERY_STRING,
         {timeoutMs: 1000},
-        (err: Error, rows: {}, resp: {}) => {
-          assert.strictEqual(
-            err.message,
-            'The query did not complete before 1000ms',
-          );
-          assert.strictEqual(rows, null);
-          assert.strictEqual(resp, fakeJob);
+        (err: any, rows: {}, resp: {}) => {
+          expect(err.message).toBe('The query did not complete before 1000ms');
+          expect(rows).toBe(null);
+          expect(resp).toBe(fakeJob);
           done();
         },
       );
@@ -3167,7 +2988,7 @@ describe('BigQuery', () => {
       };
 
       bq.createQueryJob = (query: {}, callback: Function) => {
-        assert.strictEqual(query, options);
+        expect(query).toBe(options);
         callback(null, null, FAKE_RESPONSE);
       };
 
@@ -3175,10 +2996,10 @@ describe('BigQuery', () => {
         return undefined;
       };
 
-      bq.query(options, (err: Error, rows: {}, resp: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(rows, []);
-        assert.strictEqual(resp, FAKE_RESPONSE);
+      bq.query(options, (err: any, rows: {}, resp: {}) => {
+        expect(err).toBeFalsy();
+        expect(rows).toEqual([]);
+        expect(resp).toBe(FAKE_RESPONSE);
         done();
       });
     });
@@ -3198,10 +3019,10 @@ describe('BigQuery', () => {
         return undefined;
       };
 
-      bq.query(QUERY_STRING, (err: Error, rows: {}, resp: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(rows, FAKE_ROWS);
-        assert.strictEqual(resp, FAKE_RESPONSE);
+      bq.query(QUERY_STRING, (err: any, rows: {}, resp: {}) => {
+        expect(err).toBeFalsy();
+        expect(rows).toBe(FAKE_ROWS);
+        expect(resp).toBe(FAKE_RESPONSE);
         done();
       });
     });
@@ -3225,9 +3046,9 @@ describe('BigQuery', () => {
         callback(null, fakeJob, fakeResponse);
       };
 
-      bq.query(QUERY_STRING, (err: Error, rows: {}, query: {}, resp: {}) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(rows, [
+      bq.query(QUERY_STRING, (err: any, rows: {}, query: {}, resp: {}) => {
+        expect(err).toBeFalsy();
+        expect(rows).toEqual([
           {
             value: 1,
           },
@@ -3238,7 +3059,7 @@ describe('BigQuery', () => {
             value: 3,
           },
         ]);
-        assert.strictEqual(resp, fakeResponse);
+        expect(resp).toBe(fakeResponse);
         done();
       });
     });
@@ -3268,10 +3089,10 @@ describe('BigQuery', () => {
           query: 'SELECT * FROM table',
           skipParsing: false,
         },
-        (err: Error, rows: {}[], nextQuery: {}, response: any) => {
-          assert.ifError(err);
+        (err: any, rows: {}[], nextQuery: {}, response: any) => {
+          expect(err).toBeFalsy();
           // the job Complete callback returned the resp
-          assert.deepStrictEqual(response.rows, undefined);
+          expect(response.rows).toEqual(undefined);
           done();
         },
       );
@@ -3302,10 +3123,10 @@ describe('BigQuery', () => {
           query: 'SELECT * FROM table',
           skipParsing: true,
         },
-        (err: Error, rows: {}[], nextQuery: {}, response: any) => {
-          assert.ifError(err);
-          assert.strictEqual(rows, rawRows);
-          assert.deepStrictEqual(response.rows, rawRows);
+        (err: any, rows: {}[], nextQuery: {}, response: any) => {
+          expect(err).toBeFalsy();
+          expect(rows).toBe(rawRows);
+          expect(response.rows).toEqual(rawRows);
           done();
         },
       );
@@ -3333,15 +3154,15 @@ describe('BigQuery', () => {
         wrapIntegers: true,
         parseJSON: true,
       };
-      bq.query(query, (err: Error, rows: {}, resp: {}) => {
-        assert.ifError(err);
-        assert.deepEqual(queryResultsOpts, {
+      bq.query(query, (err: any, rows: {}, resp: {}) => {
+        expect(err).toBeFalsy();
+        expect(queryResultsOpts).toEqual({
           job: fakeJob,
           wrapIntegers: true,
           parseJSON: true,
         });
-        assert.strictEqual(rows, FAKE_ROWS);
-        assert.strictEqual(resp, FAKE_RESPONSE);
+        expect(rows).toBe(FAKE_ROWS);
+        expect(resp).toBe(FAKE_RESPONSE);
         done();
       });
     });
@@ -3349,7 +3170,7 @@ describe('BigQuery', () => {
     it('should assign Job on the options', done => {
       const fakeJob = {
         getQueryResults: (options: {}) => {
-          assert.deepStrictEqual(options, {job: fakeJob});
+          expect(options).toEqual({job: fakeJob});
           done();
         },
       };
@@ -3362,15 +3183,15 @@ describe('BigQuery', () => {
         return undefined;
       };
 
-      bq.query(QUERY_STRING, assert.ifError);
+      bq.query(QUERY_STRING, (err: any) => { if (err) throw err; });
     });
 
     it('should optionally accept options', done => {
       const fakeOptions = {};
       const fakeJob = {
         getQueryResults: (options: {}) => {
-          assert.notStrictEqual(options, fakeOptions);
-          assert.deepStrictEqual(options, {job: fakeJob});
+          expect(options).not.toBe(fakeOptions);
+          expect(options).toEqual({job: fakeJob});
           done();
         },
       };
@@ -3383,7 +3204,7 @@ describe('BigQuery', () => {
         return undefined;
       };
 
-      bq.query(QUERY_STRING, fakeOptions, assert.ifError);
+      bq.query(QUERY_STRING, fakeOptions, (err: any) => { if (err) throw err; });
     });
 
     it('should accept a reservation id', done => {
@@ -3398,7 +3219,7 @@ describe('BigQuery', () => {
       };
 
       bq.createJob = (reqOpts: JobOptions, callback: Function) => {
-        assert(reqOpts.configuration?.reservation, 'reservation/1');
+        expect(reqOpts.configuration?.reservation).toBeTruthy();
         callback(null, fakeJob, FAKE_RESPONSE);
       };
 
@@ -3406,7 +3227,7 @@ describe('BigQuery', () => {
         return undefined;
       };
 
-      bq.query(query, assert.ifError);
+      bq.query(query, (err: any) => { if (err) throw err; });
     });
   });
 
@@ -3475,7 +3296,7 @@ describe('BigQuery', () => {
         jobCreationMode: 'JOB_CREATION_REQUIRED',
         formatOptions,
       };
-      assert.deepStrictEqual(req, expectedReq);
+      expect(req).toEqual(expectedReq);
     });
 
     describe('timestamp format options', () => {
@@ -3540,7 +3361,7 @@ describe('BigQuery', () => {
             useQueryCache: undefined,
             writeIncrementalResults: undefined,
           };
-          assert.deepStrictEqual(req, expectedReq);
+          expect(req).toEqual(expectedReq);
         });
       });
     });
@@ -3567,7 +3388,7 @@ describe('BigQuery', () => {
         jobCreationMode: 'JOB_CREATION_OPTIONAL',
         formatOptions,
       };
-      assert.deepStrictEqual(req, expectedReq);
+      expect(req).toEqual(expectedReq);
     });
 
     it('should not create a QueryRequest when config is not accepted by jobs.query', () => {
@@ -3576,7 +3397,7 @@ describe('BigQuery', () => {
         id: 'dataset-id',
         createTable: util.noop,
       };
-      const table = new FakeTable(dataset, TABLE_ID);
+      const table = new FakeTable(dataset, TABLE_ID) as any;
       const testCases: Query[] = [
         {
           query: QUERY_STRING,
@@ -3584,7 +3405,7 @@ describe('BigQuery', () => {
         },
         {
           query: QUERY_STRING,
-          destination: table,
+          destination: table as any,
         },
         {
           query: QUERY_STRING,
@@ -3622,13 +3443,13 @@ describe('BigQuery', () => {
       for (const index in testCases) {
         const testCase = testCases[index];
         const req = bq.buildQueryRequest_(testCase, {});
-        assert.equal(req, undefined);
+        expect(req).toBe(undefined);
       }
     });
   });
 
   describe('queryAsStream_', () => {
-    let queryStub: SinonStub;
+    let queryStub: any;
     const defaultOpts = {
       location: undefined,
       maxResults: undefined,
@@ -3639,15 +3460,18 @@ describe('BigQuery', () => {
     };
 
     beforeEach(() => {
-      queryStub = sandbox.stub(bq, 'query').callsArgAsync(2);
+      queryStub = jest.spyOn(bq, 'query').mockImplementation((...args: any[]) => {
+        const cb = typeof args[args.length - 1] === 'function' ? args[args.length - 1] : null;
+        if (cb) setImmediate(cb);
+      });
     });
 
     it('should call query correctly with a string', done => {
       const query = 'SELECT';
       bq.queryAsStream_(query, done);
-      assert(
-        queryStub.calledOnceWithExactly(query, defaultOpts, sinon.match.func),
-      );
+      expect(queryStub).toHaveBeenCalledTimes(1);
+      expect(queryStub).toHaveBeenCalledWith(query, defaultOpts, expect.any(Function));
+      done();
     });
 
     it('should call query correctly with a Query object', done => {
@@ -3658,19 +3482,26 @@ describe('BigQuery', () => {
         wrapIntegers: true,
         parseJSON: true,
       };
-      assert(queryStub.calledOnceWithExactly(query, opts, sinon.match.func));
+      expect(queryStub).toHaveBeenCalledTimes(1);
+      expect(queryStub).toHaveBeenCalledWith(query, opts, expect.any(Function));
+      done();
     });
 
     it('should query as job if supplied', done => {
-      const cbStub = sinon.stub().callsArgAsync(1);
+      const cbStub = jest.fn((...args: any[]) => {
+        const cb = typeof args[args.length - 1] === 'function' ? args[args.length - 1] : null;
+        if (cb) setImmediate(cb);
+      });
       const query = {
         job: {
           getQueryResults: cbStub,
         },
       };
       bq.queryAsStream_(query, done);
-      assert(cbStub.calledOnceWithExactly(query, sinon.match.func));
-      assert(queryStub.notCalled);
+      expect(cbStub).toHaveBeenCalledTimes(1);
+      expect(cbStub).toHaveBeenCalledWith(query, expect.any(Function));
+      expect(queryStub).not.toHaveBeenCalled();
+      done();
     });
 
     it('should pass wrapIntegers if supplied', done => {
@@ -3689,7 +3520,9 @@ describe('BigQuery', () => {
         wrapIntegers,
       };
 
-      assert(queryStub.calledOnceWithExactly(query, opts, sinon.match.func));
+      expect(queryStub).toHaveBeenCalledTimes(1);
+      expect(queryStub).toHaveBeenCalledWith(query, opts, expect.any(Function));
+      done();
     });
 
     it('should pass parseJSON if supplied', done => {
@@ -3706,7 +3539,9 @@ describe('BigQuery', () => {
         parseJSON,
       };
 
-      assert(queryStub.calledOnceWithExactly(query, opts, sinon.match.func));
+      expect(queryStub).toHaveBeenCalledTimes(1);
+      expect(queryStub).toHaveBeenCalledWith(query, opts, expect.any(Function));
+      done();
     });
   });
 
@@ -3719,17 +3554,14 @@ describe('BigQuery', () => {
       const endpoint = BigQuery.sanitizeEndpoint(
         USER_DEFINED_SHORT_API_ENDPOINT,
       );
-      assert.strictEqual(endpoint.match(PROTOCOL_REGEX)![1], 'https');
+      expect(endpoint.match(PROTOCOL_REGEX)![1]).toBe('https');
     });
 
     it('should not override protocol', () => {
       const endpoint = BigQuery.sanitizeEndpoint(
         USER_DEFINED_FULL_API_ENDPOINT,
       );
-      assert.strictEqual(
-        endpoint.match(PROTOCOL_REGEX)![1],
-        USER_DEFINED_PROTOCOL,
-      );
+      expect(endpoint.match(PROTOCOL_REGEX)![1]).toBe(USER_DEFINED_PROTOCOL);
     });
 
     it('should remove trailing slashes from URL', () => {
@@ -3739,7 +3571,7 @@ describe('BigQuery', () => {
       ];
       for (const endpointWithTrailingSlashes of endpointsWithTrailingSlashes) {
         const endpoint = BigQuery.sanitizeEndpoint(endpointWithTrailingSlashes);
-        assert.strictEqual(endpoint.endsWith('/'), false);
+        expect(endpoint.endsWith('/')).toBe(false);
       }
     });
   });

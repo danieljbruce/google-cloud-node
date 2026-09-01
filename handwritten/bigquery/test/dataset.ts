@@ -12,6 +12,59 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// eslint-disable-next-line no-var
+var mockPromisified = false;
+// eslint-disable-next-line no-var
+var mockExtended = false;
+
+jest.mock('@google-cloud/common', () => {
+  const common = jest.requireActual('@google-cloud/common');
+  class FakeServiceObject extends common.ServiceObject {
+    calledWith_: IArguments;
+    constructor(config: any) {
+      super(config);
+      // eslint-disable-next-line prefer-rest-params
+      this.calledWith_ = arguments;
+    }
+  }
+  return {
+    ...common,
+    ServiceObject: FakeServiceObject,
+  };
+});
+
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (c: Function, options?: pfy.PromisifyAllOptions) => {
+    if (c.name !== 'Dataset') {
+      return;
+    }
+    mockPromisified = true;
+    expect(options?.exclude).toEqual(['model', 'routine', 'table']);
+  },
+}));
+
+jest.mock('@google-cloud/paginator', () => ({
+  paginator: {
+    extend: (c: Function, methods: string[] | string) => {
+      if (c.name !== 'Dataset') {
+        return;
+      }
+      const arr = Array.isArray(methods) ? methods : [methods];
+      expect(c.name).toBe('Dataset');
+      expect(arr).toEqual([
+        'getModels',
+        'getRoutines',
+        'getTables',
+      ]);
+      mockExtended = true;
+    },
+    streamify: (methodName: string) => {
+      return methodName;
+    },
+  },
+}));
+
 import {
   DecorateRequestOptions,
   ServiceObject,
@@ -19,15 +72,14 @@ import {
   util,
 } from '@google-cloud/common';
 import * as pfy from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, before, beforeEach} from 'mocha';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
 
 import * as _root from '../src';
 import {toArray} from '../src/util';
 import {DatasetOptions} from '../src/dataset';
 import {FormattedMetadata, TableOptions} from '../src/table';
+import {Dataset} from '../src/dataset';
+import {Table} from '../src/table';
 
 interface CalledWithDataset extends ServiceObject {
   calledWith_: Array<{
@@ -36,48 +88,6 @@ interface CalledWithDataset extends ServiceObject {
     id: string;
     methods: string[];
   }>;
-}
-
-let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll: (c: Function, options: pfy.PromisifyAllOptions) => {
-    if (c.name !== 'Dataset') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, ['model', 'routine', 'table']);
-  },
-});
-
-let extended = false;
-const fakePaginator = {
-  paginator: {
-    extend: (c: Function, methods: string[]) => {
-      if (c.name !== 'Dataset') {
-        return;
-      }
-      methods = toArray(methods);
-      assert.strictEqual(c.name, 'Dataset');
-      assert.deepStrictEqual(methods, [
-        'getModels',
-        'getRoutines',
-        'getTables',
-      ]);
-      extended = true;
-    },
-    streamify: (methodName: string) => {
-      return methodName;
-    },
-  },
-};
-
-class FakeServiceObject extends ServiceObject {
-  calledWith_: IArguments;
-  constructor(config: ServiceObjectConfig) {
-    super(config);
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
 }
 
 describe('BigQuery/Dataset', () => {
@@ -89,22 +99,11 @@ describe('BigQuery/Dataset', () => {
   const LOCATION = 'asia-northeast1';
   const ANOTHER_PROJECT_ID = 'another-test-project';
 
-  // tslint:disable-next-line variable-name
-  let Dataset: typeof _root.Dataset;
-  // tslint:disable-next-line variable-name
-  let Table: typeof _root.Table;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let ds: any;
 
-  before(() => {
-    Dataset = proxyquire('../src/dataset', {
-      '@google-cloud/common': {
-        ServiceObject: FakeServiceObject,
-      },
-      '@google-cloud/paginator': fakePaginator,
-      '@google-cloud/promisify': fakePfy,
-    }).Dataset;
-    Table = require('../src/table').Table;
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   beforeEach(() => {
@@ -113,27 +112,27 @@ describe('BigQuery/Dataset', () => {
 
   describe('instantiation', () => {
     it('should extend the correct methods', () => {
-      assert(extended); // See `fakePaginator.extend`
+      expect(mockExtended).toBe(true); // See `fakePaginator.extend`
     });
 
     it('should streamify the correct methods', () => {
-      assert.strictEqual(ds.getTablesStream, 'getTables');
-      assert.strictEqual(ds.getModelsStream, 'getModels');
+      expect(ds.getTablesStream).toBe('getTables');
+      expect(ds.getModelsStream).toBe('getModels');
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(mockPromisified).toBe(true);
     });
 
     it('should inherit from ServiceObject', () => {
-      assert(ds instanceof ServiceObject);
+      expect(ds instanceof ServiceObject).toBe(true);
 
       const calledWith = (ds as CalledWithDataset).calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, BIGQUERY);
-      assert.strictEqual(calledWith.baseUrl, '/datasets');
-      assert.strictEqual(calledWith.id, DATASET_ID);
-      assert.deepStrictEqual(calledWith.methods, {
+      expect(calledWith.parent).toBe(BIGQUERY);
+      expect(calledWith.baseUrl).toBe('/datasets');
+      expect(calledWith.id).toBe(DATASET_ID);
+      expect(calledWith.methods).toEqual({
         create: true,
         exists: true,
         get: true,
@@ -146,13 +145,13 @@ describe('BigQuery/Dataset', () => {
       const options = {location: LOCATION};
       const ds = new Dataset(BIGQUERY, DATASET_ID, options);
 
-      assert.strictEqual(ds.location, LOCATION);
+      expect(ds.location).toBe(LOCATION);
     });
 
     it('should set the client projectId by default', () => {
       const ds = new Dataset(BIGQUERY, DATASET_ID);
 
-      assert.strictEqual(ds.projectId, BIGQUERY.projectId);
+      expect(ds.projectId).toBe(BIGQUERY.projectId);
     });
 
     it('should capture user provided projectId', () => {
@@ -160,7 +159,7 @@ describe('BigQuery/Dataset', () => {
       const options = {projectId: projectIdOverride};
       const ds = new Dataset(BIGQUERY, DATASET_ID, options);
 
-      assert.strictEqual(ds.projectId, projectIdOverride);
+      expect(ds.projectId).toBe(projectIdOverride);
     });
 
     describe('createMethod', () => {
@@ -183,8 +182,8 @@ describe('BigQuery/Dataset', () => {
         };
 
         bq.createDataset = (id: string, options: {}, callback: Function) => {
-          assert.strictEqual(id, DATASET_ID);
-          assert.deepStrictEqual(options, OPTIONS);
+          expect(id).toBe(DATASET_ID);
+          expect(options).toEqual(OPTIONS);
           callback(); // the done fn
         };
 
@@ -205,7 +204,7 @@ describe('BigQuery/Dataset', () => {
           options: DatasetOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(options.location, LOCATION);
+          expect(options.location).toBe(LOCATION);
           callback(); // the done fn
         };
 
@@ -219,7 +218,7 @@ describe('BigQuery/Dataset', () => {
           options: DatasetOptions,
           callback: Function,
         ) => {
-          assert.strictEqual(options.projectId, 'project-id');
+          expect(options.projectId).toBe('project-id');
           callback(); // the done fn
         };
 
@@ -243,7 +242,7 @@ describe('BigQuery/Dataset', () => {
         };
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.uri, `/projects/${projectIdOverride}/`);
+        expect(reqOpts.uri).toEqual(`/projects/${projectIdOverride}/`);
       });
     });
 
@@ -262,7 +261,7 @@ describe('BigQuery/Dataset', () => {
         };
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.headers, {'If-Match': FAKE_ETAG});
+        expect(reqOpts.headers).toEqual({'If-Match': FAKE_ETAG});
       });
 
       it('should respect already existing headers', () => {
@@ -284,7 +283,7 @@ describe('BigQuery/Dataset', () => {
         });
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.headers, expectedHeaders);
+        expect(reqOpts.headers).toEqual(expectedHeaders);
       });
 
       it('should not apply the header if method is not patch', () => {
@@ -299,7 +298,7 @@ describe('BigQuery/Dataset', () => {
         };
 
         const reqOpts = interceptor.request(fakeReqOpts);
-        assert.deepStrictEqual(reqOpts.headers, undefined);
+        expect(reqOpts.headers).toEqual(undefined);
       });
     });
   });
@@ -327,8 +326,8 @@ describe('BigQuery/Dataset', () => {
       );
 
       ds.bigQuery.createQueryJob = (options: {}, callback: Function) => {
-        assert.deepStrictEqual(options, expectedOptions);
-        assert.notStrictEqual(fakeOptions, options);
+        expect(options).toEqual(expectedOptions);
+        expect(fakeOptions).not.toBe(options);
         callback(); // the done fn
       };
 
@@ -341,7 +340,7 @@ describe('BigQuery/Dataset', () => {
         options: _root.Query,
         callback: Function,
       ) => {
-        assert.strictEqual(options.query, FAKE_QUERY);
+        expect(options.query).toBe(FAKE_QUERY);
         callback(); // the done fn
       };
 
@@ -377,7 +376,7 @@ describe('BigQuery/Dataset', () => {
       const query = 'SELECT * FROM allthedata';
 
       ds.bigQuery.createQueryStream = (opts: _root.Query) => {
-        assert.strictEqual(opts.query, query);
+        expect(opts.query).toBe(query);
         done();
       };
 
@@ -387,8 +386,8 @@ describe('BigQuery/Dataset', () => {
     it('should pass along options', done => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ds.bigQuery.createQueryStream = (opts: any) => {
-        assert.strictEqual(opts.a, options.a);
-        assert.strictEqual(opts.c, options.c);
+        expect(opts.a).toBe(options.a);
+        expect(opts.c).toBe(options.c);
         done();
       };
 
@@ -397,7 +396,7 @@ describe('BigQuery/Dataset', () => {
 
     it('should extend options with defaultDataset', done => {
       ds.bigQuery.createQueryStream = (opts: _root.Query) => {
-        assert.deepStrictEqual(opts.defaultDataset, {datasetId: ds.id});
+        expect(opts.defaultDataset).toEqual({datasetId: ds.id});
         done();
       };
 
@@ -406,7 +405,7 @@ describe('BigQuery/Dataset', () => {
 
     it('should extend options with the location', done => {
       ds.bigQuery.createQueryStream = (opts: _root.Query) => {
-        assert.strictEqual(opts.location, LOCATION);
+        expect(opts.location).toBe(LOCATION);
         done();
       };
 
@@ -416,7 +415,7 @@ describe('BigQuery/Dataset', () => {
 
     it('should not modify original options object', done => {
       ds.bigQuery.createQueryStream = () => {
-        assert.deepStrictEqual(options, {a: 'b', c: 'd'});
+        expect(options).toEqual({a: 'b', c: 'd'});
         done();
       };
 
@@ -450,19 +449,19 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.uri, '/tables');
+        expect(reqOpts.method).toBe('POST');
+        expect(reqOpts.uri).toBe('/tables');
 
         const body = reqOpts.json;
-        assert.deepStrictEqual(body.schema, SCHEMA_OBJECT);
-        assert.strictEqual(body.tableReference.datasetId, DATASET_ID);
-        assert.strictEqual(body.tableReference.projectId, ds.projectId);
-        assert.strictEqual(body.tableReference.tableId, TABLE_ID);
+        expect(body.schema).toEqual(SCHEMA_OBJECT);
+        expect(body.tableReference.datasetId).toBe(DATASET_ID);
+        expect(body.tableReference.projectId).toBe(ds.projectId);
+        expect(body.tableReference.tableId).toBe(TABLE_ID);
 
         done();
       };
 
-      ds.createTable(TABLE_ID, options, assert.ifError);
+      ds.createTable(TABLE_ID, options, (err: Error) => { if (err) done(err); });
     });
 
     it('should create a table on a different project', done => {
@@ -473,21 +472,21 @@ describe('BigQuery/Dataset', () => {
         projectId: ANOTHER_PROJECT_ID,
       }) as any;
       anotherDs.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.uri, '/tables');
+        expect(reqOpts.method).toBe('POST');
+        expect(reqOpts.uri).toBe('/tables');
 
         const body = reqOpts.json;
-        assert.deepStrictEqual(body.schema, SCHEMA_OBJECT);
-        assert.strictEqual(body.tableReference.datasetId, DATASET_ID);
-        assert.strictEqual(body.tableReference.projectId, ANOTHER_PROJECT_ID);
-        assert.strictEqual(body.tableReference.tableId, TABLE_ID);
+        expect(body.schema).toEqual(SCHEMA_OBJECT);
+        expect(body.tableReference.datasetId).toBe(DATASET_ID);
+        expect(body.tableReference.projectId).toBe(ANOTHER_PROJECT_ID);
+        expect(body.tableReference.tableId).toBe(TABLE_ID);
 
         done();
       };
 
       // Under the hood dataset.createTable is called
       const table = anotherDs.table(TABLE_ID);
-      table.create(options, assert.ifError);
+      table.create(options, (err: Error) => { if (err) done(err); });
     });
 
     it('should not require options', done => {
@@ -504,35 +503,32 @@ describe('BigQuery/Dataset', () => {
       const fakeOptions = {};
 
       Table.formatMetadata_ = options => {
-        assert.strictEqual(options, fakeOptions);
+        expect(options).toBe(fakeOptions);
         return formatted as {} as FormattedMetadata;
       };
 
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json, formatted);
+        expect(reqOpts.json).toBe(formatted);
 
         Table.formatMetadata_ = formatMetadata_;
         done();
       };
 
-      ds.createTable(TABLE_ID, fakeOptions, assert.ifError);
+      ds.createTable(TABLE_ID, fakeOptions, (err: Error) => { if (err) done(err); });
     });
 
     it('should create a schema object from a string', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.json.schema, SCHEMA_OBJECT);
+        expect(reqOpts.json.schema).toEqual(SCHEMA_OBJECT);
         done();
       };
 
-      ds.createTable(TABLE_ID, {schema: SCHEMA_STRING}, assert.ifError);
+      ds.createTable(TABLE_ID, {schema: SCHEMA_STRING}, (err: Error) => { if (err) done(err); });
     });
 
     it('should wrap an array schema', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(
-          reqOpts.json.schema.fields,
-          SCHEMA_OBJECT.fields,
-        );
+        expect(reqOpts.json.schema.fields).toEqual(SCHEMA_OBJECT.fields,);
         done();
       };
 
@@ -541,7 +537,7 @@ describe('BigQuery/Dataset', () => {
         {
           schema: SCHEMA_OBJECT.fields,
         },
-        assert.ifError,
+        (err: Error) => { if (err) done(err); },
       );
     });
 
@@ -552,7 +548,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.json.schema.fields[1].type, 'RECORD');
+        expect(reqOpts.json.schema.fields[1].type).toBe('RECORD');
         done();
       };
 
@@ -563,7 +559,7 @@ describe('BigQuery/Dataset', () => {
             fields: [{id: 'name', type: 'STRING'}, nestedField],
           },
         },
-        assert.ifError,
+        (err: Error) => { if (err) done(err); },
       );
     });
 
@@ -575,7 +571,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.createTable(TABLE_ID, {schema: SCHEMA_OBJECT}, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -589,8 +585,8 @@ describe('BigQuery/Dataset', () => {
         TABLE_ID,
         {schema: SCHEMA_OBJECT},
         (err: Error, table: _root.Table) => {
-          assert.ifError(err);
-          assert(table instanceof Table);
+          expect(err).toBeFalsy();
+          expect(table instanceof Table).toBeTruthy();
           done();
         },
       );
@@ -604,12 +600,12 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.table = (id: string, options: TableOptions) => {
-        assert.strictEqual(options.location, LOCATION);
+        expect(options.location).toBe(LOCATION);
         setImmediate(done);
         return {};
       };
 
-      ds.createTable(TABLE_ID, {schema: SCHEMA_OBJECT}, assert.ifError);
+      ds.createTable(TABLE_ID, {schema: SCHEMA_OBJECT}, (err: Error) => { if (err) done(err); });
     });
 
     it('should pass the projectId to the Table', done => {
@@ -620,12 +616,12 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.table = (id: string, options: TableOptions) => {
-        assert.strictEqual(options.location, LOCATION);
+        expect(options.location).toBe(LOCATION);
         setImmediate(done);
         return {};
       };
 
-      ds.createTable(TABLE_ID, {schema: SCHEMA_OBJECT}, assert.ifError);
+      ds.createTable(TABLE_ID, {schema: SCHEMA_OBJECT}, (err: Error) => { if (err) done(err); });
     });
 
     it('should return an apiResponse', done => {
@@ -639,8 +635,8 @@ describe('BigQuery/Dataset', () => {
         TABLE_ID,
         opts,
         (err: Error, table: _root.Table, apiResponse: {}) => {
-          assert.ifError(err);
-          assert.strictEqual(apiResponse, API_RESPONSE);
+          expect(err).toBeFalsy();
+          expect(apiResponse).toBe(API_RESPONSE);
           done();
         },
       );
@@ -663,8 +659,8 @@ describe('BigQuery/Dataset', () => {
         TABLE_ID,
         {schema: SCHEMA_OBJECT},
         (err: Error, table: _root.Table) => {
-          assert.ifError(err);
-          assert.strictEqual(table.metadata, apiResponse);
+          expect(err).toBeFalsy();
+          expect(table.metadata).toBe(apiResponse);
           done();
         },
       );
@@ -674,22 +670,22 @@ describe('BigQuery/Dataset', () => {
   describe('delete', () => {
     it('should delete the dataset via the api', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.method, 'DELETE');
-        assert.strictEqual(reqOpts.uri, '');
-        assert.deepStrictEqual(reqOpts.qs, {deleteContents: false});
+        expect(reqOpts.method).toBe('DELETE');
+        expect(reqOpts.uri).toBe('');
+        expect(reqOpts.qs).toEqual({deleteContents: false});
         done();
       };
 
-      ds.delete(assert.ifError);
+      ds.delete((err: Error) => { if (err) done(err); });
     });
 
     it('should allow a force delete', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {deleteContents: true});
+        expect(reqOpts.qs).toEqual({deleteContents: true});
         done();
       };
 
-      ds.delete({force: true}, assert.ifError);
+      ds.delete({force: true}, (err: Error) => { if (err) done(err); });
     });
 
     it('should execute callback when done', done => {
@@ -708,7 +704,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.delete((err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -721,7 +717,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.delete((err: Error, apiResponse_: {}) => {
-        assert.strictEqual(apiResponse_, apiResponse);
+        expect(apiResponse_).toBe(apiResponse);
         done();
       });
     });
@@ -730,12 +726,12 @@ describe('BigQuery/Dataset', () => {
   describe('getModels', () => {
     it('should get models from the api', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/models');
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.uri).toBe('/models');
+        expect(reqOpts.qs).toEqual({});
         done();
       };
 
-      ds.getModels(assert.ifError);
+      ds.getModels((err: Error) => { if (err) done(err); });
     });
 
     it('should accept a query', done => {
@@ -745,20 +741,20 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.qs, query);
+        expect(reqOpts.qs).toBe(query);
         done();
       };
 
-      ds.getModels(query, assert.ifError);
+      ds.getModels(query, (err: Error) => { if (err) done(err); });
     });
 
     it('should default the query value to an empty object', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.qs).toEqual({});
         done();
       };
 
-      ds.getModels(assert.ifError);
+      ds.getModels((err: Error) => { if (err) done(err); });
     });
 
     it('should return error to callback', done => {
@@ -769,7 +765,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.getModels((err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -800,13 +796,13 @@ describe('BigQuery/Dataset', () => {
             nextQuery: {},
             apiResponse_: {},
           ) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
 
             const model = models[0];
 
-            assert(model instanceof _root.Model);
-            assert.strictEqual(model.id, modelId);
-            assert.strictEqual(apiResponse_, apiResponse);
+            expect(model instanceof _root.Model).toBeTruthy();
+            expect(model.id).toBe(modelId);
+            expect(apiResponse_).toBe(apiResponse);
             done();
           },
         );
@@ -814,8 +810,8 @@ describe('BigQuery/Dataset', () => {
 
       it('should assign metadata to the Model objects', done => {
         ds.getModels((err: Error, models: _root.Model[]) => {
-          assert.ifError(err);
-          assert.strictEqual(models[0].metadata, apiResponse.models[0]);
+          expect(err).toBeFalsy();
+          expect(models[0].metadata).toBe(apiResponse.models[0]);
           done();
         });
       });
@@ -839,8 +835,8 @@ describe('BigQuery/Dataset', () => {
         ds.getModels(
           query,
           (err: Error, tables: _root.Model[], nextQuery: {}) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(nextQuery, expectedNextQuery);
+            expect(err).toBeFalsy();
+            expect(nextQuery).toEqual(expectedNextQuery);
             done();
           },
         );
@@ -851,12 +847,12 @@ describe('BigQuery/Dataset', () => {
   describe('getTables', () => {
     it('should get tables from the api', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.uri, '/tables');
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.uri).toBe('/tables');
+        expect(reqOpts.qs).toEqual({});
         done();
       };
 
-      ds.getTables(assert.ifError);
+      ds.getTables((err: Error) => { if (err) done(err); });
     });
 
     it('should accept a query', done => {
@@ -866,20 +862,20 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.strictEqual(reqOpts.qs, query);
+        expect(reqOpts.qs).toBe(query);
         done();
       };
 
-      ds.getTables(query, assert.ifError);
+      ds.getTables(query, (err: Error) => { if (err) done(err); });
     });
 
     it('should default the query value to an empty object', done => {
       ds.request = (reqOpts: DecorateRequestOptions) => {
-        assert.deepStrictEqual(reqOpts.qs, {});
+        expect(reqOpts.qs).toEqual({});
         done();
       };
 
-      ds.getTables(assert.ifError);
+      ds.getTables((err: Error) => { if (err) done(err); });
     });
 
     it('should return error to callback', done => {
@@ -890,7 +886,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.getTables((err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -922,14 +918,14 @@ describe('BigQuery/Dataset', () => {
             nextQuery: {},
             apiResponse_: {},
           ) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
 
             const table = tables[0];
 
-            assert(table instanceof Table);
-            assert.strictEqual(table.id, tableId);
-            assert.strictEqual(table.location, LOCATION);
-            assert.strictEqual(apiResponse_, apiResponse);
+            expect(table instanceof Table).toBeTruthy();
+            expect(table.id).toBe(tableId);
+            expect(table.location).toBe(LOCATION);
+            expect(apiResponse_).toBe(apiResponse);
             done();
           },
         );
@@ -937,8 +933,8 @@ describe('BigQuery/Dataset', () => {
 
       it('should assign metadata to the Table objects', done => {
         ds.getTables((err: Error, tables: _root.Table[]) => {
-          assert.ifError(err);
-          assert.strictEqual(tables[0].metadata, apiResponse.tables[0]);
+          expect(err).toBeFalsy();
+          expect(tables[0].metadata).toBe(apiResponse.tables[0]);
           done();
         });
       });
@@ -962,8 +958,8 @@ describe('BigQuery/Dataset', () => {
         ds.getTables(
           query,
           (err: Error, tables: _root.Table[], nextQuery: {}) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(nextQuery, expectedNextQuery);
+            expect(err).toBeFalsy();
+            expect(nextQuery).toEqual(expectedNextQuery);
             done();
           },
         );
@@ -974,14 +970,14 @@ describe('BigQuery/Dataset', () => {
   describe('model', () => {
     it('should throw an error if the id is missing', () => {
       const expectedErr = /A model ID is required\./;
-      assert.throws(() => ds.model(), expectedErr);
+      expect(() => ds.model()).toThrow(expectedErr);
     });
 
     it('should return a Model object', () => {
       const modelId = 'modelId';
       const model = ds.model(modelId);
-      assert(model instanceof _root.Model);
-      assert.strictEqual(model.id, modelId);
+      expect(model instanceof _root.Model).toBeTruthy();
+      expect(model.id).toBe(modelId);
     });
   });
 
@@ -1003,7 +999,7 @@ describe('BigQuery/Dataset', () => {
       const query = 'SELECT * FROM allthedata';
 
       ds.bigQuery.query = (opts: _root.Query) => {
-        assert.strictEqual(opts.query, query);
+        expect(opts.query).toBe(query);
         done();
       };
 
@@ -1017,7 +1013,7 @@ describe('BigQuery/Dataset', () => {
       };
 
       ds.bigQuery.query = (opts: _root.Query) => {
-        assert.strictEqual(opts.skipParsing, true);
+        expect(opts.skipParsing).toBe(true);
         done();
       };
 
@@ -1027,8 +1023,8 @@ describe('BigQuery/Dataset', () => {
     it('should pass along options', done => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ds.bigQuery.query = (opts: any) => {
-        assert.strictEqual(opts.a, options.a);
-        assert.strictEqual(opts.c, options.c);
+        expect(opts.a).toBe(options.a);
+        expect(opts.c).toBe(options.c);
         done();
       };
 
@@ -1037,7 +1033,7 @@ describe('BigQuery/Dataset', () => {
 
     it('should extend options with defaultDataset', done => {
       ds.bigQuery.query = (opts: _root.Query) => {
-        assert.deepStrictEqual(opts.defaultDataset, {datasetId: ds.id});
+        expect(opts.defaultDataset).toEqual({datasetId: ds.id});
         done();
       };
 
@@ -1046,7 +1042,7 @@ describe('BigQuery/Dataset', () => {
 
     it('should extend options with the location', done => {
       ds.bigQuery.query = (opts: _root.Query) => {
-        assert.strictEqual(opts.location, LOCATION);
+        expect(opts.location).toBe(LOCATION);
         done();
       };
 
@@ -1056,7 +1052,7 @@ describe('BigQuery/Dataset', () => {
 
     it('should not modify original options object', done => {
       ds.bigQuery.query = () => {
-        assert.deepStrictEqual(options, {a: 'b', c: 'd'});
+        expect(options).toEqual({a: 'b', c: 'd'});
         done();
       };
 
@@ -1067,7 +1063,7 @@ describe('BigQuery/Dataset', () => {
       const callback = util.noop;
 
       ds.bigQuery.query = (opts: _root.Query, cb: Function) => {
-        assert.strictEqual(cb, callback);
+        expect(cb).toBe(callback);
         done();
       };
 
@@ -1078,21 +1074,21 @@ describe('BigQuery/Dataset', () => {
   describe('table', () => {
     it('should throw an error if the id is missing', () => {
       const expectedErr = /A table ID is required\./;
-      assert.throws(() => ds.table(), expectedErr);
+      expect(() => ds.table()).toThrow(expectedErr);
     });
 
     it('should return a Table object', () => {
       const tableId = 'tableId';
       const table = ds.table(tableId);
-      assert(table instanceof Table);
-      assert.strictEqual(table.id, tableId);
+      expect(table instanceof Table).toBeTruthy();
+      expect(table.id).toBe(tableId);
     });
 
     it('should inherit the dataset location', () => {
       ds.location = LOCATION;
       const table = ds.table('tableId');
 
-      assert.strictEqual(table.location, LOCATION);
+      expect(table.location).toBe(LOCATION);
     });
 
     it('should pass along the location if provided', () => {
@@ -1101,7 +1097,7 @@ describe('BigQuery/Dataset', () => {
       const location = 'US';
       const table = ds.table('tableId', {location});
 
-      assert.strictEqual(table.location, location);
+      expect(table.location).toBe(location);
     });
   });
 });
