@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import * as assert from 'assert';
-import {describe, it, before, after} from 'mocha';
 import delay from 'delay';
 import * as nock from 'nock';
 import {promisify} from 'util';
@@ -32,7 +31,7 @@ nock.disableNetConnect();
 const fakeCredentials = require('../../test/fixtures/gcloud-credentials.json');
 
 // Start profiler and collect profiles before testing.
-before(async () => {
+beforeAll(async () => {
   savedEnv = process.env;
   process.env = {};
 
@@ -97,7 +96,7 @@ before(async () => {
 
 // Restore environment variables after tests.
 // nock not restored, since profiles still being uploaded.
-after(() => {
+afterAll(() => {
   process.env = savedEnv;
 });
 

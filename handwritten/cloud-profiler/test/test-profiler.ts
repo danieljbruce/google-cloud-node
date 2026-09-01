@@ -13,16 +13,9 @@
 // limitations under the License.
 
 import * as common from '@google-cloud/common';
-import {
-  BodyResponseCallback,
-  DecorateRequestOptions,
-} from '@google-cloud/common';
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach, before, after} from 'mocha';
 import * as extend from 'extend';
 import * as nock from 'nock';
 import {heap as heapProfiler, time as timeProfiler} from 'pprof';
-import * as sinon from 'sinon';
 import {promisify} from 'util';
 import * as zlib from 'zlib';
 
@@ -87,38 +80,38 @@ function nockOauth2(): nock.Scope {
 describe('Retryer', () => {
   it('should backoff until max-backoff reached', () => {
     const retryer = new Retryer(1000, 1000000, 5, () => 0.5);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 1000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 5000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 25000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 125000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 625000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 1000000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 1000000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 1000000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 1000000);
-    assert.strictEqual(retryer.getBackoff(), 0.5 * 1000000);
+    expect(retryer.getBackoff()).toBe(0.5 * 1000);
+    expect(retryer.getBackoff()).toBe(0.5 * 5000);
+    expect(retryer.getBackoff()).toBe(0.5 * 25000);
+    expect(retryer.getBackoff()).toBe(0.5 * 125000);
+    expect(retryer.getBackoff()).toBe(0.5 * 625000);
+    expect(retryer.getBackoff()).toBe(0.5 * 1000000);
+    expect(retryer.getBackoff()).toBe(0.5 * 1000000);
+    expect(retryer.getBackoff()).toBe(0.5 * 1000000);
+    expect(retryer.getBackoff()).toBe(0.5 * 1000000);
+    expect(retryer.getBackoff()).toBe(0.5 * 1000000);
   });
 });
 
 describe('Profiler', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sinonStubs: Array<sinon.SinonStub<any, any>> = [];
   beforeEach(() => {
-    sinonStubs.push(sinon.stub(timeProfiler, 'start'));
-    sinonStubs.push(
-      sinon.stub(timeProfiler, 'profile').returns(Promise.resolve(timeProfile))
-    );
+    jest
+      .spyOn(timeProfiler, 'start')
+      .mockImplementation((() => (() => ({}))) as any);
+    jest
+      .spyOn(timeProfiler, 'profile')
+      .mockReturnValue(Promise.resolve(timeProfile) as any);
 
-    sinonStubs.push(sinon.stub(heapProfiler, 'stop'));
-    sinonStubs.push(sinon.stub(heapProfiler, 'start'));
-    sinonStubs.push(sinon.stub(heapProfiler, 'profile').returns(heapProfile));
+    jest.spyOn(heapProfiler, 'stop').mockImplementation(() => {});
+    jest.spyOn(heapProfiler, 'start').mockImplementation(() => {});
+    jest.spyOn(heapProfiler, 'profile').mockReturnValue(heapProfile as any);
   });
+
   afterEach(() => {
     nock.cleanAll();
-    sinonStubs.forEach(stub => {
-      stub.restore();
-    });
+    jest.restoreAllMocks();
   });
+
   describe('profile', () => {
     it('should return expected profile when profile type is WALL.', async () => {
       const profiler = new Profiler(testConfig);
@@ -134,8 +127,9 @@ describe('Profiler', () => {
         decodedBytes
       )) as Uint8Array;
       const outProfile = perftools.profiles.Profile.decode(unzippedBytes);
-      assert.deepStrictEqual(decodedTimeProfile, outProfile);
+      expect(outProfile).toEqual(decodedTimeProfile);
     });
+
     it('should return expected profile when profile type is HEAP.', async () => {
       const profiler = new Profiler(testConfig);
       const requestProf = {
@@ -149,8 +143,9 @@ describe('Profiler', () => {
         decodedBytes
       )) as Uint8Array;
       const outProfile = perftools.profiles.Profile.decode(unzippedBytes);
-      assert.deepStrictEqual(decodedHeapProfile, outProfile);
+      expect(outProfile).toEqual(decodedHeapProfile);
     });
+
     it('should throw error when unexpected profile type is requested.', async () => {
       const profiler = new Profiler(testConfig);
       const requestProf = {
@@ -159,17 +154,12 @@ describe('Profiler', () => {
         duration: '10s',
         labels: {instance: 'test-instance'},
       };
-      try {
-        await profiler.profile(requestProf);
-        assert.fail('Expected an error to be thrown,');
-      } catch (err) {
-        assert.strictEqual(
-          (err as Error).message,
-          'Unexpected profile type UNKNOWN.'
-        );
-      }
+      await expect(profiler.profile(requestProf)).rejects.toThrow(
+        'Unexpected profile type UNKNOWN.'
+      );
     });
   });
+
   describe('writeTimeProfile', () => {
     it(
       'should return request with base64-encoded profile when time profiling' +
@@ -187,9 +177,7 @@ describe('Profiler', () => {
         const outRequestProfile = await profiler.writeTimeProfile(requestProf);
         const encodedBytes = outRequestProfile.profileBytes;
 
-        if (encodedBytes === undefined) {
-          assert.fail('profile bytes are undefined.');
-        }
+        expect(encodedBytes).toBeDefined();
 
         const decodedBytes = Buffer.from(encodedBytes as string, 'base64');
         const unzippedBytes = (await promisify(zlib.gunzip)(
@@ -199,9 +187,10 @@ describe('Profiler', () => {
 
         // compare to decodedTimeProfile, which is equivalent to timeProfile,
         // but numbers are replaced with longs.
-        assert.deepStrictEqual(decodedTimeProfile, outProfile);
+        expect(outProfile).toEqual(decodedTimeProfile);
       }
     );
+
     it('should throw error when time profiling is not enabled.', async () => {
       const config = extend(true, {}, testConfig);
       config.disableTime = true;
@@ -212,17 +201,12 @@ describe('Profiler', () => {
         duration: '10s',
         labels: {instance: 'test-instance'},
       };
-      try {
-        await profiler.writeTimeProfile(requestProf);
-        assert.fail('expected error, no error thrown');
-      } catch (err) {
-        assert.strictEqual(
-          (err as Error).message,
-          'Cannot collect time profile, time profiler not enabled.'
-        );
-      }
+      await expect(profiler.writeTimeProfile(requestProf)).rejects.toThrow(
+        'Cannot collect time profile, time profiler not enabled.'
+      );
     });
   });
+
   describe('writeHeapProfile', () => {
     it(
       'should return request with base64-encoded profile when time profiling' +
@@ -239,9 +223,7 @@ describe('Profiler', () => {
         const outRequestProfile = await profiler.writeHeapProfile(requestProf);
         const encodedBytes = outRequestProfile.profileBytes;
 
-        if (encodedBytes === undefined) {
-          assert.fail('profile bytes are undefined.');
-        }
+        expect(encodedBytes).toBeDefined();
 
         const decodedBytes = Buffer.from(encodedBytes as string, 'base64');
         const unzippedBytes = (await promisify(zlib.gunzip)(
@@ -251,9 +233,10 @@ describe('Profiler', () => {
 
         // compare to decodedTimeProfile, which is equivalent to timeProfile,
         // but numbers are replaced with longs.
-        assert.deepStrictEqual(decodedHeapProfile, outProfile);
+        expect(outProfile).toEqual(decodedHeapProfile);
       }
     );
+
     it('should throw error when heap profiling is not enabled.', async () => {
       const config = extend(true, {}, testConfig);
       config.disableHeap = true;
@@ -263,26 +246,13 @@ describe('Profiler', () => {
         profileType: 'HEAP',
         labels: {instance: 'test-instance'},
       };
-      try {
-        await profiler.writeHeapProfile(requestProf);
-        assert.fail('expected error, no error thrown');
-      } catch (err) {
-        assert.strictEqual(
-          (err as Error).message,
-          'Cannot collect heap profile, heap profiler not enabled.'
-        );
-      }
+      await expect(profiler.writeHeapProfile(requestProf)).rejects.toThrow(
+        'Cannot collect heap profile, heap profiler not enabled.'
+      );
     });
   });
+
   describe('profileAndUpload', () => {
-    let requestStub:
-      | undefined
-      | sinon.SinonStub<[DecorateRequestOptions, BodyResponseCallback], void>;
-    afterEach(() => {
-      if (requestStub) {
-        requestStub.restore();
-      }
-    });
     it('should send request to upload time profile.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -291,15 +261,16 @@ describe('Profiler', () => {
         labels: {instance: 'test-instance'},
       };
 
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, null, {}, {statusCode: 200});
+      const requestSpy = jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(null, {}, {statusCode: 200});
+        }) as any);
 
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
 
-      const uploaded = requestStub.firstCall.args[0].body as {
+      const uploaded = requestSpy.mock.calls[0][0].body as {
         profileBytes?: string;
       };
       const decodedBytes = Buffer.from(
@@ -310,11 +281,12 @@ describe('Profiler', () => {
         decodedBytes
       )) as Uint8Array;
       const outProfile = perftools.profiles.Profile.decode(unzippedBytes);
-      assert.deepStrictEqual(decodedTimeProfile, outProfile);
+      expect(outProfile).toEqual(decodedTimeProfile);
 
       uploaded.profileBytes = undefined;
-      assert.deepStrictEqual(uploaded, requestProf);
+      expect(uploaded).toEqual(requestProf);
     });
+
     it('should send request to upload heap profile.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -323,14 +295,15 @@ describe('Profiler', () => {
         labels: {instance: 'test-instance'},
       };
 
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, null, {}, {statusCode: 200});
+      const requestSpy = jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(null, {}, {statusCode: 200});
+        }) as any);
 
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
-      const uploaded = requestStub.firstCall.args[0].body as {
+      const uploaded = requestSpy.mock.calls[0][0].body as {
         profileBytes?: string;
       };
       const decodedBytes = Buffer.from(
@@ -341,11 +314,12 @@ describe('Profiler', () => {
         decodedBytes
       )) as Uint8Array;
       const outProfile = perftools.profiles.Profile.decode(unzippedBytes);
-      assert.deepStrictEqual(decodedHeapProfile, outProfile);
+      expect(outProfile).toEqual(decodedHeapProfile);
 
       uploaded.profileBytes = undefined;
-      assert.deepStrictEqual(uploaded, requestProf);
+      expect(uploaded).toEqual(requestProf);
     });
+
     it('should not uploaded when profile type unknown.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -353,14 +327,16 @@ describe('Profiler', () => {
         profileType: 'UNKNOWN_PROFILE_TYPE',
         labels: {instance: 'test-instance'},
       };
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, null, {}, {});
+      const requestSpy = jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(null, {}, {});
+        }) as any);
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
-      assert.strictEqual(0, requestStub.callCount);
+      expect(requestSpy).not.toHaveBeenCalled();
     });
+
     it('should ignore error thrown by http request.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -368,12 +344,15 @@ describe('Profiler', () => {
         profileType: 'WALL',
         labels: {instance: 'test-instance'},
       };
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .callsArgWith(1, new Error('Network error'), {}, {});
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(new Error('Network error'), {}, {});
+        }) as any);
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
     });
+
     it('should ignore when non-200 status code returned.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -381,17 +360,15 @@ describe('Profiler', () => {
         profileType: 'WALL',
         labels: {instance: 'test-instance'},
       };
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .callsArgWith(
-          1,
-          null,
-          {},
-          {statusCode: 500, statusMessage: 'Error 500'}
-        );
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(null, {}, {statusCode: 500, statusMessage: 'Error 500'});
+        }) as any);
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
     });
+
     it('should not retry on non-200 status codes', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -409,12 +386,9 @@ describe('Profiler', () => {
         .reply(200);
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
-      assert.strictEqual(
-        apiMock.isDone(),
-        false,
-        'call to upload profile should not be retried'
-      );
+      expect(apiMock.isDone()).toBe(false);
     });
+
     it('should send request to upload profile to default API without error.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -429,8 +403,9 @@ describe('Profiler', () => {
         .reply(200);
       const profiler = new Profiler(testConfig);
       await profiler.profileAndUpload(requestProf);
-      assert.strictEqual(apiMock.isDone(), true, 'completed call to real API');
+      expect(apiMock.isDone()).toBe(true);
     });
+
     it('should send request to upload profile to non-default API without error.', async () => {
       const requestProf = {
         name: 'projects/12345678901/test-projectId',
@@ -447,18 +422,11 @@ describe('Profiler', () => {
       config.apiEndpoint = TEST_API;
       const profiler = new Profiler(config);
       await profiler.profileAndUpload(requestProf);
-      assert.strictEqual(apiMock.isDone(), true, 'completed call to test API');
+      expect(apiMock.isDone()).toBe(true);
     });
   });
+
   describe('createProfile', () => {
-    let requestStub:
-      | undefined
-      | sinon.SinonStub<[DecorateRequestOptions, BodyResponseCallback], void>;
-    afterEach(() => {
-      if (requestStub) {
-        requestStub.restore();
-      }
-    });
     it('should successfully create wall profile', async () => {
       const response = {
         name: 'projects/12345678901/test-projectId',
@@ -478,9 +446,10 @@ describe('Profiler', () => {
         .reply(200, response);
       const profiler = new Profiler(testConfig);
       const actualResponse = await profiler.createProfile();
-      assert.deepStrictEqual(response, actualResponse);
-      assert.ok(requestProfileMock.isDone(), 'expected call to create profile');
+      expect(actualResponse).toEqual(response);
+      expect(requestProfileMock.isDone()).toBe(true);
     });
+
     it('should successfully create profile using non-default api', async () => {
       const config = extend(true, {}, testConfig);
       config.apiEndpoint = TEST_API;
@@ -502,9 +471,10 @@ describe('Profiler', () => {
         .reply(200, response);
       const profiler = new Profiler(config);
       const actualResponse = await profiler.createProfile();
-      assert.deepStrictEqual(response, actualResponse);
-      assert.ok(requestProfileMock.isDone(), 'expected call to create profile');
+      expect(actualResponse).toEqual(response);
+      expect(requestProfileMock.isDone()).toBe(true);
     });
+
     it('should successfully create heap profile', async () => {
       const response = {
         name: 'projects/12345678901/test-projectId',
@@ -523,9 +493,10 @@ describe('Profiler', () => {
         .reply(200, response);
       const profiler = new Profiler(testConfig);
       const actualResponse = await profiler.createProfile();
-      assert.deepStrictEqual(response, actualResponse);
-      assert.ok(requestProfileMock.isDone(), 'expected call to create profile');
+      expect(actualResponse).toEqual(response);
+      expect(requestProfileMock.isDone()).toBe(true);
     });
+
     it('should throw error when invalid profile created', async () => {
       const response = {name: 'projects/12345678901/test-projectId'};
       nockOauth2();
@@ -534,17 +505,12 @@ describe('Profiler', () => {
         .once()
         .reply(200, response);
       const profiler = new Profiler(testConfig);
-      try {
-        await profiler.createProfile();
-        assert.fail('expected error, no error thrown');
-      } catch (err) {
-        assert.strictEqual(
-          (err as Error).message,
-          'Profile not valid: ' +
-            '{"name":"projects/12345678901/test-projectId"}.'
-        );
-      }
+      await expect(profiler.createProfile()).rejects.toThrow(
+        'Profile not valid: ' +
+          '{"name":"projects/12345678901/test-projectId"}.'
+      );
     });
+
     it('should not retry on non-200 status codes', async () => {
       const response = {
         name: 'projects/12345678901/test-projectId',
@@ -565,13 +531,9 @@ describe('Profiler', () => {
         .once()
         .reply(200, response);
       const profiler = new Profiler(testConfig);
-      try {
-        await profiler.createProfile();
-        assert.fail('expected error, no error thrown');
-      } catch (_) {
-        // 👻
-      }
+      await expect(profiler.createProfile()).rejects.toThrow();
     });
+
     it(
       'should not have instance and zone in request body when instance and' +
         ' zone undefined',
@@ -584,10 +546,11 @@ describe('Profiler', () => {
           profileType: 'WALL',
           duration: '10s',
         };
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(1, undefined, response, {statusCode: 200});
+        const requestSpy = jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(undefined, response, {statusCode: 200});
+          }) as any);
         const expRequestBody = {
           deployment: {
             labels: {version: 'test-version', language: 'nodejs'},
@@ -598,13 +561,11 @@ describe('Profiler', () => {
         };
         const profiler = new Profiler(config);
         const actualResponse = await profiler.createProfile();
-        assert.deepStrictEqual(response, actualResponse);
-        assert.deepStrictEqual(
-          expRequestBody,
-          requestStub.firstCall.args[0].body
-        );
+        expect(actualResponse).toEqual(response);
+        expect(requestSpy.mock.calls[0][0].body).toEqual(expRequestBody);
       }
     );
+
     it(
       'should not have instance and zone in request body when instance and' +
         ' zone empty strings',
@@ -617,10 +578,11 @@ describe('Profiler', () => {
           profileType: 'WALL',
           duration: '10s',
         };
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(1, undefined, response, {statusCode: 200});
+        const requestSpy = jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(undefined, response, {statusCode: 200});
+          }) as any);
         const expRequestBody = {
           deployment: {
             labels: {version: 'test-version', language: 'nodejs'},
@@ -631,13 +593,11 @@ describe('Profiler', () => {
         };
         const profiler = new Profiler(config);
         const actualResponse = await profiler.createProfile();
-        assert.deepStrictEqual(response, actualResponse);
-        assert.deepStrictEqual(
-          expRequestBody,
-          requestStub.firstCall.args[0].body
-        );
+        expect(actualResponse).toEqual(response);
+        expect(requestSpy.mock.calls[0][0].body).toEqual(expRequestBody);
       }
     );
+
     it('should keep additional fields in request profile.', async () => {
       const response = {
         name: 'projects/12345678901/test-projectId',
@@ -653,104 +613,80 @@ describe('Profiler', () => {
         .reply(200, response);
       const profiler = new Profiler(testConfig);
       const actualResponse = await profiler.createProfile();
-      assert.deepStrictEqual(response, actualResponse);
+      expect(actualResponse).toEqual(response);
     });
+
     it('should throw error when error thrown by http request.', async () => {
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, new Error('Network error'), undefined, undefined);
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(new Error('Network error'), undefined, undefined);
+        }) as any);
       const profiler = new Profiler(testConfig);
-      try {
-        await profiler.createProfile();
-        assert.fail('expected error, no error thrown');
-      } catch (err) {
-        assert.strictEqual((err as Error).message, 'Network error');
-      }
+      await expect(profiler.createProfile()).rejects.toThrow('Network error');
     });
+
     it('should throw status message when response has non-200 status.', async () => {
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, undefined, undefined, {
-          statusCode: 500,
-          statusMessage: '500 status code',
-        });
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(undefined, undefined, {
+            statusCode: 500,
+            statusMessage: '500 status code',
+          });
+        }) as any);
 
       const profiler = new Profiler(testConfig);
-      try {
-        await profiler.createProfile();
-        assert.fail('expected error, no error thrown');
-      } catch (err) {
-        assert.strictEqual((err as Error).message, '500 status code');
-      }
+      await expect(profiler.createProfile()).rejects.toThrow('500 status code');
     });
+
     it(
       'should throw error with server-specified backoff when non-200 error' +
         ' and backoff specified',
       async () => {
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(
-            1,
-            undefined,
-            {error: {details: [{retryDelay: '50s'}]}},
-            {statusCode: 409}
-          );
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(
+              undefined,
+              {error: {details: [{retryDelay: '50s'}]}},
+              {statusCode: 409}
+            );
+          }) as any);
 
         const profiler = new Profiler(testConfig);
         try {
           await profiler.createProfile();
-          assert.fail('expected error, no error thrown');
+          throw new Error('expected error, no error thrown');
         } catch (err) {
-          assert.strictEqual(
-            (err as BackoffResponseError).backoffMillis,
-            50000
-          );
+          expect((err as BackoffResponseError).backoffMillis).toBe(50000);
         }
       }
     );
+
     it('should throw error when response undefined', async () => {
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, undefined, undefined, {status: 200});
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          callback(undefined, undefined, {status: 200});
+        }) as any);
 
       const profiler = new Profiler(testConfig);
-      try {
-        await profiler.createProfile();
-        assert.fail('expected error, no error thrown');
-      } catch (err) {
-        assert.strictEqual(
-          (err as Error).message,
-          'Profile not valid: undefined.'
-        );
-      }
+      await expect(profiler.createProfile()).rejects.toThrow(
+        'Profile not valid: undefined.'
+      );
     });
   });
-  describe('collectProfile', () => {
-    let requestStub:
-      | undefined
-      | sinon.SinonStub<[DecorateRequestOptions, BodyResponseCallback], void>;
-    let randomStub: sinon.SinonStub<[], number> | undefined;
 
+  describe('collectProfile', () => {
     const RANDOM_VALUE = 0.5;
     // Retryer calculates expected backoff as RANDOM_VALUE * testConfig.initialBackoffMillis => 0.5 * 1000
     const EXPECTED_BACKOFF = 500;
-    before(() => {
-      randomStub = sinon.stub(Math, 'random').returns(RANDOM_VALUE);
+
+    beforeEach(() => {
+      jest.spyOn(Math, 'random').mockReturnValue(RANDOM_VALUE);
     });
-    afterEach(() => {
-      if (requestStub) {
-        requestStub.restore();
-      }
-    });
-    after(() => {
-      if (randomStub) {
-        randomStub.restore();
-      }
-    });
+
     it('should indicate collectProfile should be called immediately when no errors', async () => {
       const requestProfileResponseBody = {
         name: 'projects/12345678901/test-projectId',
@@ -758,37 +694,41 @@ describe('Profiler', () => {
         duration: '10s',
         labels: {version: testConfig.serviceContext.version},
       };
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        .onCall(0)
-        .callsArgWith(1, undefined, requestProfileResponseBody, {
-          statusCode: 200,
-        })
-        .onCall(1)
-        .callsArgWith(1, undefined, undefined, {statusCode: 200});
+      let callCount = 0;
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          if (callCount === 0) {
+            callCount++;
+            callback(undefined, requestProfileResponseBody, {
+              statusCode: 200,
+            });
+          } else {
+            callback(undefined, undefined, {statusCode: 200});
+          }
+        }) as any);
 
       const profiler = new Profiler(testConfig);
       const delayMillis = await profiler.collectProfile();
-      assert.strictEqual(
-        0,
-        delayMillis,
-        'No delay before asking to collect next profile'
-      );
+      expect(delayMillis).toBe(0);
     });
+
     it(
       'should return expect backoff when non-200 response and no backoff' +
         ' indicated',
       async () => {
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(1, undefined, undefined, {statusCode: 404});
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(undefined, undefined, {statusCode: 404});
+          }) as any);
 
         const profiler = new Profiler(testConfig);
         const delayMillis = await profiler.collectProfile();
-        assert.deepStrictEqual(EXPECTED_BACKOFF, delayMillis);
+        expect(delayMillis).toEqual(EXPECTED_BACKOFF);
       }
     );
+
     it('should reset backoff after success', async () => {
       const createProfileResponseBody = {
         name: 'projects/12345678901/test-projectId',
@@ -796,121 +736,113 @@ describe('Profiler', () => {
         duration: '10s',
         labels: {instance: testConfig.instance},
       };
-      requestStub = sinon
-        .stub(common.ServiceObject.prototype, 'request')
-        // createProfile - first failure
-        .onCall(0)
-        .callsArgWith(1, undefined, undefined, {statusCode: 404})
-        // createProfile - second failure
-        .onCall(1)
-        .callsArgWith(1, undefined, undefined, {statusCode: 404})
-        // createProfile - third failure
-        .onCall(2)
-        .callsArgWith(1, undefined, undefined, {statusCode: 404})
-        // createProfile
-        .onCall(3)
-        // createProfile - success
-        .callsArgWith(1, undefined, createProfileResponseBody, {
-          statusCode: 200,
-        })
-        // upload profiler - success
-        .onCall(4)
-        .callsArgWith(1, undefined, undefined, {statusCode: 200})
-        // createProfile - failure
-        .onCall(5)
-        .callsArgWith(
-          1,
-          new Error('error creating profile'),
-          undefined,
-          undefined
-        );
+      let callCount = 0;
+      jest
+        .spyOn(common.ServiceObject.prototype, 'request')
+        .mockImplementation(((reqOpts: any, callback: any) => {
+          const call = callCount++;
+          if (call === 0 || call === 1 || call === 2) {
+            callback(undefined, undefined, {statusCode: 404});
+          } else if (call === 3) {
+            callback(undefined, createProfileResponseBody, {statusCode: 200});
+          } else if (call === 4) {
+            callback(undefined, undefined, {statusCode: 200});
+          } else {
+            callback(new Error('error creating profile'), undefined, undefined);
+          }
+        }) as any);
       const profiler = new Profiler(testConfig);
       let delayMillis = await profiler.collectProfile();
-      assert.deepStrictEqual(500, delayMillis);
+      expect(delayMillis).toEqual(500);
       delayMillis = await profiler.collectProfile();
-      assert.deepStrictEqual(650, delayMillis);
+      expect(delayMillis).toEqual(650);
       delayMillis = await profiler.collectProfile();
-      assert.deepStrictEqual(845, delayMillis);
+      expect(delayMillis).toEqual(845);
       delayMillis = await profiler.collectProfile();
-      assert.deepStrictEqual(0, delayMillis);
+      expect(delayMillis).toEqual(0);
       delayMillis = await profiler.collectProfile();
-      assert.deepStrictEqual(500, delayMillis);
+      expect(delayMillis).toEqual(500);
     });
+
     it(
       'should return server-specified backoff when non-200 error and backoff' +
         ' specified',
       async () => {
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(
-            1,
-            undefined,
-            {error: {details: [{retryDelay: '50s'}]}},
-            {statusCode: 409}
-          );
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(
+              undefined,
+              {error: {details: [{retryDelay: '50s'}]}},
+              {statusCode: 409}
+            );
+          }) as any);
         const profiler = new Profiler(testConfig);
         const delayMillis = await profiler.collectProfile();
-        assert.strictEqual(50000, delayMillis);
+        expect(delayMillis).toBe(50000);
       }
     );
+
     it(
       'should return expected backoff when non-200 error and invalid server backoff' +
         ' specified',
       async () => {
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(
-            1,
-            undefined,
-            {message: 'some message'},
-            {
-              statusCode: 409,
-              body: {message: 'some message'},
-            }
-          );
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(
+              undefined,
+              {message: 'some message'},
+              {
+                statusCode: 409,
+                body: {message: 'some message'},
+              }
+            );
+          }) as any);
         const profiler = new Profiler(testConfig);
         const delayMillis = await profiler.collectProfile();
-        assert.strictEqual(EXPECTED_BACKOFF, delayMillis);
+        expect(delayMillis).toBe(EXPECTED_BACKOFF);
       }
     );
+
     it(
       'should return expected backoff when non-200 error and invalid server backoff' +
         ' string specified',
       async () => {
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(
-            1,
-            undefined,
-            {error: {details: [{retryDelay: 'not a duration'}]}},
-            {statusCode: 409}
-          );
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(
+              undefined,
+              {error: {details: [{retryDelay: 'not a duration'}]}},
+              {statusCode: 409}
+            );
+          }) as any);
         const profiler = new Profiler(testConfig);
         const delayMillis = await profiler.collectProfile();
-        assert.strictEqual(EXPECTED_BACKOFF, delayMillis);
+        expect(delayMillis).toBe(EXPECTED_BACKOFF);
       }
     );
+
     it(
       'should return backoff limit, when server specified backoff is greater' +
         ' then backoff limit',
       async () => {
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(
-            1,
-            undefined,
-            {error: {details: [{retryDelay: '1000h'}]}},
-            {statusCode: 409}
-          );
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            callback(
+              undefined,
+              {error: {details: [{retryDelay: '1000h'}]}},
+              {statusCode: 409}
+            );
+          }) as any);
         const profiler = new Profiler(testConfig);
         const delayMillis = await profiler.collectProfile();
-        assert.strictEqual(ms('7d'), delayMillis);
+        expect(delayMillis).toBe(ms('7d'));
       }
     );
+
     it(
       'should indicate collectProfile should be called immediately if there' +
         ' is an error when collecting and uploading profile.',
@@ -921,18 +853,23 @@ describe('Profiler', () => {
           duration: '10s',
           labels: {instance: testConfig.instance},
         };
-        requestStub = sinon
-          .stub(common.ServiceObject.prototype, 'request')
-          .onCall(0)
-          .callsArgWith(1, undefined, createProfileResponseBody, {
-            statusCode: 200,
-          })
-          .onCall(1)
-          .callsArgWith(1, new Error('Error uploading'), undefined, undefined);
+        let callCount = 0;
+        jest
+          .spyOn(common.ServiceObject.prototype, 'request')
+          .mockImplementation(((reqOpts: any, callback: any) => {
+            if (callCount === 0) {
+              callCount++;
+              callback(undefined, createProfileResponseBody, {
+                statusCode: 200,
+              });
+            } else {
+              callback(new Error('Error uploading'), undefined, undefined);
+            }
+          }) as any);
 
         const profiler = new Profiler(testConfig);
         const delayMillis = await profiler.collectProfile();
-        assert.strictEqual(0, delayMillis);
+        expect(delayMillis).toBe(0);
       }
     );
   });
