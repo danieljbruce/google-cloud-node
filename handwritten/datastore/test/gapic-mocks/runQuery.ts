@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe} from 'mocha';
 import * as protos from '../../src/protos';
 import {getInitializedDatastoreClient} from './get-initialized-datastore-client';
 
@@ -55,7 +53,7 @@ describe('Run Query', () => {
   it('should pass new transaction into runQuery for transactions', async () => {
     setRunQueryComparison(
       (request: protos.google.datastore.v1.IRunQueryRequest) => {
-        assert.deepStrictEqual(request, {
+        expect(request).toEqual({
           readOptions: {
             consistencyType: 'newTransaction',
             newTransaction: {},

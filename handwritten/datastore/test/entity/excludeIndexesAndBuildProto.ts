@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe} from 'mocha';
 import {Entities, EntityObject} from '../../src/entity';
 import {extendExcludeFromIndexes} from '../../src/utils/entity/extendExcludeFromIndexes';
 import {buildEntityProto} from '../../src/utils/entity/buildEntityProto';
 import * as is from 'is';
-import * as assert from 'assert';
 import {ServiceError} from 'google-gax';
 import {entityObject} from '../fixtures/entityObjectAndProto';
 import {complexCaseEntities} from '../fixtures/complexCaseLargeStrings';
-const async = require('async');
 
 describe('excludeIndexesAndBuildProto', () => {
   const longString = Buffer.alloc(1501, '.').toString();
@@ -43,13 +40,13 @@ describe('excludeIndexesAndBuildProto', () => {
       if (is.object(entityProtoSubset)) {
         if (entityProtoSubset.stringValue === longString) {
           if (entityProtoSubset.excludeFromIndexes !== true) {
-            assert.fail(
+            throw new Error(
               `The entity proto at ${path} should excludeFromIndexes`,
             );
           }
         } else {
           if (entityProtoSubset.excludeFromIndexes === true) {
-            assert.fail(
+            throw new Error(
               `The entity proto at ${path} should not excludeFromIndexes`,
             );
           }
@@ -118,10 +115,9 @@ describe('excludeIndexesAndBuildProto', () => {
           },
           '',
         );
-        assert.fail('checkEntityProto should have failed');
+        throw new Error('checkEntityProto should have failed');
       } catch (e) {
-        assert.strictEqual(
-          (e as ServiceError).message,
+        expect((e as ServiceError).message).toBe(
           'The entity proto at .properties.name should excludeFromIndexes',
         );
       }
@@ -143,10 +139,9 @@ describe('excludeIndexesAndBuildProto', () => {
           },
           '',
         );
-        assert.fail('checkEntityProto should have failed');
+        throw new Error('checkEntityProto should have failed');
       } catch (e) {
-        assert.strictEqual(
-          (e as ServiceError).message,
+        expect((e as ServiceError).message).toBe(
           'The entity proto at .properties.name should not excludeFromIndexes',
         );
       }
@@ -183,10 +178,9 @@ describe('excludeIndexesAndBuildProto', () => {
           },
           '',
         );
-        assert.fail('checkEntityProto should have failed');
+        throw new Error('checkEntityProto should have failed');
       } catch (e) {
-        assert.strictEqual(
-          (e as ServiceError).message,
+        expect((e as ServiceError).message).toBe(
           'The entity proto at .properties.name.arrayValue.values.[1].entityValue.properties.metadata should not excludeFromIndexes',
         );
       }
@@ -353,28 +347,22 @@ describe('excludeIndexesAndBuildProto', () => {
       });
     });
 
-  async.each(
-    testCases,
-    (test: {name: string; entities: Entities; skipped: boolean}) => {
-      it(test.name, function () {
-        /**
-         * This test ensures that excludeFromIndexes: true only appears in the
-         * entity proto in every place that corresponds to a large value. It
-         * does this using the checkEntityProto function which does a
-         * recursive check on the proto.
-         */
-        if (test.skipped) {
-          this.skip();
-        }
-        const entityObject = {
-          data: test.entities,
-          excludeLargeProperties: true,
-          excludeFromIndexes: [],
-        };
-        extendExcludeFromIndexes(entityObject);
-        const entityProto = buildEntityProto(entityObject);
-        checkEntityProto(entityProto, '');
-      });
-    },
-  );
+  for (const test of testCases) {
+    (test.skipped ? it.skip : it)(test.name, () => {
+      /**
+       * This test ensures that excludeFromIndexes: true only appears in the
+       * entity proto in every place that corresponds to a large value. It
+       * does this using the checkEntityProto function which does a
+       * recursive check on the proto.
+       */
+      const entityObject = {
+        data: test.entities,
+        excludeLargeProperties: true,
+        excludeFromIndexes: [],
+      };
+      extendExcludeFromIndexes(entityObject);
+      const entityProto = buildEntityProto(entityObject);
+      checkEntityProto(entityProto, '');
+    });
+  }
 });

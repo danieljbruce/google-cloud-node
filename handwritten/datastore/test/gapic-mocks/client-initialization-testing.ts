@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {beforeEach, describe, it} from 'mocha';
 import {
   Datastore,
   DatastoreClient,
@@ -20,65 +19,41 @@ import {
   DatastoreRequest,
   DatastoreOptions,
 } from '../../src';
-import * as assert from 'assert';
-import * as proxyquire from 'proxyquire';
 import {Callback, CallOptions} from 'google-gax';
 import * as protos from '../../src/protos';
-import * as ds from '../../src';
-import * as mocha from 'mocha';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 const clientName = 'DatastoreClient';
-const async = require('async');
 
-/**
- * This class mocks out the lookup function so that for tests in this file
- * the lookup function just sends data back instead of making a call to the
- * server. The class also saves the rest parameter in the constructor so that
- * it can be read later for correctness.
- *
- */
-class FakeDatastoreClient extends DatastoreClient {
-  restParameter: Fallback;
-  constructor(...args: any[]) {
-    super();
-    this.restParameter = args[0].fallback;
-  }
-  lookup(
-    request?: protos.google.datastore.v1.ILookupRequest,
-    optionsOrCallback?:
-      | CallOptions
-      | Callback<
-          protos.google.datastore.v1.ILookupResponse,
-          protos.google.datastore.v1.ILookupRequest | null | undefined,
-          {} | null | undefined
-        >,
-    callback?: Callback<
-      protos.google.datastore.v1.ILookupResponse,
-      protos.google.datastore.v1.ILookupRequest | null | undefined,
-      {} | null | undefined
-    >,
-  ): Promise<
-    [
-      protos.google.datastore.v1.ILookupResponse,
-      protos.google.datastore.v1.ILookupRequest | undefined,
-      {} | undefined,
-    ]
-  > {
-    if (callback) {
-      callback(null, {});
-    }
-    return new Promise((resolve, reject) => {
-      resolve([{}, {}, {}]);
-    });
-  }
-}
+jest.mock('../../src/v1', () => {
+  const actual = jest.requireActual('../../src/v1');
+  return {
+    ...actual,
+    DatastoreClient: class extends actual.DatastoreClient {
+      restParameter: any;
+      constructor(...args: any[]) {
+        super(...args);
+        this.restParameter = args[0]?.fallback;
+      }
+      lookup(
+        request?: any,
+        optionsOrCallback?: any,
+        callback?: any,
+      ): Promise<any> {
+        const cb = typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+        if (cb) {
+          cb(null, {});
+        }
+        return Promise.resolve([{}, {}, {}]);
+      }
+    },
+  };
+});
 
 describe('Client Initialization Testing', () => {
   describe('Request', () => {
-    let Request: typeof ds.DatastoreRequest;
     let request: Any;
 
     /**
@@ -89,77 +64,68 @@ describe('Client Initialization Testing', () => {
      * the test makes comparisons with.
      * @param {string | undefined} [expectedFallback] The value that the test
      * expects the rest parameter of the data client to be equal to.
-     * @param {mocha.Done} [done] The done function used for indicating
-     * that the test is complete or that there is an error in the mocha test
+     * @param {jest.DoneCallback} [done] The done function used for indicating
+     * that the test is complete or that there is an error in the test
      * environment.
      *
      */
     function compareRequest(
       request: DatastoreRequest,
       expectedFallback: Fallback,
-      done: mocha.Done,
+      done: jest.DoneCallback,
     ) {
       try {
-        const client = request.datastore.clients_.get(clientName);
-        assert(client);
-        assert.strictEqual(client.restParameter, expectedFallback);
+        const client = (request.datastore as any).clients_.get(clientName);
+        expect(client).toBeTruthy();
+        expect(client.restParameter).toBe(expectedFallback);
         done();
       } catch (err: unknown) {
-        done(err);
+        done(err as Error);
       }
     }
-    async.each(
-      [
-        {
-          options: {fallback: 'rest' as Fallback},
-          expectedFallback: 'rest',
-          description: 'when specifying rest as a fallback parameter',
-        },
-        {
-          options: {},
-          expectedFallback: undefined,
-          description: 'when specifying no fallback parameter',
-        },
-      ],
-      (testParameters: {
-        options: DatastoreOptions;
-        expectedFallback: Fallback;
-        description: string;
-      }) => {
-        describe(testParameters.description, () => {
-          beforeEach(() => {
-            Request = proxyquire('../../src/request', {
-              './v1': {
-                DatastoreClient: FakeDatastoreClient,
-              },
-            }).DatastoreRequest;
-            request = new Request();
-            request.datastore = new Datastore(testParameters.options);
-            // The CI environment can't fetch project id so the function that
-            // fetches the project id needs to be mocked out.
-            request.datastore.auth.getProjectId = (
-              callback: (err: any, projectId: string) => void,
-            ) => {
-              callback(null, 'some-project-id');
-            };
-          });
-          it('should set the rest parameter in the data client when calling prepareGaxRequest_', done => {
-            // This request does lazy initialization of the gapic layer Datastore client.
-            request.prepareGaxRequest_(
-              {client: clientName, method: 'lookup'},
-              () => {
-                compareRequest(request, testParameters.expectedFallback, done);
-              },
-            );
-          });
-          it('should set the rest parameter in the data client when calling request_', done => {
-            // This request does lazy initialization of the gapic layer Datastore client.
-            request.request_({client: clientName, method: 'lookup'}, () => {
+
+    const testCases = [
+      {
+        options: {fallback: 'rest' as Fallback},
+        expectedFallback: 'rest' as Fallback,
+        description: 'when specifying rest as a fallback parameter',
+      },
+      {
+        options: {},
+        expectedFallback: undefined as unknown as Fallback,
+        description: 'when specifying no fallback parameter',
+      },
+    ];
+
+    for (const testParameters of testCases) {
+      describe(testParameters.description, () => {
+        beforeEach(() => {
+          request = new DatastoreRequest();
+          request.datastore = new Datastore(testParameters.options);
+          // The CI environment can't fetch project id so the function that
+          // fetches the project id needs to be mocked out.
+          request.datastore.auth.getProjectId = (
+            callback: (err: any, projectId: string) => void,
+          ) => {
+            callback(null, 'some-project-id');
+          };
+        });
+        it('should set the rest parameter in the data client when calling prepareGaxRequest_', done => {
+          // This request does lazy initialization of the gapic layer Datastore client.
+          request.prepareGaxRequest_(
+            {client: clientName, method: 'lookup'},
+            () => {
               compareRequest(request, testParameters.expectedFallback, done);
-            });
+            },
+          );
+        });
+        it('should set the rest parameter in the data client when calling request_', done => {
+          // This request does lazy initialization of the gapic layer Datastore client.
+          request.request_({client: clientName, method: 'lookup'}, () => {
+            compareRequest(request, testParameters.expectedFallback, done);
           });
         });
-      },
-    );
+      });
+    }
   });
 });

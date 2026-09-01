@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {beforeEach, describe, it} from 'mocha';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {Query} = require('../src/query');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -21,7 +19,7 @@ import {Datastore} from '../src';
 import {AggregateField, AggregateQuery} from '../src/aggregate';
 import {PropertyFilter, EntityFilter, or} from '../src/filter';
 import {entity} from '../src/entity';
-import {SECOND_DATABASE_ID} from './index';
+const SECOND_DATABASE_ID = 'multidb-test';
 
 describe('Query', () => {
   const SCOPE = {} as Datastore;
@@ -37,15 +35,15 @@ describe('Query', () => {
 
   describe('instantiation', () => {
     it('should localize the scope', () => {
-      assert.strictEqual(query.scope, SCOPE);
+      expect(query.scope).toBe(SCOPE);
     });
 
     it('should localize the namespace', () => {
-      assert.strictEqual(query.namespace, NAMESPACE);
+      expect(query.namespace).toBe(NAMESPACE);
     });
 
     it('should localize the kind', () => {
-      assert.strictEqual(query.kinds, KINDS);
+      expect(query.kinds).toBe(KINDS);
     });
 
     it('should use null for all falsy namespace values', () => {
@@ -56,7 +54,7 @@ describe('Query', () => {
         new Query(SCOPE, 0 as {} as string, KINDS),
         new Query(SCOPE, KINDS),
       ].forEach(query => {
-        assert.strictEqual(query.namespace, null);
+        expect(query.namespace).toBeNull();
       });
     });
 
@@ -72,8 +70,8 @@ describe('Query', () => {
         const aggregate2 = new AggregateQuery(query)
           .count('total')
           .count('total2');
-        assert.deepStrictEqual(aggregate.aggregations, aggregate2.aggregations);
-        assert.deepStrictEqual(aggregate.aggregations, [
+        expect(aggregate.aggregations).toEqual(aggregate2.aggregations);
+        expect(aggregate.aggregations).toEqual([
           firstAggregation,
           secondAggregation,
         ]);
@@ -81,45 +79,40 @@ describe('Query', () => {
 
       describe('AggregateField toProto', () => {
         it('should produce the right proto with a count aggregation', () => {
-          assert.deepStrictEqual(
-            AggregateField.count().alias('alias1').toProto(),
-            {
-              alias: 'alias1',
-              count: {},
-            },
-          );
+          expect(AggregateField.count().alias('alias1').toProto()).toEqual({
+            alias: 'alias1',
+            count: {},
+          });
         });
         it('should produce the right proto with a sum aggregation', () => {
-          assert.deepStrictEqual(
+          expect(
             AggregateField.sum('property1').alias('alias1').toProto(),
-            {
-              alias: 'alias1',
-              operator: 'sum',
-              sum: {
-                property: {
-                  name: 'property1',
-                },
+          ).toEqual({
+            alias: 'alias1',
+            operator: 'sum',
+            sum: {
+              property: {
+                name: 'property1',
               },
             },
-          );
+          });
         });
         it('should produce the right proto with an average aggregation', () => {
-          assert.deepStrictEqual(
+          expect(
             AggregateField.average('property1').alias('alias1').toProto(),
-            {
-              alias: 'alias1',
-              avg: {
-                property: {
-                  name: 'property1',
-                },
+          ).toEqual({
+            alias: 'alias1',
+            avg: {
+              property: {
+                name: 'property1',
               },
-              operator: 'avg',
             },
-          );
+            operator: 'avg',
+          });
         });
       });
 
-      describe('comparing equivalent aggregation queries', async () => {
+      describe('comparing equivalent aggregation queries', () => {
         function generateAggregateQuery() {
           return new AggregateQuery(new Query(['kind1']));
         }
@@ -134,17 +127,15 @@ describe('Query', () => {
           aggregateFields.forEach(aggregateField =>
             addAggregationAggregate.addAggregation(aggregateField),
           );
-          assert.deepStrictEqual(
-            aggregateQuery.aggregations,
+          expect(aggregateQuery.aggregations).toEqual(
             addAggregationsAggregate.aggregations,
           );
-          assert.deepStrictEqual(
-            aggregateQuery.aggregations,
+          expect(aggregateQuery.aggregations).toEqual(
             addAggregationAggregate.aggregations,
           );
-          assert.deepStrictEqual(aggregateQuery.aggregations, aggregateFields);
+          expect(aggregateQuery.aggregations).toEqual(aggregateFields);
         }
-        describe('comparing aggregations with an alias', async () => {
+        describe('comparing aggregations with an alias', () => {
           it('should compare equivalent count aggregation queries', () => {
             compareAggregations(
               generateAggregateQuery().count('total1').count('total2'),
@@ -176,7 +167,7 @@ describe('Query', () => {
             );
           });
         });
-        describe('comparing aggregations without an alias', async () => {
+        describe('comparing aggregations without an alias', () => {
           it('should compare equivalent count aggregation queries', () => {
             compareAggregations(
               generateAggregateQuery().count().count(),
@@ -209,37 +200,26 @@ describe('Query', () => {
   });
 
   describe('filter', () => {
-    it('should issue a warning when a Filter instance is not provided', done => {
-      const onWarning = (warning: {message: unknown}) => {
-        assert.strictEqual(
-          warning.message,
-          'Providing Filter objects like Composite Filter or Property Filter is recommended when using .filter',
-        );
-        process.removeListener('warning', onWarning);
-        done();
-      };
-      process.on('warning', onWarning);
+    it('should issue a warning when a Filter instance is not provided', () => {
+      const spy = jest.spyOn(process, 'emitWarning').mockImplementation();
       new Query(['kind1']).filter('name', 'Stephen');
+      expect(spy).toHaveBeenCalledWith(
+        'Providing Filter objects like Composite Filter or Property Filter is recommended when using .filter',
+      );
     });
-    it('should not issue a warning again when a Filter instance is not provided', done => {
-      const onWarning = () => {
-        assert.fail();
-      };
-      process.on('warning', onWarning);
+    it('should not issue a warning again when a Filter instance is not provided', () => {
+      const spy = jest.spyOn(process, 'emitWarning').mockImplementation();
       new Query(['kind1']).filter('name', 'Stephen');
-      setImmediate(() => {
-        process.removeListener('warning', onWarning);
-        done();
-      });
+      expect(spy).not.toHaveBeenCalled();
     });
     it('should support filtering', () => {
       const now = new Date();
       const query = new Query(['kind1']).filter('date', '<=', now);
       const filter = query.filters[0];
 
-      assert.strictEqual(filter.name, 'date');
-      assert.strictEqual(filter.op, '<=');
-      assert.strictEqual(filter.val, now);
+      expect(filter.name).toBe('date');
+      expect(filter.op).toBe('<=');
+      expect(filter.val).toBe(now);
     });
 
     it('should recognize all the different operators', () => {
@@ -254,43 +234,43 @@ describe('Query', () => {
         .filter('inProperty', 'IN', 13)
         .filter('notInProperty', 'NOT_IN', 14);
 
-      assert.strictEqual(query.filters[0].name, 'date');
-      assert.strictEqual(query.filters[0].op, '<=');
-      assert.strictEqual(query.filters[0].val, now);
+      expect(query.filters[0].name).toBe('date');
+      expect(query.filters[0].op).toBe('<=');
+      expect(query.filters[0].val).toBe(now);
 
-      assert.strictEqual(query.filters[1].name, 'name');
-      assert.strictEqual(query.filters[1].op, '=');
-      assert.strictEqual(query.filters[1].val, 'Title');
+      expect(query.filters[1].name).toBe('name');
+      expect(query.filters[1].op).toBe('=');
+      expect(query.filters[1].val).toBe('Title');
 
-      assert.strictEqual(query.filters[2].name, 'count');
-      assert.strictEqual(query.filters[2].op, '>');
-      assert.strictEqual(query.filters[2].val, 20);
+      expect(query.filters[2].name).toBe('count');
+      expect(query.filters[2].op).toBe('>');
+      expect(query.filters[2].val).toBe(20);
 
-      assert.strictEqual(query.filters[3].name, 'size');
-      assert.strictEqual(query.filters[3].op, '<');
-      assert.strictEqual(query.filters[3].val, 10);
+      expect(query.filters[3].name).toBe('size');
+      expect(query.filters[3].op).toBe('<');
+      expect(query.filters[3].val).toBe(10);
 
-      assert.strictEqual(query.filters[4].name, 'something');
-      assert.strictEqual(query.filters[4].op, '>=');
-      assert.strictEqual(query.filters[4].val, 11);
+      expect(query.filters[4].name).toBe('something');
+      expect(query.filters[4].op).toBe('>=');
+      expect(query.filters[4].val).toBe(11);
 
-      assert.strictEqual(query.filters[5].name, 'neProperty');
-      assert.strictEqual(query.filters[5].op, '!=');
-      assert.strictEqual(query.filters[5].val, 12);
+      expect(query.filters[5].name).toBe('neProperty');
+      expect(query.filters[5].op).toBe('!=');
+      expect(query.filters[5].val).toBe(12);
 
-      assert.strictEqual(query.filters[6].name, 'inProperty');
-      assert.strictEqual(query.filters[6].op, 'IN');
-      assert.strictEqual(query.filters[6].val, 13);
+      expect(query.filters[6].name).toBe('inProperty');
+      expect(query.filters[6].op).toBe('IN');
+      expect(query.filters[6].val).toBe(13);
 
-      assert.strictEqual(query.filters[7].name, 'notInProperty');
-      assert.strictEqual(query.filters[7].op, 'NOT_IN');
-      assert.strictEqual(query.filters[7].val, 14);
+      expect(query.filters[7].name).toBe('notInProperty');
+      expect(query.filters[7].op).toBe('NOT_IN');
+      expect(query.filters[7].val).toBe(14);
     });
 
     it('should remove any whitespace surrounding the filter name', () => {
       const query = new Query(['kind1']).filter('   count    ', '>', 123);
 
-      assert.strictEqual(query.filters[0].name, 'count');
+      expect(query.filters[0].name).toBe('count');
     });
 
     it('should remove any whitespace surrounding the operator', () => {
@@ -300,35 +280,29 @@ describe('Query', () => {
         123,
       );
 
-      assert.strictEqual(query.filters[0].op, '<');
+      expect(query.filters[0].op).toBe('<');
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.filter('count', '<', 5);
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
 
     it('should default the operator to "="', () => {
       const query = new Query(['kind1']).filter('name', 'Stephen');
       const filter = query.filters[0];
 
-      assert.strictEqual(filter.name, 'name');
-      assert.strictEqual(filter.op, '=');
-      assert.strictEqual(filter.val, 'Stephen');
+      expect(filter.name).toBe('name');
+      expect(filter.op).toBe('=');
+      expect(filter.val).toBe('Stephen');
     });
   });
-  it('should not issue a warning when an EntityFilter instance is provided', done => {
-    const onWarning = () => {
-      assert.fail();
-    };
-    process.on('warning', onWarning);
+  it('should not issue a warning when an EntityFilter instance is provided', () => {
+    const spy = jest.spyOn(process, 'emitWarning').mockImplementation();
     new Query(['kind1']).filter(new PropertyFilter('name', '=', 'Stephen'));
-    setImmediate(() => {
-      process.removeListener('warning', onWarning);
-      done();
-    });
+    expect(spy).not.toHaveBeenCalled();
   });
   describe('filter with Filter class', () => {
     it('should support filter with Filter', () => {
@@ -338,9 +312,9 @@ describe('Query', () => {
       );
       const filter = query.entityFilters[0];
 
-      assert.strictEqual(filter.name, 'date');
-      assert.strictEqual(filter.op, '<=');
-      assert.strictEqual(filter.val, now);
+      expect(filter.name).toBe('date');
+      expect(filter.op).toBe('<=');
+      expect(filter.val).toBe(now);
     });
     it('should support filter with OR', () => {
       const now = new Date();
@@ -351,26 +325,24 @@ describe('Query', () => {
         ]),
       );
       const filter = query.entityFilters[0];
-      assert.strictEqual(filter.op, 'OR');
+      expect(filter.op).toBe('OR');
       // Check filters
       const filters = filter.filters;
-      assert.strictEqual(filters.length, 2);
-      assert.strictEqual(filters[0].name, 'date');
-      assert.strictEqual(filters[0].op, '<=');
-      assert.strictEqual(filters[0].val, now);
-      assert.strictEqual(filters[1].name, 'name');
-      assert.strictEqual(filters[1].op, '=');
-      assert.strictEqual(filters[1].val, 'Stephen');
+      expect(filters.length).toBe(2);
+      expect(filters[0].name).toBe('date');
+      expect(filters[0].op).toBe('<=');
+      expect(filters[0].val).toBe(now);
+      expect(filters[1].name).toBe('name');
+      expect(filters[1].op).toBe('=');
+      expect(filters[1].val).toBe('Stephen');
     });
     it('should accept null as value', () => {
-      assert.strictEqual(
+      expect(
         new Query(['kind1']).filter('status', null).filters.pop()?.val,
-        null,
-      );
-      assert.strictEqual(
+      ).toBeNull();
+      expect(
         new Query(['kind1']).filter('status', '=', null).filters.pop()?.val,
-        null,
-      );
+      ).toBeNull();
     });
   });
 
@@ -378,16 +350,16 @@ describe('Query', () => {
     it('should support ancestor filtering', () => {
       const query = new Query(['kind1']).hasAncestor(['kind2', 123]);
 
-      assert.strictEqual(query.filters[0].name, '__key__');
-      assert.strictEqual(query.filters[0].op, 'HAS_ANCESTOR');
-      assert.deepStrictEqual(query.filters[0].val, ['kind2', 123]);
+      expect(query.filters[0].name).toBe('__key__');
+      expect(query.filters[0].op).toBe('HAS_ANCESTOR');
+      expect(query.filters[0].val).toEqual(['kind2', 123]);
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.hasAncestor(['kind2', 123]);
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -395,22 +367,22 @@ describe('Query', () => {
     it('should default ordering to ascending', () => {
       const query = new Query(['kind1']).order('name');
 
-      assert.strictEqual(query.orders[0].name, 'name');
-      assert.strictEqual(query.orders[0].sign, '+');
+      expect(query.orders[0].name).toBe('name');
+      expect(query.orders[0].sign).toBe('+');
     });
 
     it('should support ascending order', () => {
       const query = new Query(['kind1']).order('name');
 
-      assert.strictEqual(query.orders[0].name, 'name');
-      assert.strictEqual(query.orders[0].sign, '+');
+      expect(query.orders[0].name).toBe('name');
+      expect(query.orders[0].sign).toBe('+');
     });
 
     it('should support descending order', () => {
       const query = new Query(['kind1']).order('count', {descending: true});
 
-      assert.strictEqual(query.orders[0].name, 'count');
-      assert.strictEqual(query.orders[0].sign, '-');
+      expect(query.orders[0].name).toBe('count');
+      expect(query.orders[0].sign).toBe('-');
     });
 
     it('should support both ascending and descending', () => {
@@ -418,17 +390,17 @@ describe('Query', () => {
         .order('name')
         .order('count', {descending: true});
 
-      assert.strictEqual(query.orders[0].name, 'name');
-      assert.strictEqual(query.orders[0].sign, '+');
-      assert.strictEqual(query.orders[1].name, 'count');
-      assert.strictEqual(query.orders[1].sign, '-');
+      expect(query.orders[0].name).toBe('name');
+      expect(query.orders[0].sign).toBe('+');
+      expect(query.orders[1].name).toBe('count');
+      expect(query.orders[1].sign).toBe('-');
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.order('name');
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -436,20 +408,20 @@ describe('Query', () => {
     it('should store an array of properties to group by', () => {
       const query = new Query(['kind1']).groupBy(['name', 'size']);
 
-      assert.deepStrictEqual(query.groupByVal, ['name', 'size']);
+      expect(query.groupByVal).toEqual(['name', 'size']);
     });
 
     it('should convert a single property into an array', () => {
       const query = new Query(['kind1']).groupBy('name');
 
-      assert.deepStrictEqual(query.groupByVal, ['name']);
+      expect(query.groupByVal).toEqual(['name']);
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.groupBy(['name', 'size']);
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -457,20 +429,20 @@ describe('Query', () => {
     it('should store an array of properties to select', () => {
       const query = new Query(['kind1']).select(['name', 'size']);
 
-      assert.deepStrictEqual(query.selectVal, ['name', 'size']);
+      expect(query.selectVal).toEqual(['name', 'size']);
     });
 
     it('should convert a single property into an array', () => {
       const query = new Query(['kind1']).select('name');
 
-      assert.deepStrictEqual(query.selectVal, ['name']);
+      expect(query.selectVal).toEqual(['name']);
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.select(['name', 'size']);
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -478,14 +450,14 @@ describe('Query', () => {
     it('should capture the starting cursor value', () => {
       const query = new Query(['kind1']).start('X');
 
-      assert.strictEqual(query.startVal, 'X');
+      expect(query.startVal).toBe('X');
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.start('X');
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -493,14 +465,14 @@ describe('Query', () => {
     it('should capture the ending cursor value', () => {
       const query = new Query(['kind1']).end('Z');
 
-      assert.strictEqual(query.endVal, 'Z');
+      expect(query.endVal).toBe('Z');
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.end('Z');
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -508,14 +480,14 @@ describe('Query', () => {
     it('should capture the number of results to limit to', () => {
       const query = new Query(['kind1']).limit(20);
 
-      assert.strictEqual(query.limitVal, 20);
+      expect(query.limitVal).toBe(20);
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.limit(20);
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -523,14 +495,14 @@ describe('Query', () => {
     it('should capture the number of results to offset by', () => {
       const query = new Query(['kind1']).offset(100);
 
-      assert.strictEqual(query.offsetVal, 100);
+      expect(query.offsetVal).toBe(100);
     });
 
     it('should return the query instance', () => {
       const query = new Query(['kind1']);
       const nextQuery = query.offset(100);
 
-      assert.strictEqual(query, nextQuery);
+      expect(query).toBe(nextQuery);
     });
   });
 
@@ -540,10 +512,14 @@ describe('Query', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query.scope.runQuery = function (...thisArgs: any[]) {
-        assert.strictEqual(this, query.scope);
-        assert.strictEqual(thisArgs[0], query);
-        assert.strictEqual(thisArgs[1], args[0]);
-        done();
+        try {
+          expect(this).toBe(query.scope);
+          expect(thisArgs[0]).toBe(query);
+          expect(thisArgs[1]).toBe(args[0]);
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       };
 
       query.run(...args);
@@ -556,13 +532,13 @@ describe('Query', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query.scope.runQueryStream = function (...args: any[]) {
-        assert.strictEqual(this, query.scope);
-        assert.strictEqual(args[0], query);
+        expect(this).toBe(query.scope);
+        expect(args[0]).toBe(query);
         return runQueryReturnValue;
       };
 
       const results = query.runStream();
-      assert.strictEqual(results, runQueryReturnValue);
+      expect(results).toBe(runQueryReturnValue);
     });
 
     it('should call the parent instance runQueryStream correctly', () => {
@@ -575,14 +551,14 @@ describe('Query', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query.scope.runQueryStream = function (...args: any[]) {
-        assert.strictEqual(this, query.scope);
-        assert.strictEqual(args[0], query);
-        assert.strictEqual(args[1], options);
+        expect(this).toBe(query.scope);
+        expect(args[0]).toBe(query);
+        expect(args[1]).toBe(options);
         return runQueryReturnValue;
       };
 
       const results = query.runStream(options);
-      assert.strictEqual(results, runQueryReturnValue);
+      expect(results).toBe(runQueryReturnValue);
     });
   });
 
@@ -609,10 +585,9 @@ describe('Query', () => {
         callback: (err?: unknown) => void,
       ) => {
         try {
-          assert.strictEqual(request.databaseId, SECOND_DATABASE_ID);
-          assert.strictEqual(request.projectId, projectId);
-          assert.strictEqual(
-            options.headers['google-cloud-resource-prefix'],
+          expect(request.databaseId).toBe(SECOND_DATABASE_ID);
+          expect(request.projectId).toBe(projectId);
+          expect(options.headers['google-cloud-resource-prefix']).toBe(
             `projects/${projectId}`,
           );
         } catch (e) {

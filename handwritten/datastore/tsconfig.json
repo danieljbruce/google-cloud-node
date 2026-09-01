@@ -14,7 +14,6 @@
     "src/**/*.ts",
     "test/*.ts",
     "test/**/*.ts",
-    "system-test/*.ts",
     "mock-server/datastore-server.ts",
     "src/**/*.json",
     "samples/**/*.json",
