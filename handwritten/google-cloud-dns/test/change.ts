@@ -18,32 +18,39 @@ import {
   ServiceObjectConfig,
 } from '@google-cloud/common';
 import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, before, beforeEach} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import {Change} from '../src/change';
 
 let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  promisifyAll(esClass: Function) {
-    if (esClass.name === 'Change') {
-      promisified = true;
-    }
-  },
+
+jest.mock('@google-cloud/common', () => {
+  const common = jest.requireActual('@google-cloud/common');
+  return {
+    ...common,
+    ServiceObject: class FakeServiceObject extends common.ServiceObject {
+      calledWith_: unknown[];
+      constructor(config: ServiceObjectConfig, ...args: unknown[]) {
+        super(config);
+        this.calledWith_ = [config, ...args];
+      }
+    },
+  };
 });
 
-class FakeServiceObject extends ServiceObject {
-  calledWith_: IArguments;
-  constructor(config: ServiceObjectConfig) {
-    super(config);
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
-}
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll(esClass: Function, options?: promisify.PromisifyAllOptions) {
+      if (esClass.name === 'Change') {
+        promisified = true;
+      }
+      return actual.promisifyAll(esClass, options);
+    },
+  };
+});
+
+import {Change} from '../src/change';
 
 describe('Change', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let Change: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let change: any;
 
@@ -54,30 +61,26 @@ describe('Change', () => {
 
   const CHANGE_ID = 'change-id';
 
-  before(() => {
-    Change = proxyquire('../src/change', {
-      '@google-cloud/common': {
-        ServiceObject: FakeServiceObject,
-      },
-      '@google-cloud/promisify': fakePromisify,
-    }).Change;
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    change = new Change(ZONE as any, CHANGE_ID);
   });
 
-  beforeEach(() => {
-    change = new Change(ZONE, CHANGE_ID);
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('instantiation', () => {
     it('should inherit from ServiceObject', () => {
-      assert(change instanceof ServiceObject);
+      expect(change).toBeInstanceOf(ServiceObject);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const calledWith = (change as any).calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, ZONE);
-      assert.strictEqual(calledWith.baseUrl, '/changes');
-      assert.strictEqual(calledWith.id, CHANGE_ID);
-      assert.deepStrictEqual(calledWith.methods, {
+      expect(calledWith.parent).toBe(ZONE);
+      expect(calledWith.baseUrl).toBe('/changes');
+      expect(calledWith.id).toBe(CHANGE_ID);
+      expect(calledWith.methods).toEqual({
         exists: true,
         get: true,
         getMetadata: true,
@@ -85,7 +88,7 @@ describe('Change', () => {
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
   });
 
@@ -94,11 +97,17 @@ describe('Change', () => {
       const config = {};
 
       change.parent.createChange = (config_: {}) => {
-        assert.strictEqual(config, config_);
-        done();
+        try {
+          expect(config_).toBe(config);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      change.create(config, assert.ifError);
+      change.create(config, (err: unknown) => {
+        if (err) done(err);
+      });
     });
 
     describe('error', () => {
@@ -115,10 +124,14 @@ describe('Change', () => {
         change.create(
           {},
           (err: Error, change: Change, apiResponse_: Metadata) => {
-            assert.strictEqual(err, error);
-            assert.strictEqual(change, null);
-            assert.strictEqual(apiResponse_, apiResponse);
-            done();
+            try {
+              expect(err).toBe(error);
+              expect(change).toBeNull();
+              expect(apiResponse_).toBe(apiResponse);
+              done();
+            } catch (e) {
+              done(e);
+            }
           }
         );
       });
@@ -141,20 +154,28 @@ describe('Change', () => {
         change.create(
           {},
           (err: Error, change_: Change, apiResponse_: Metadata) => {
-            assert.ifError(err);
-            assert.strictEqual(change_, change);
-            assert.strictEqual(apiResponse_, apiResponse);
-            done();
+            try {
+              expect(err).toBeNull();
+              expect(change_).toBe(change);
+              expect(apiResponse_).toBe(apiResponse);
+              done();
+            } catch (e) {
+              done(e);
+            }
           }
         );
       });
 
       it('should assign the ID and metadata from the change', done => {
         change.create({}, (err: Error, change_: Change) => {
-          assert.ifError(err);
-          assert.strictEqual(change_.id, changeInstance.id);
-          assert.strictEqual(change_.metadata, changeInstance.metadata);
-          done();
+          try {
+            expect(err).toBeNull();
+            expect(change_.id).toBe(changeInstance.id);
+            expect(change_.metadata).toBe(changeInstance.metadata);
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
     });

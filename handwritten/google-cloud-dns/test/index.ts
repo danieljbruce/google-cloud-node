@@ -16,124 +16,113 @@ import {
   Service,
   ServiceConfig,
   ServiceOptions,
-  util,
 } from '@google-cloud/common';
 import * as promisify from '@google-cloud/promisify';
-import arrify = require('arrify');
-import * as assert from 'assert';
-import {describe, it, before, beforeEach} from 'mocha';
-import * as proxyquire from 'proxyquire';
 import {CoreOptions, OptionsWithUri, Response} from 'request';
 
-import {Zone} from '../src';
-
 let extended = false;
-const fakePaginator = {
-  paginator: {
-    extend(esClass: Function, methods: string[]) {
+let promisified = false;
+
+jest.mock('@google-cloud/common', () => {
+  const common = jest.requireActual('@google-cloud/common');
+  return {
+    ...common,
+    Service: class FakeService extends common.Service {
+      calledWith_: unknown[];
+      constructor(config: ServiceConfig, options?: ServiceOptions) {
+        super(config, options);
+        this.calledWith_ = [config, options];
+      }
+    },
+  };
+});
+
+jest.mock('@google-cloud/paginator', () => {
+  return {
+    paginator: {
+      extend(esClass: Function, methods: string[]) {
+        if (esClass.name !== 'DNS') {
+          return;
+        }
+        extended = true;
+        const arr = Array.isArray(methods) ? methods : [methods];
+        expect(esClass.name).toBe('DNS');
+        expect(arr).toEqual(['getZones']);
+      },
+      streamify(methodName: string) {
+        return methodName;
+      },
+    },
+  };
+});
+
+jest.mock('@google-cloud/promisify', () => {
+  return {
+    promisifyAll(esClass: Function, options?: promisify.PromisifyAllOptions) {
       if (esClass.name !== 'DNS') {
         return;
       }
-      extended = true;
-      methods = arrify(methods);
-      assert.strictEqual(esClass.name, 'DNS');
-      assert.deepStrictEqual(methods, ['getZones']);
+      promisified = true;
+      expect(options?.exclude).toEqual(['zone']);
     },
-    streamify(methodName: string) {
-      return methodName;
-    },
-  },
-};
-
-class FakeService extends Service {
-  calledWith_: IArguments;
-  constructor(config: ServiceConfig, options?: ServiceOptions) {
-    super(config, options);
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
-}
-
-const fakeUtil = Object.assign({}, util, {
-  makeAuthenticatedRequestFactory() {},
-});
-const originalFakeUtil = Object.assign({}, fakeUtil);
-
-let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  // tslint:disable-next-line:variable-name
-  promisifyAll(esClass: Function, options: promisify.PromisifyAllOptions) {
-    if (esClass.name !== 'DNS') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, ['zone']);
-  },
+  };
 });
 
-class FakeZone {
-  calledWith_: IArguments;
-  constructor() {
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
-}
+jest.mock('../src/zone', () => {
+  return {
+    Zone: class FakeZone {
+      calledWith_: unknown[];
+      constructor(...args: unknown[]) {
+        this.calledWith_ = args;
+      }
+    },
+  };
+});
+
+import {DNS, Zone} from '../src';
 
 describe('DNS', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let DNS: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let dns: any;
 
   const PROJECT_ID = 'project-id';
 
-  before(() => {
-    DNS = proxyquire('../src', {
-      '@google-cloud/common': {
-        Service: FakeService,
-      },
-      '@google-cloud/paginator': fakePaginator,
-      '@google-cloud/promisify': fakePromisify,
-      './zone': {
-        Zone: FakeZone,
-      },
-    }).DNS;
-  });
-
   beforeEach(() => {
-    Object.assign(fakeUtil, originalFakeUtil);
     dns = new DNS({
       projectId: PROJECT_ID,
     });
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('instantiation', () => {
     it('should extend the correct methods', () => {
-      assert(extended); // See `fakePaginator.extend`
+      expect(extended).toBe(true);
     });
 
     it('should streamify the correct methods', () => {
-      assert.strictEqual(dns.getZonesStream, 'getZones');
+      expect(dns.getZonesStream).toBe('getZones');
     });
 
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
 
     it('should inherit from Service', () => {
-      assert(dns instanceof Service);
+      expect(dns).toBeInstanceOf(Service);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const calledWith = (dns as any).calledWith_[0];
 
       const baseUrl = 'https://dns.googleapis.com/dns/v1';
-      assert.strictEqual(calledWith.baseUrl, baseUrl);
-      assert.deepStrictEqual(calledWith.scopes, [
+      expect(calledWith.baseUrl).toBe(baseUrl);
+      expect(calledWith.scopes).toEqual([
         'https://www.googleapis.com/auth/ndev.clouddns.readwrite',
         'https://www.googleapis.com/auth/cloud-platform',
       ]);
-      assert.deepStrictEqual(
-        calledWith.packageJson,
+      expect(calledWith.packageJson).toEqual(
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         require('../../package.json')
       );
@@ -146,8 +135,8 @@ describe('DNS', () => {
         apiEndpoint,
       });
       const calledWith = dns.calledWith_[0];
-      assert.strictEqual(calledWith.apiEndpoint, apiEndpoint);
-      assert.strictEqual(calledWith.baseUrl, `https://${apiEndpoint}/dns/v1`);
+      expect(calledWith.apiEndpoint).toBe(apiEndpoint);
+      expect(calledWith.baseUrl).toBe(`https://${apiEndpoint}/dns/v1`);
     });
   });
 
@@ -156,55 +145,72 @@ describe('DNS', () => {
     const config = {dnsName: 'dns-name'};
 
     it('should throw if a zone name is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         dns.createZone();
-      }, /A zone name is required/);
+      }).toThrow(/A zone name is required/);
     });
 
     it('should throw if a zone dnsname is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         dns.createZone(zoneName);
-      }, /A zone dnsName is required/);
+      }).toThrow(/A zone dnsName is required/);
 
-      assert.throws(() => {
+      expect(() => {
         dns.createZone(zoneName, {});
-      }, /A zone dnsName is required/);
+      }).toThrow(/A zone dnsName is required/);
     });
 
     it('should use a provided description', done => {
       const cfg = Object.assign({}, config, {description: 'description'});
 
       dns.request = (reqOpts: CoreOptions) => {
-        assert.strictEqual(reqOpts.json.description, cfg.description);
-        done();
+        try {
+          expect(reqOpts.json.description).toBe(cfg.description);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      dns.createZone(zoneName, cfg, assert.ifError);
+      dns.createZone(zoneName, cfg, (err: unknown) => {
+        if (err) done(err);
+      });
     });
 
     it('should default a description to ""', done => {
       dns.request = (reqOpts: CoreOptions) => {
-        assert.strictEqual(reqOpts.json.description, '');
-        done();
+        try {
+          expect(reqOpts.json.description).toBe('');
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      dns.createZone(zoneName, config, assert.ifError);
+      dns.createZone(zoneName, config, (err: unknown) => {
+        if (err) done(err);
+      });
     });
 
     it('should make the correct API request', done => {
       dns.request = (reqOpts: OptionsWithUri) => {
-        assert.strictEqual(reqOpts.method, 'POST');
-        assert.strictEqual(reqOpts.uri, '/managedZones');
-        const expectedBody = Object.assign({}, config, {
-          name: zoneName,
-          description: '',
-        });
-        assert.deepStrictEqual(reqOpts.json, expectedBody);
-
-        done();
+        try {
+          expect(reqOpts.method).toBe('POST');
+          expect(reqOpts.uri).toBe('/managedZones');
+          const expectedBody = Object.assign({}, config, {
+            name: zoneName,
+            description: '',
+          });
+          expect(reqOpts.json).toEqual(expectedBody);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      dns.createZone(zoneName, config, assert.ifError);
+      dns.createZone(zoneName, config, (err: unknown) => {
+        if (err) done(err);
+      });
     });
 
     describe('error', () => {
@@ -222,10 +228,14 @@ describe('DNS', () => {
           zoneName,
           config,
           (err: Error, zone: Zone, apiResponse_: Response) => {
-            assert.strictEqual(err, error);
-            assert.strictEqual(zone, null);
-            assert.strictEqual(apiResponse_, apiResponse);
-            done();
+            try {
+              expect(err).toBe(error);
+              expect(zone).toBeNull();
+              expect(apiResponse_).toBe(apiResponse);
+              done();
+            } catch (e) {
+              done(e);
+            }
           }
         );
       });
@@ -233,7 +243,7 @@ describe('DNS', () => {
 
     describe('success', () => {
       const apiResponse = {name: zoneName};
-      const zone = {};
+      const zone = {metadata: null};
 
       beforeEach(() => {
         dns.request = (reqOpts: {}, callback: Function) => {
@@ -247,12 +257,18 @@ describe('DNS', () => {
 
       it('should create a zone from the response', done => {
         dns.zone = (name: string) => {
-          assert.strictEqual(name, apiResponse.name);
-          setImmediate(done);
+          try {
+            expect(name).toBe(apiResponse.name);
+            setImmediate(done);
+          } catch (e) {
+            done(e);
+          }
           return zone;
         };
 
-        dns.createZone(zoneName, config, assert.ifError);
+        dns.createZone(zoneName, config, (err: unknown) => {
+          if (err) done(err);
+        });
       });
 
       it('should execute callback with zone and API response', done => {
@@ -260,19 +276,27 @@ describe('DNS', () => {
           zoneName,
           config,
           (err: Error, zone_: Zone, apiResponse_: Response) => {
-            assert.ifError(err);
-            assert.strictEqual(zone_, zone);
-            assert.strictEqual(apiResponse_, apiResponse);
-
-            done();
+            try {
+              expect(err).toBeNull();
+              expect(zone_).toBe(zone);
+              expect(apiResponse_).toBe(apiResponse);
+              done();
+            } catch (e) {
+              done(e);
+            }
           }
         );
       });
 
       it('should set the metadata to the response', done => {
         dns.createZone(zoneName, config, (err: Error, zone: Zone) => {
-          assert.strictEqual(zone.metadata, apiResponse);
-          done();
+          try {
+            expect(err).toBeNull();
+            expect(zone.metadata).toBe(apiResponse);
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
     });
@@ -283,22 +307,33 @@ describe('DNS', () => {
       const query = {a: 'b', c: 'd'};
 
       dns.request = (reqOpts: OptionsWithUri) => {
-        assert.strictEqual(reqOpts.uri, '/managedZones');
-        assert.strictEqual(reqOpts.qs, query);
-
-        done();
+        try {
+          expect(reqOpts.uri).toBe('/managedZones');
+          expect(reqOpts.qs).toBe(query);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      dns.getZones(query, assert.ifError);
+      dns.getZones(query, (err: unknown) => {
+        if (err) done(err);
+      });
     });
 
     it('should use an empty query if one was not provided', done => {
       dns.request = (reqOpts: CoreOptions) => {
-        assert.strictEqual(Object.keys(reqOpts.qs).length, 0);
-        done();
+        try {
+          expect(Object.keys(reqOpts.qs).length).toBe(0);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
 
-      dns.getZones(assert.ifError);
+      dns.getZones((err: unknown) => {
+        if (err) done(err);
+      });
     });
 
     describe('error', () => {
@@ -320,19 +355,22 @@ describe('DNS', () => {
             nextQuery: {},
             apiResponse_: Response
           ) => {
-            assert.strictEqual(err, error);
-            assert.strictEqual(zones, null);
-            assert.strictEqual(nextQuery, null);
-            assert.strictEqual(apiResponse_, apiResponse);
-
-            done();
+            try {
+              expect(err).toBe(error);
+              expect(zones).toBeNull();
+              expect(nextQuery).toBeNull();
+              expect(apiResponse_).toBe(apiResponse);
+              done();
+            } catch (e) {
+              done(e);
+            }
           }
         );
       });
     });
 
     describe('success', () => {
-      const zone = {name: 'zone-1', a: 'b', c: 'd'};
+      const zone = {name: 'zone-1', a: 'b', c: 'd', metadata: null};
       const apiResponse = {managedZones: [zone]};
 
       beforeEach(() => {
@@ -347,12 +385,18 @@ describe('DNS', () => {
 
       it('should create zones from the response', done => {
         dns.zone = (zoneName: string) => {
-          assert.strictEqual(zoneName, zone.name);
-          setImmediate(done);
+          try {
+            expect(zoneName).toBe(zone.name);
+            setImmediate(done);
+          } catch (e) {
+            done(e);
+          }
           return zone;
         };
 
-        dns.getZones({}, assert.ifError);
+        dns.getZones({}, (err: unknown) => {
+          if (err) done(err);
+        });
       });
 
       it('should set a nextQuery if necessary', done => {
@@ -368,19 +412,19 @@ describe('DNS', () => {
         };
 
         dns.getZones(query, (err: Error, zones: Zone[], nextQuery: {}) => {
-          assert.ifError(err);
-
-          // Check the original query wasn't modified.
-          assert.deepStrictEqual(query, originalQuery);
-
-          assert.deepStrictEqual(
-            nextQuery,
-            Object.assign({}, query, {
-              pageToken: apiResponseWithNextPageToken.nextPageToken,
-            })
-          );
-
-          done();
+          try {
+            expect(err).toBeNull();
+            // Check the original query wasn't modified.
+            expect(query).toEqual(originalQuery);
+            expect(nextQuery).toEqual(
+              Object.assign({}, query, {
+                pageToken: apiResponseWithNextPageToken.nextPageToken,
+              })
+            );
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
 
@@ -393,21 +437,28 @@ describe('DNS', () => {
             nextQuery: {},
             apiResponse_: Response
           ) => {
-            assert.ifError(err);
-            assert.strictEqual(zones[0], zone);
-            assert.strictEqual(nextQuery, null);
-            assert.strictEqual(apiResponse_, apiResponse);
-
-            done();
+            try {
+              expect(err).toBeNull();
+              expect(zones[0]).toBe(zone);
+              expect(nextQuery).toBeNull();
+              expect(apiResponse_).toBe(apiResponse);
+              done();
+            } catch (e) {
+              done(e);
+            }
           }
         );
       });
 
       it('should assign metadata to zones', done => {
         dns.getZones({}, (err: Error, zones: Zone[]) => {
-          assert.ifError(err);
-          assert.strictEqual(zones[0].metadata, zone);
-          done();
+          try {
+            expect(err).toBeNull();
+            expect(zones[0].metadata).toBe(zone);
+            done();
+          } catch (e) {
+            done(e);
+          }
         });
       });
     });
@@ -415,17 +466,17 @@ describe('DNS', () => {
 
   describe('zone', () => {
     it('should throw if a name is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         dns.zone();
-      }, /A zone name is required/);
+      }).toThrow(/A zone name is required/);
     });
 
     it('should return a Zone', () => {
       const newZoneName = 'new-zone-name';
       const newZone = dns.zone(newZoneName);
-      assert(newZone instanceof FakeZone);
-      assert.strictEqual(newZone.calledWith_[0], dns);
-      assert.strictEqual(newZone.calledWith_[1], newZoneName);
+      expect(newZone).toBeInstanceOf(Zone);
+      expect(newZone.calledWith_[0]).toBe(dns);
+      expect(newZone.calledWith_[1]).toBe(newZoneName);
     });
   });
 });
