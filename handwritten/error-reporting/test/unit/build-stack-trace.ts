@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as path from 'path';
 import {buildStackTrace} from '../../src/build-stack-trace';
 
@@ -21,13 +19,15 @@ const SRC_ROOT = path.join(__dirname, '..', '..', 'src');
 
 describe('build-stack-trace', () => {
   it('Should not have a message attached if none is given', () => {
-    assert(buildStackTrace().includes('    at'));
-    assert(!buildStackTrace(undefined).startsWith('undefined'));
-    assert(!buildStackTrace(null).startsWith('null'));
+    expect(buildStackTrace().includes('    at')).toBe(true);
+    expect(buildStackTrace(undefined).startsWith('undefined')).toBe(false);
+    expect(buildStackTrace(null).startsWith('null')).toBe(false);
   });
 
   it('Should attach a message if given', () => {
-    assert(buildStackTrace('Some Message').startsWith('Some Message\n'));
+    expect(buildStackTrace('Some Message').startsWith('Some Message\n')).toBe(
+      true,
+    );
   });
 
   it('Should not contain error-reporting specific frames', () => {
@@ -35,8 +35,8 @@ describe('build-stack-trace', () => {
       (function functionB() {
         (function functionC() {
           const stackTrace = buildStackTrace();
-          assert(stackTrace);
-          assert.strictEqual(stackTrace.indexOf(SRC_ROOT), -1);
+          expect(stackTrace).toBeTruthy();
+          expect(stackTrace.indexOf(SRC_ROOT)).toBe(-1);
         })();
       })();
     })();
@@ -47,10 +47,10 @@ describe('build-stack-trace', () => {
       (function functionB() {
         (function functionC() {
           const stackTrace = buildStackTrace();
-          assert(stackTrace);
-          assert.notStrictEqual(stackTrace.indexOf('functionA'), -1);
-          assert.notStrictEqual(stackTrace.indexOf('functionB'), -1);
-          assert.notStrictEqual(stackTrace.indexOf('functionC'), -1);
+          expect(stackTrace).toBeTruthy();
+          expect(stackTrace.indexOf('functionA')).not.toBe(-1);
+          expect(stackTrace.indexOf('functionB')).not.toBe(-1);
+          expect(stackTrace.indexOf('functionC')).not.toBe(-1);
         })();
       })();
     })();

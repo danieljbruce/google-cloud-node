@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
-
 import {ErrorMessage} from '../../src/classes/error-message';
 import {populateErrorMessage} from '../../src/populate-error-message';
 import {deepStrictEqual} from '../util';
@@ -57,40 +54,40 @@ describe('populate-error-message', () => {
   });
 
   it('Should not throw given undefined', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, undefined, em));
+    expect(() => populateErrorMessage(undefined, em)).not.toThrow();
   });
 
   it('Should not throw given null', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, null, em));
+    expect(() => populateErrorMessage(null, em)).not.toThrow();
   });
 
   it('Should not throw given a string', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, 'string_test', em));
+    expect(() => populateErrorMessage('string_test', em)).not.toThrow();
   });
 
   it('Should not throw given a number', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, 1.2, em));
+    expect(() => populateErrorMessage(1.2, em)).not.toThrow();
   });
 
   it('Should not throw given an array', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, [], em));
+    expect(() => populateErrorMessage([], em)).not.toThrow();
   });
 
   it('Should not throw given an object', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, {}, em));
+    expect(() => populateErrorMessage({}, em)).not.toThrow();
   });
 
   it('Should not throw given an instance of Error', () => {
-    assert.doesNotThrow(populateErrorMessage.bind(null, new Error(), em));
+    expect(() => populateErrorMessage(new Error(), em)).not.toThrow();
   });
 
   it('Should not throw given an object of invalid form', () => {
-    assert.doesNotThrow(
-      populateErrorMessage.bind(null, adversarialObjectInput, em),
-    );
-    assert.doesNotThrow(
-      populateErrorMessage.bind(null, adversarialObjectInputTwo, em),
-    );
+    expect(() =>
+      populateErrorMessage(adversarialObjectInput, em),
+    ).not.toThrow();
+    expect(() =>
+      populateErrorMessage(adversarialObjectInputTwo, em),
+    ).not.toThrow();
   });
 
   it('Message Field: Should set the message as the stack given an Error', () => {
@@ -109,7 +106,7 @@ describe('populate-error-message', () => {
     const MESSAGE = 'test';
     err = {message: MESSAGE};
     populateErrorMessage(err, em);
-    assert.strictEqual(em.message, MESSAGE);
+    expect(em.message).toBe(MESSAGE);
   });
 
   it(
@@ -118,7 +115,9 @@ describe('populate-error-message', () => {
     () => {
       const err = {error: 'some error message'};
       populateErrorMessage(err, em);
-      assert(em.message.startsWith("{ error: 'some error message' }"));
+      expect(em.message.startsWith("{ error: 'some error message' }")).toBe(
+        true,
+      );
     },
   );
 
@@ -127,14 +126,14 @@ describe('populate-error-message', () => {
     const TEST_USER_VALID = 'TEST_USER';
     err.user = TEST_USER_VALID;
     populateErrorMessage(err, em);
-    assert.strictEqual(em.context.user, TEST_USER_VALID);
+    expect(em.context.user).toBe(TEST_USER_VALID);
   });
 
   it('User Field: Should default the field given invalid input given an Error', () => {
     const err: AnnotatedError = new Error();
     err.user = TEST_USER_INVALID;
     populateErrorMessage(err, em);
-    assert.strictEqual(em.context.user, '');
+    expect(em.context.user).toBe('');
   });
 
   it('User Field: Should set the field given valid input given an object', () => {
@@ -142,7 +141,7 @@ describe('populate-error-message', () => {
     const USER = 'test';
     err.user = USER;
     populateErrorMessage(err, em);
-    assert.strictEqual(em.context.user, USER);
+    expect(em.context.user).toBe(USER);
   });
 
   it(
@@ -151,7 +150,7 @@ describe('populate-error-message', () => {
     () => {
       const err = {};
       populateErrorMessage(err, em);
-      assert.strictEqual(em.context.user, '');
+      expect(em.context.user).toBe('');
     },
   );
 
@@ -256,7 +255,7 @@ describe('populate-error-message', () => {
     const PATH = 'test';
     err.filePath = PATH;
     populateErrorMessage(err, em);
-    assert.strictEqual(em.context.reportLocation.filePath, PATH);
+    expect(em.context.reportLocation.filePath).toBe(PATH);
   });
 
   it(
@@ -265,7 +264,7 @@ describe('populate-error-message', () => {
     () => {
       const err = {};
       populateErrorMessage(err, em);
-      assert.strictEqual(em.context.reportLocation.filePath, '');
+      expect(em.context.reportLocation.filePath).toBe('');
     },
   );
 
@@ -274,7 +273,7 @@ describe('populate-error-message', () => {
     const LINE_NUMBER = 10;
     err.lineNumber = LINE_NUMBER;
     populateErrorMessage(err, em);
-    assert.strictEqual(em.context.reportLocation.lineNumber, LINE_NUMBER);
+    expect(em.context.reportLocation.lineNumber).toBe(LINE_NUMBER);
   });
 
   it(
@@ -283,7 +282,7 @@ describe('populate-error-message', () => {
     () => {
       const err = {};
       populateErrorMessage(err, em);
-      assert.strictEqual(em.context.reportLocation.lineNumber, 0);
+      expect(em.context.reportLocation.lineNumber).toBe(0);
     },
   );
 
@@ -295,7 +294,7 @@ describe('populate-error-message', () => {
       const FUNCTION_NAME = 'test';
       err.functionName = FUNCTION_NAME;
       populateErrorMessage(err, em);
-      assert.strictEqual(em.context.reportLocation.functionName, FUNCTION_NAME);
+      expect(em.context.reportLocation.functionName).toBe(FUNCTION_NAME);
     },
   );
 
@@ -305,7 +304,7 @@ describe('populate-error-message', () => {
     () => {
       const err = {};
       populateErrorMessage(err, em);
-      assert.strictEqual(em.context.reportLocation.functionName, '');
+      expect(em.context.reportLocation.functionName).toBe('');
     },
   );
 });

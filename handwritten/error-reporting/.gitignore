@@ -1,8 +1,6 @@
 **/*.log
 **/node_modules
-.coverage
-.DS_Store
-.nyc_output
+coverage/
 docs/
 google-cloud-error-reporting-*.tgz
 out/

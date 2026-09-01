@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, after, afterEach, beforeEach} from 'mocha';
 import {FakeConfiguration as Configuration} from '../fixtures/configuration';
 import {ConfigurationOptions, Logger} from '../../src/configuration';
 import {Fuzzer} from '../../utils/fuzzer';
@@ -51,10 +49,10 @@ function createDeadMetadataService() {
 }
 
 describe('Configuration class', () => {
-  before(() => {
+  beforeAll(() => {
     sterilizeConfigEnv();
   });
-  after(() => {
+  afterAll(() => {
     restoreConfigEnv();
   });
   describe('Initialization', () => {
@@ -74,25 +72,25 @@ describe('Configuration class', () => {
     describe('valid config and default values', () => {
       let c: Configuration;
       const validConfig = {reportMode: 'always'} as {reportMode: 'always'};
-      before(() => {
+      beforeAll(() => {
         process.env.NODE_ENV = 'development';
       });
-      after(() => {
+      afterAll(() => {
         sterilizeConfigEnv();
       });
       it('Should not throw with a valid configuration', () => {
-        assert.doesNotThrow(() => {
+        expect(() => {
           c = new Configuration(validConfig, logger);
-        });
+        }).not.toThrow();
       });
       it('Should have a property reflecting the config argument', () => {
         deepStrictEqual(c._givenConfiguration, validConfig);
       });
       it('Should not have a project id', () => {
-        assert.strictEqual(c._projectId, null);
+        expect(c._projectId).toBeNull();
       });
       it('Should not have a key', () => {
-        assert.strictEqual(c.getKey(), null);
+        expect(c.getKey()).toBeNull();
       });
       it('Should have a default service context', () => {
         deepStrictEqual(c.getServiceContext(), {
@@ -101,7 +99,7 @@ describe('Configuration class', () => {
         });
       });
       it('Should specify to not report unhandledRejections', () => {
-        assert.strictEqual(c.getReportUnhandledRejections(), false);
+        expect(c.getReportUnhandledRejections()).toBe(false);
       });
     });
     describe('reportMode', () => {
@@ -121,14 +119,12 @@ describe('Configuration class', () => {
       it('Should print a deprecation warning if "ignoreEvnironmentCheck" is used', () => {
         let warnText = '';
         const logger = {
-          warn: text => {
+          warn: (text: string) => {
             warnText += text + '\n';
           },
         } as Logger;
-        // tslint:disable-next-line:no-unused-expression
         new Configuration({ignoreEnvironmentCheck: true}, logger);
-        assert.strictEqual(
-          warnText,
+        expect(warnText).toBe(
           'The "ignoreEnvironmentCheck" config option is deprecated.  ' +
             'Use the "reportMode" config option instead.\n',
         );
@@ -137,17 +133,15 @@ describe('Configuration class', () => {
       it('Should print a warning if both "ignoreEnvironmentCheck" and "reportMode" are specified', () => {
         let warnText = '';
         const logger = {
-          warn: text => {
+          warn: (text: string) => {
             warnText += text + '\n';
           },
         } as Logger;
-        // tslint:disable-next-line:no-unused-expression
         new Configuration(
           {ignoreEnvironmentCheck: true, reportMode: 'never'},
           logger,
         );
-        assert.strictEqual(
-          warnText,
+        expect(warnText).toBe(
           'The "ignoreEnvironmentCheck" config option is deprecated.  ' +
             'Use the "reportMode" config option instead.\nBoth the "ignoreEnvironmentCheck" ' +
             'and "reportMode" configuration options have been specified.  The "reportMode" ' +
@@ -157,12 +151,12 @@ describe('Configuration class', () => {
 
       it('Should set "reportMode" to "always" if "ignoreEnvironmentCheck" is true', () => {
         const conf = new Configuration({ignoreEnvironmentCheck: true}, logger);
-        assert.strictEqual(conf._reportMode, 'always');
+        expect(conf._reportMode).toBe('always');
       });
 
       it('Should set "reportMode" to "production" if "ignoreEnvironmentCheck" is false', () => {
         const conf = new Configuration({ignoreEnvironmentCheck: false}, logger);
-        assert.strictEqual(conf._reportMode, 'production');
+        expect(conf._reportMode).toBe('production');
       });
 
       it('Should prefer "reportMode" config if "ignoreEnvironmentCheck" is also set', () => {
@@ -170,63 +164,63 @@ describe('Configuration class', () => {
           {ignoreEnvironmentCheck: true, reportMode: 'never'},
           logger,
         );
-        assert.strictEqual(conf._reportMode, 'never');
+        expect(conf._reportMode).toBe('never');
       });
 
       it('Should be set to "production" by default', () => {
         const conf = new Configuration({}, logger);
-        assert.strictEqual(conf._reportMode, 'production');
+        expect(conf._reportMode).toBe('production');
       });
 
       it('Should state reporting is enabled with mode "production"', () => {
         const conf = new Configuration({reportMode: 'production'}, logger);
-        assert.strictEqual(conf.isReportingEnabled(), true);
+        expect(conf.isReportingEnabled()).toBe(true);
       });
 
       it('Should state reporting is enabled with mode "always"', () => {
         const conf = new Configuration({reportMode: 'always'}, logger);
-        assert.strictEqual(conf.isReportingEnabled(), true);
+        expect(conf.isReportingEnabled()).toBe(true);
       });
 
       it('Should state reporting is not enabled with mode "never"', () => {
         const conf = new Configuration({reportMode: 'never'}, logger);
-        assert.strictEqual(conf.isReportingEnabled(), false);
+        expect(conf.isReportingEnabled()).toBe(false);
       });
 
       it('Should state reporting should proceed with mode "production" and env "production"', () => {
         process.env.NODE_ENV = 'production';
         const conf = new Configuration({reportMode: 'production'}, logger);
-        assert.strictEqual(conf.getShouldReportErrorsToAPI(), true);
+        expect(conf.getShouldReportErrorsToAPI()).toBe(true);
       });
 
       it('Should state reporting should not proceed with mode "production" and env not "production"', () => {
         process.env.NODE_ENV = 'dev';
         const conf = new Configuration({reportMode: 'production'}, logger);
-        assert.strictEqual(conf.getShouldReportErrorsToAPI(), false);
+        expect(conf.getShouldReportErrorsToAPI()).toBe(false);
       });
 
       it('Should state reporting should proceed with mode "always" and env "production"', () => {
         process.env.NODE_ENV = 'production';
         const conf = new Configuration({reportMode: 'always'}, logger);
-        assert.strictEqual(conf.getShouldReportErrorsToAPI(), true);
+        expect(conf.getShouldReportErrorsToAPI()).toBe(true);
       });
 
       it('Should state reporting should proceed with mode "always" and env not "production"', () => {
         process.env.NODE_ENV = 'dev';
         const conf = new Configuration({reportMode: 'always'}, logger);
-        assert.strictEqual(conf.getShouldReportErrorsToAPI(), true);
+        expect(conf.getShouldReportErrorsToAPI()).toBe(true);
       });
 
       it('Should state reporting should not proceed with mode "never" and env "production"', () => {
         process.env.NODE_ENV = 'production';
         const conf = new Configuration({reportMode: 'never'}, logger);
-        assert.strictEqual(conf.getShouldReportErrorsToAPI(), false);
+        expect(conf.getShouldReportErrorsToAPI()).toBe(false);
       });
 
       it('Should state reporting should not proceed with mode "never" and env not "production"', () => {
         process.env.NODE_ENV = 'dev';
         const conf = new Configuration({reportMode: 'never'}, logger);
-        assert.strictEqual(conf.getShouldReportErrorsToAPI(), false);
+        expect(conf.getShouldReportErrorsToAPI()).toBe(false);
       });
     });
     describe('with ignoreEnvironmentCheck', () => {
@@ -237,180 +231,160 @@ describe('Configuration class', () => {
       );
       const c = new Configuration(conf, logger);
       it('Should reportErrorsToAPI', () => {
-        assert.strictEqual(c.getShouldReportErrorsToAPI(), true);
+        expect(c.getShouldReportErrorsToAPI()).toBe(true);
       });
     });
     describe('without ignoreEnvironmentCheck', () => {
       describe('report behaviour with production env', () => {
         let c: Configuration;
-        before(() => {
+        beforeAll(() => {
           sterilizeConfigEnv();
           process.env.NODE_ENV = 'production';
           c = new Configuration(undefined, logger);
         });
-        after(() => {
+        afterAll(() => {
           sterilizeConfigEnv();
         });
         it('Should reportErrorsToAPI', () => {
-          assert.strictEqual(c.getShouldReportErrorsToAPI(), true);
+          expect(c.getShouldReportErrorsToAPI()).toBe(true);
         });
       });
     });
     describe('exception behaviour', () => {
       it('Should throw if invalid type for reportMode', () => {
-        assert.throws(() => {
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration(
             {reportMode: new Date()} as {} as ConfigurationOptions,
             logger,
           );
-        });
+        }).toThrow();
       });
       it('Should throw if invalid value for reportMode', () => {
-        assert.throws(() => {
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration(
             {reportMode: 'invalid-mode'} as {} as ConfigurationOptions,
             logger,
           );
-        });
+        }).toThrow();
       });
       it('Should throw if invalid type for key', () => {
-        assert.throws(() => {
-          // we are intentionally providing an invalid configuration
-          // thus an explicit cast is needed
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration({key: null} as {} as ConfigurationOptions, logger);
-        });
+        }).toThrow();
       });
       it('Should throw if invalid for ignoreEnvironmentCheck', () => {
-        assert.throws(() => {
-          // we are intentionally providing an invalid configuration
-          // thus an explicit cast is needed
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration(
             {ignoreEnvironmentCheck: null} as {} as ConfigurationOptions,
             logger,
           );
-        });
+        }).toThrow();
       });
       it('Should throw if invalid for serviceContext.service', () => {
-        assert.throws(() => {
-          // we are intentionally providing an invalid configuration
-          // thus an explicit cast is needed
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration(
             {serviceContext: {service: false}} as {} as ConfigurationOptions,
             logger,
           );
-        });
+        }).toThrow();
       });
       it('Should throw if invalid for serviceContext.version', () => {
-        assert.throws(() => {
-          // we are intentionally providing an invalid configuration
-          // thus an explicit cast is needed
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration(
             {serviceContext: {version: true}} as {} as ConfigurationOptions,
             logger,
           );
-        });
+        }).toThrow();
       });
       it('Should throw if invalid for reportUnhandledRejections', () => {
-        assert.throws(() => {
-          // we are intentionally providing an invalid configuration
-          // thus an explicit cast is needed
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration(
             {
               reportUnhandledRejections: 'INVALID',
             } as {} as ConfigurationOptions,
             logger,
           );
-        });
+        }).toThrow();
       });
       it('Should not throw given an empty object for serviceContext', () => {
-        assert.doesNotThrow(() => {
-          // tslint:disable-next-line:no-unused-expression
+        expect(() => {
           new Configuration({serviceContext: {}}, logger);
-        });
+        }).not.toThrow();
       });
     });
     describe('Configuration resource aquisition', () => {
-      before(() => {
+      beforeAll(() => {
         sterilizeConfigEnv();
       });
       describe('project id from configuration instance', () => {
         const pi = 'test';
         let c: Configuration;
-        before(() => {
+        beforeAll(() => {
           c = new Configuration({projectId: pi}, logger);
         });
-        after(() => {
+        afterAll(() => {
           nock.cleanAll();
         });
         it('Should return the project id', () => {
-          assert.strictEqual(c.getProjectId(), pi);
+          expect(c.getProjectId()).toBe(pi);
         });
       });
       describe('project number from configuration instance', () => {
         const pn = 1234;
         let c: Configuration;
-        before(() => {
+        beforeAll(() => {
           sterilizeConfigEnv();
           c = new Configuration(
             {projectId: pn} as {} as ConfigurationOptions,
             logger,
           );
         });
-        after(() => {
+        afterAll(() => {
           nock.cleanAll();
           sterilizeConfigEnv();
         });
         it('Should return the project number', () => {
-          assert.strictEqual(c.getProjectId(), pn.toString());
+          expect(c.getProjectId()).toBe(pn.toString());
         });
       });
     });
     describe('Exception behaviour', () => {
       describe('While lacking a project id', () => {
         let c: Configuration;
-        before(() => {
+        beforeAll(() => {
           sterilizeConfigEnv();
           createDeadMetadataService();
           c = new Configuration(undefined, logger);
         });
-        after(() => {
+        afterAll(() => {
           nock.cleanAll();
           sterilizeConfigEnv();
         });
         it('Should return null', () => {
-          assert.strictEqual(c.getProjectId(), null);
+          expect(c.getProjectId()).toBeNull();
         });
       });
       describe('Invalid type for projectId in runtime config', () => {
         let c: Configuration;
-        before(() => {
+        beforeAll(() => {
           sterilizeConfigEnv();
           createDeadMetadataService();
-          // we are intentionally providing an invalid configuration
-          // thus an explicit cast is needed
           c = new Configuration(
             {projectId: null} as {} as ConfigurationOptions,
             logger,
           );
         });
-        after(() => {
+        afterAll(() => {
           nock.cleanAll();
           sterilizeConfigEnv();
         });
         it('Should return null', () => {
-          assert.strictEqual(c.getProjectId(), null);
+          expect(c.getProjectId()).toBeNull();
         });
       });
     });
     describe('Resource aquisition', () => {
-      after(() => {
+      afterAll(() => {
         /*
          * !! IMPORTANT !!
          * THE restoreConfigEnv FUNCTION SHOULD BE CALLED LAST AS THIS TEST FILE
@@ -421,7 +395,7 @@ describe('Configuration class', () => {
         restoreConfigEnv();
       });
       describe('via env', () => {
-        before(() => {
+        beforeAll(() => {
           sterilizeConfigEnv();
         });
         afterEach(() => {
@@ -430,12 +404,12 @@ describe('Configuration class', () => {
         describe('no longer tests env itself', () => {
           let c: Configuration;
           const projectId = 'test-xyz';
-          before(() => {
+          beforeAll(() => {
             process.env.GCLOUD_PROJECT = projectId;
             c = new Configuration(undefined, logger);
           });
           it('Should assign', () => {
-            assert.strictEqual(c.getProjectId(), null);
+            expect(c.getProjectId()).toBeNull();
           });
         });
         describe('serviceContext', () => {
@@ -445,7 +419,7 @@ describe('Configuration class', () => {
             service: 'test',
             version: '1.x',
           };
-          before(() => {
+          beforeAll(() => {
             process.env.GCLOUD_PROJECT = projectId;
             process.env.GAE_MODULE_NAME = serviceContext.service;
             process.env.GAE_MODULE_VERSION = serviceContext.version;
@@ -457,7 +431,7 @@ describe('Configuration class', () => {
         });
       });
       describe('via runtime configuration', () => {
-        before(() => {
+        beforeAll(() => {
           sterilizeConfigEnv();
         });
         describe('serviceContext', () => {
@@ -467,7 +441,7 @@ describe('Configuration class', () => {
             service: 'evaluation',
             version: '2.x',
           };
-          before(() => {
+          beforeAll(() => {
             c = new Configuration({
               projectId,
               serviceContext,
@@ -481,7 +455,7 @@ describe('Configuration class', () => {
           let c: Configuration;
           const projectId = '987abc';
           const key = '1337-api-key';
-          before(() => {
+          beforeAll(() => {
             c = new Configuration(
               {
                 key,
@@ -491,22 +465,19 @@ describe('Configuration class', () => {
             );
           });
           it('Should assign', () => {
-            assert.strictEqual(c.getKey(), key);
+            expect(c.getKey()).toBe(key);
           });
         });
         describe('reportUnhandledRejections', () => {
           let c: Configuration;
           const reportRejections = false;
-          before(() => {
+          beforeAll(() => {
             c = new Configuration({
               reportUnhandledRejections: reportRejections,
             });
           });
           it('Should assign', () => {
-            assert.strictEqual(
-              c.getReportUnhandledRejections(),
-              reportRejections,
-            );
+            expect(c.getReportUnhandledRejections()).toBe(reportRejections);
           });
         });
       });

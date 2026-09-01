@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import {ErrorMessage} from '../../../src/classes/error-message';
 import {RequestInformationContainer} from '../../../src/classes/request-information-container';
 import {deepStrictEqual} from '../../util';
@@ -28,7 +26,7 @@ describe('Instantiating a new ErrorMessage', () => {
     deepStrictEqual(em.serviceContext, {service: 'node', version: undefined});
   });
   it('Should have a default message', () => {
-    assert.strictEqual(em.message, '');
+    expect(em.message).toBe('');
   });
   it('Should have a default http context', () => {
     deepStrictEqual(em.context.httpRequest, {
@@ -56,7 +54,7 @@ describe('Calling against setEventTimeToNow', () => {
   });
   it('Should set the eventTime property', () => {
     em.setEventTimeToNow();
-    assert(typeof em.eventTime === 'string');
+    expect(typeof em.eventTime).toBe('string');
   });
 });
 
@@ -193,23 +191,11 @@ describe('Fuzzing against setMessage', () => {
 
   it('Should set the message', () => {
     em.setMessage(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.message === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.message).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setMessage();
-    assert(
-      em.message === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setMessage the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.message).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -222,23 +208,11 @@ describe('Fuzzing against setHttpMethod', () => {
   });
   it('Should set the method', () => {
     em.setHttpMethod(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.httpRequest.method === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.method).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setHttpMethod();
-    assert(
-      em.context.httpRequest.method === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setHttpMethod the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.method).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -251,23 +225,11 @@ describe('Fuzzing against setUrl', () => {
   });
   it('Should set url', () => {
     em.setUrl(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.httpRequest.url === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.url).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setUrl();
-    assert(
-      em.context.httpRequest.url === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setUrl the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.url).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -280,23 +242,11 @@ describe('Fuzzing against setUserAgent', () => {
   });
   it('Should set userAgent', () => {
     em.setUserAgent(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.httpRequest.userAgent === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.userAgent).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setUserAgent();
-    assert(
-      em.context.httpRequest.userAgent === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setUserAgent the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.userAgent).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -309,23 +259,11 @@ describe('Fuzzing against setReferrer', () => {
   });
   it('Should set referrer', () => {
     em.setReferrer(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.httpRequest.referrer === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.referrer).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setReferrer();
-    assert(
-      em.context.httpRequest.referrer === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setReferrer the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.referrer).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -338,23 +276,13 @@ describe('Fuzzing against setResponseStatusCode', () => {
   });
   it('Should set responseStatusCode', () => {
     em.setResponseStatusCode(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.httpRequest.responseStatusCode === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
+    expect(em.context.httpRequest.responseStatusCode).toBe(
+      AFFIRMATIVE_TEST_VALUE,
     );
   });
   it('Should default', () => {
     em.setResponseStatusCode();
-    assert(
-      em.context.httpRequest.responseStatusCode === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setResponseStatusCode the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.responseStatusCode).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -367,23 +295,11 @@ describe('Fuzzing against setRemoteIp', () => {
   });
   it('Should set remoteIp', () => {
     em.setRemoteIp(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.httpRequest.remoteIp === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.remoteIp).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setRemoteIp();
-    assert(
-      em.context.httpRequest.remoteIp === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setRemoteIp the property',
-        'message should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.remoteIp).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -396,23 +312,11 @@ describe('Fuzzing against setUser', () => {
   });
   it('Should set user', () => {
     em.setUser(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.user === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.user).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setUser();
-    assert(
-      em.context.user === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setUser the property',
-        'user should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.user).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -425,23 +329,11 @@ describe('Fuzzing against setFilePath', () => {
   });
   it('Should set filePath', () => {
     em.setFilePath(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.reportLocation.filePath === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.reportLocation.filePath).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setFilePath();
-    assert(
-      em.context.reportLocation.filePath === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setFilePath the property',
-        'filePath should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.reportLocation.filePath).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -454,23 +346,11 @@ describe('Fuzzing against setLineNumber', () => {
   });
   it('Should set lineNumber', () => {
     em.setLineNumber(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.reportLocation.lineNumber === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.reportLocation.lineNumber).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setLineNumber();
-    assert(
-      em.context.reportLocation.lineNumber === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setLineNumber the property',
-        'lineNumber should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.reportLocation.lineNumber).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -483,23 +363,11 @@ describe('Fuzzing against setFunctionName', () => {
   });
   it('Should set functionName', () => {
     em.setFunctionName(AFFIRMATIVE_TEST_VALUE);
-    assert(
-      em.context.reportLocation.functionName === AFFIRMATIVE_TEST_VALUE,
-      [
-        'In the affirmative case the value should be settable to a valid string',
-        'and by setting this value this should mutate the instance',
-      ].join(' '),
-    );
+    expect(em.context.reportLocation.functionName).toBe(AFFIRMATIVE_TEST_VALUE);
   });
   it('Should default', () => {
     em.setFunctionName();
-    assert(
-      em.context.reportLocation.functionName === NEGATIVE_TEST_VALUE,
-      [
-        'By providing no argument (undefined) to setFunctionName the property',
-        'functionName should be set to an empty string on the instance',
-      ].join(' '),
-    );
+    expect(em.context.reportLocation.functionName).toBe(NEGATIVE_TEST_VALUE);
   });
 });
 
@@ -530,157 +398,41 @@ describe('Fuzzing against consumeRequestInformation', () => {
     em.consumeRequestInformation(
       AFFIRMATIVE_TEST_VALUE as RequestInformationContainer,
     );
-    assert(
-      em.context.httpRequest.method === A_VALID_STRING,
-      [
-        'The error messages method, given a valid string, should be',
-        'set to that value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.url === A_VALID_STRING,
-      [
-        'The error messages url, given a valid string, should be',
-        'set to that value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.userAgent === A_VALID_STRING,
-      [
-        'The error messages userAgent, given a valid string, should be',
-        'set to that value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.referrer === A_VALID_STRING,
-      [
-        'The error messages referrer, given a valid string, should be',
-        'set to that value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.responseStatusCode === A_VALID_NUMBER,
-      [
-        'The error messages responseStatusCode, given a valid number, should be',
-        'set to that value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.remoteIp === A_VALID_STRING,
-      [
-        'The error messages remoteAddress, given a valid string, should be',
-        'set to that value',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.method).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.url).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.userAgent).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.referrer).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.responseStatusCode).toBe(A_VALID_NUMBER);
+    expect(em.context.httpRequest.remoteIp).toBe(A_VALID_STRING);
   });
   it('Should default when consuming a malformed request object', () => {
     em.consumeRequestInformation(null!);
-    assert(
-      em.context.httpRequest.method === A_VALID_STRING,
-      [
-        'The error messages method, given an invalid type a the top-level',
-        'should remain untouched',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.url === A_VALID_STRING,
-      [
-        'The error messages url, given an invalid type a the top-level',
-        'should remain untouched',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.userAgent === A_VALID_STRING,
-      [
-        'The error messages userAgent, given an invalid type a the top-level',
-        'should remain untouched',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.referrer === A_VALID_STRING,
-      [
-        'The error messages referrer, given an invalid type a the top-level',
-        'should remain untouched',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.responseStatusCode === A_VALID_NUMBER,
-      [
-        'The error messages responseStatusCode, given an invalid type a the top-level',
-        'should remain untouched',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.remoteIp === A_VALID_STRING,
-      [
-        'The error messages remoteAddress, given an invalid type a the top-level',
-        'should remain untouched',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.method).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.url).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.userAgent).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.referrer).toBe(A_VALID_STRING);
+    expect(em.context.httpRequest.responseStatusCode).toBe(A_VALID_NUMBER);
+    expect(em.context.httpRequest.remoteIp).toBe(A_VALID_STRING);
   });
   it('Should default when consuming mistyped response object properties', () => {
     em.consumeRequestInformation(
       NEGATIVE_TEST_VALUE as {} as RequestInformationContainer,
     );
-    assert(
-      em.context.httpRequest.method === NEGATIVE_STRING_CASE,
-      [
-        'The error messages method, given an invalid input should default to',
-        'the negative value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.url === NEGATIVE_STRING_CASE,
-      [
-        'The error messages url, given an invalid input should default to',
-        'the negative value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.userAgent === NEGATIVE_STRING_CASE,
-      [
-        'The error messages userAgent, ggiven an invalid input should default to',
-        'the negative value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.referrer === NEGATIVE_STRING_CASE,
-      [
-        'The error messages referrer, given an invalid input should default to',
-        'the negative value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.responseStatusCode === NEGATIVE_NUMBER_CASE,
-      [
-        'The error messages responseStatusCode, given an invalid input should default to',
-        'the negative value',
-      ].join(' '),
-    );
-    assert(
-      em.context.httpRequest.remoteIp === NEGATIVE_STRING_CASE,
-      [
-        'The error messages remoteAddress, given an invalid input should default to',
-        'the negative value',
-      ].join(' '),
-    );
+    expect(em.context.httpRequest.method).toBe(NEGATIVE_STRING_CASE);
+    expect(em.context.httpRequest.url).toBe(NEGATIVE_STRING_CASE);
+    expect(em.context.httpRequest.userAgent).toBe(NEGATIVE_STRING_CASE);
+    expect(em.context.httpRequest.referrer).toBe(NEGATIVE_STRING_CASE);
+    expect(em.context.httpRequest.responseStatusCode).toBe(NEGATIVE_NUMBER_CASE);
+    expect(em.context.httpRequest.remoteIp).toBe(NEGATIVE_STRING_CASE);
   });
   it('Should return the instance on calling consumeRequestInformation', () => {
-    assert(
+    expect(
       em.consumeRequestInformation(
         AFFIRMATIVE_TEST_VALUE as RequestInformationContainer,
       ) instanceof ErrorMessage,
-      [
-        'Calling consumeRequestInformation with valid input should return',
-        'the ErrorMessage instance',
-      ].join(' '),
-    );
-    assert(
+    ).toBe(true);
+    expect(
       em.consumeRequestInformation(undefined!) instanceof ErrorMessage,
-      [
-        'Calling consumeRequestInformation with invalid input should return',
-        'the ErrorMessage instance',
-      ].join(' '),
-    );
+    ).toBe(true);
   });
 });

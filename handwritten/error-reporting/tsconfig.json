@@ -16,8 +16,6 @@
     "src/**/*.ts",
     "test/*.ts",
     "test/**/*.ts",
-    "system-test/*.ts",
-    "system-test/**/*.ts",
     "utils/*.ts"
   ]
 }

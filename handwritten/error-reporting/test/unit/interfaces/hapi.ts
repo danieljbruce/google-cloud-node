@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach, before, afterEach} from 'mocha';
 import {makeHapiPlugin as hapiInterface} from '../../../src/interfaces/hapi';
 import {ErrorMessage} from '../../../src/classes/error-message';
 import {Fuzzer} from '../../../utils/fuzzer';
@@ -32,16 +30,17 @@ interface HapiPlugin {
   register: ((server: {}, options: {}, next: Function) => void) & {
     attributes?: {name: string; version: string};
   };
+  name?: string;
+  version?: string;
 }
 
 describe('Hapi interface', () => {
   describe('Fuzzing the setup handler', () => {
     it('Should not throw when fuzzed with invalid types', () => {
       const f = new Fuzzer();
-      assert.doesNotThrow(() => {
+      expect(() => {
         f.fuzzFunctionForTypes(hapiInterface, ['object', 'object']);
-        return;
-      });
+      }).not.toThrow();
     });
   });
   describe('Providing valid input to the setup handler', () => {
@@ -55,22 +54,21 @@ describe('Hapi interface', () => {
       plugin = hapiInterface(null!, givenConfig as {} as config.Configuration);
     });
     it('should have plain object as plugin', () => {
-      assert(plugin?.toString() === '[object Object]');
+      expect(plugin?.toString()).toBe('[object Object]');
     });
     it('plugin should have a register function property', () => {
-      assert(typeof plugin?.register === 'function');
+      expect(typeof plugin?.register).toBe('function');
     });
     it("the plugin's register property should have an attributes property", () => {
-      assert(typeof plugin.register!.attributes === 'object');
+      expect(typeof plugin.register!.attributes).toBe('object');
     });
     it("the plugin's attribute property should have a name property", () => {
-      assert.strictEqual(
-        plugin.register!.attributes!.name,
+      expect(plugin.register!.attributes!.name).toBe(
         '@google-cloud/error-reporting',
       );
     });
     it("the plugin's attribute property should have a version property", () => {
-      assert(plugin.register!.attributes!.version !== undefined);
+      expect(plugin.register!.attributes!.version).toBeDefined();
     });
   });
   describe('hapiRegisterFunction behaviour', () => {
@@ -81,10 +79,7 @@ describe('Hapi interface', () => {
     it('Should call fn when the request-error event is emitted', () => {
       const fakeClient = {
         sendError(errMsg: ErrorMessage) {
-          assert(
-            errMsg instanceof ErrorMessage,
-            'should be an instance of Error message',
-          );
+          expect(errMsg instanceof ErrorMessage).toBe(true);
         },
       } as {} as RequestHandler;
       const plugin = hapiInterface(fakeClient, {
@@ -108,7 +103,7 @@ describe('Hapi interface', () => {
     let fakeServer: EventEmitter & {ext?: Function},
       config: Configuration & {lacksCredentials?: () => boolean},
       plugin: HapiPlugin;
-    before(() => {
+    beforeAll(() => {
       config = new Configuration({
         projectId: 'xyz',
         serviceContext: {
@@ -135,7 +130,6 @@ describe('Hapi interface', () => {
         {response: new boom('message', {statusCode: 427})},
         {
           continue() {
-            // The continue function should be called
             done();
           },
         },
@@ -150,7 +144,6 @@ describe('Hapi interface', () => {
       plugin.register(fakeServer, null!, () => {});
       const reply: Function & {continue?: Function} = () => {};
       reply.continue = () => {
-        // The continue function should be called
         done();
       };
       fakeServer.emit(
@@ -162,8 +155,12 @@ describe('Hapi interface', () => {
     it('Should call sendError when a boom is received', done => {
       const fakeClient = {
         sendError(err: ErrorMessage) {
-          assert(err instanceof ErrorMessage);
-          done();
+          try {
+            expect(err instanceof ErrorMessage).toBe(true);
+            done();
+          } catch (e) {
+            done(e);
+          }
         },
       } as {} as RequestHandler;
       const plugin = hapiInterface(fakeClient, config);
@@ -174,7 +171,6 @@ describe('Hapi interface', () => {
     });
     it('Should call next when completing a request', done => {
       plugin.register(fakeServer, null!, () => {
-        // The next function should be called
         done();
       });
       fakeServer.emit(
@@ -209,8 +205,8 @@ describe('Hapi interface', () => {
     });
 
     it('Plugin should have name and version properties', () => {
-      assert.strictEqual(plugin.name, packageJson.name);
-      assert.strictEqual(plugin.version, packageJson.version);
+      expect(plugin.name).toBe(packageJson.name);
+      expect(plugin.version).toBe(packageJson.version);
     });
 
     it("Should record 'log' events correctly", () => {
@@ -228,11 +224,11 @@ describe('Hapi interface', () => {
       // this event should be recorded
       fakeServer.events.emit('log', {error: testError, channel: 'app'});
 
-      assert.strictEqual(errorsSent.length, 1);
+      expect(errorsSent.length).toBe(1);
       const errorMessage = errorsSent[0];
 
       // note: the error's stack contains the error message
-      assert.strictEqual(errorMessage.message, testError.stack);
+      expect(errorMessage.message).toBe(testError.stack);
     });
 
     it("Should record 'request' events correctly", () => {
@@ -271,32 +267,21 @@ describe('Hapi interface', () => {
         channel: 'error',
       });
 
-      assert.strictEqual(errorsSent.length, 1);
+      expect(errorsSent.length).toBe(1);
       const errorMessage = errorsSent[0];
 
       // note: the error's stack contains the error message
-      assert.strictEqual(errorMessage.message, testError.stack);
-      assert.strictEqual(
-        errorMessage.context.httpRequest.method,
-        'custom-method',
-      );
-      assert.strictEqual(errorMessage.context.httpRequest.url, 'custom-url');
-      assert.strictEqual(
-        errorMessage.context.httpRequest.userAgent,
+      expect(errorMessage.message).toBe(testError.stack);
+      expect(errorMessage.context.httpRequest.method).toBe('custom-method');
+      expect(errorMessage.context.httpRequest.url).toBe('custom-url');
+      expect(errorMessage.context.httpRequest.userAgent).toBe(
         'custom-user-agent',
       );
-      assert.strictEqual(
-        errorMessage.context.httpRequest.referrer,
-        'custom-referrer',
-      );
-      assert.strictEqual(
-        errorMessage.context.httpRequest.remoteIp,
+      expect(errorMessage.context.httpRequest.referrer).toBe('custom-referrer');
+      expect(errorMessage.context.httpRequest.remoteIp).toBe(
         'some-remote-address',
       );
-      assert.strictEqual(
-        errorMessage.context.httpRequest.responseStatusCode,
-        42,
-      );
+      expect(errorMessage.context.httpRequest.responseStatusCode).toBe(42);
     });
   });
 });
