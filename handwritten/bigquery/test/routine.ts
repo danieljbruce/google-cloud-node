@@ -12,14 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// eslint-disable-next-line no-var
+var mockPromisified = false;
+
+jest.mock('@google-cloud/common', () => {
+  const common = jest.requireActual('@google-cloud/common');
+  class FakeServiceObject extends common.ServiceObject {
+    calledWith_: IArguments;
+    constructor(config: any) {
+      super(config);
+      // eslint-disable-next-line prefer-rest-params
+      this.calledWith_ = arguments;
+    }
+  }
+  return {
+    ...common,
+    ServiceObject: FakeServiceObject,
+  };
+});
+
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (c: Function, options?: pfy.PromisifyAllOptions) => {
+    if (c.name === 'Routine') {
+      expect(typeof options).toBe('undefined');
+      mockPromisified = true;
+    }
+  },
+}));
+
 import {ServiceObject, ServiceObjectConfig, util} from '@google-cloud/common';
 import * as pfy from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, before, beforeEach} from 'mocha';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
 
 import * as _root from '../src';
+import {Routine} from '../src/routine';
 
 interface CalledWithRoutine extends ServiceObject {
   calledWith_: Array<{
@@ -31,25 +58,6 @@ interface CalledWithRoutine extends ServiceObject {
   }>;
 }
 
-let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll: (c: Function, options: pfy.PromisifyAllOptions) => {
-    if (c.name === 'Routine') {
-      assert.strictEqual(typeof options, 'undefined');
-      promisified = true;
-    }
-  },
-});
-
-class FakeServiceObject extends ServiceObject {
-  calledWith_: IArguments;
-  constructor(config: ServiceObjectConfig) {
-    super(config);
-    // eslint-disable-next-line prefer-rest-params
-    this.calledWith_ = arguments;
-  }
-}
-
 describe('BigQuery/Routine', () => {
   const DATASET = {
     id: 'kittens',
@@ -58,38 +66,31 @@ describe('BigQuery/Routine', () => {
   } as {} as _root.Dataset;
   const ROUTINE_ID = 'my_routine';
 
-  // tslint:disable-next-line variable-name
-  let Routine: typeof _root.Routine;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let routine: any;
-
-  before(() => {
-    Routine = proxyquire('../src/routine', {
-      '@google-cloud/common': {
-        ServiceObject: FakeServiceObject,
-      },
-      '@google-cloud/promisify': fakePfy,
-    }).Routine;
-  });
 
   beforeEach(() => {
     routine = new Routine(DATASET, ROUTINE_ID);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(mockPromisified).toBe(true);
     });
 
     it('should inherit from ServiceObject', () => {
-      assert(routine instanceof ServiceObject);
+      expect(routine instanceof ServiceObject).toBe(true);
 
       const calledWith = (routine as CalledWithRoutine).calledWith_[0];
 
-      assert.strictEqual(calledWith.parent, DATASET);
-      assert.strictEqual(calledWith.baseUrl, '/routines');
-      assert.strictEqual(calledWith.id, ROUTINE_ID);
-      assert.deepStrictEqual(calledWith.methods, {
+      expect(calledWith.parent).toBe(DATASET);
+      expect(calledWith.baseUrl).toBe('/routines');
+      expect(calledWith.id).toBe(ROUTINE_ID);
+      expect(calledWith.methods).toEqual({
         create: true,
         delete: true,
         exists: true,
@@ -108,9 +109,13 @@ describe('BigQuery/Routine', () => {
 
       const dataset = extend(true, {}, DATASET, {
         createRoutine: function (config_: {}, callback: Function) {
-          assert.strictEqual(this, dataset);
-          assert.deepStrictEqual(config_, config);
-          callback(); // done()
+          try {
+            expect(this).toBe(dataset);
+            expect(config_).toEqual(config);
+            callback(); // done()
+          } catch (e) {
+            done(e);
+          }
         },
       });
 
@@ -132,13 +137,17 @@ describe('BigQuery/Routine', () => {
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (FakeServiceObject.prototype as any).setMetadata = function (
+      (ServiceObject.prototype as any).setMetadata = function (
         metadata: {},
         callback: Function,
       ) {
-        assert.strictEqual(this, routine);
-        assert.deepStrictEqual(metadata, expectedMetadata);
-        callback!(); // done()
+        try {
+          expect(this).toBe(routine);
+          expect(metadata).toEqual(expectedMetadata);
+          callback!(); // done()
+        } catch (e) {
+          callback!(e);
+        }
       };
 
       routine.setMetadata(newMetadata, done);
@@ -151,8 +160,12 @@ describe('BigQuery/Routine', () => {
       };
 
       routine.setMetadata({}, (err: Error) => {
-        assert.strictEqual(err, error);
-        done();
+        try {
+          expect(err).toBe(error);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
   });

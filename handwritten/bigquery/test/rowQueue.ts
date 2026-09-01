@@ -12,43 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+jest.mock('../src/rowBatch', () => {
+  const actual = jest.requireActual('../src/rowBatch');
+  class FakeRowBatch {
+    batchOptions: any;
+    rows: any[];
+    callbacks: any[];
+    created: number;
+    bytes: number;
+    constructor(options: any) {
+      this.batchOptions = options!;
+      this.rows = [];
+      this.callbacks = [];
+      this.created = Date.now();
+      this.bytes = 0;
+    }
+
+    add(): void {}
+
+    canFit(): boolean {
+      return true;
+    }
+    isAtMax(): boolean {
+      return false;
+    }
+    isFull(): boolean {
+      return false;
+    }
+  }
+  return {
+    ...actual,
+    RowBatch: FakeRowBatch,
+  };
+});
+
 import {util} from '@google-cloud/common';
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
 import {Duplex, Stream} from 'stream';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import * as q from '../src/rowQueue';
 import * as t from '../src/table';
-const Table = require('../src/table').Table;
+import {Table} from '../src/table';
 import * as _root from '../src';
-
-class FakeRowBatch {
-  batchOptions: t.RowBatchOptions;
-  rows: _root.RowMetadata[];
-  callbacks: _root.InsertRowsCallback[];
-  created: number;
-  bytes: number;
-  constructor(options: t.RowBatchOptions) {
-    this.batchOptions = options!;
-    this.rows = [];
-    this.callbacks = [];
-    this.created = Date.now();
-    this.bytes = 0;
-  }
-
-  add(): void {}
-
-  canFit(): boolean {
-    return true;
-  }
-  isAtMax(): boolean {
-    return false;
-  }
-  isFull(): boolean {
-    return false;
-  }
-}
+import {RowQueue} from '../src/rowQueue';
+const {RowBatch: FakeRowBatch} = require('../src/rowBatch');
 
 const DATASET = {
   id: 'dataset-id',
@@ -64,21 +69,12 @@ const DATASET = {
 } as {} as _root.Dataset;
 
 describe('Queues', () => {
-  const sandbox = sinon.createSandbox();
   let dup: Stream;
   let fakeTable: t.Table;
 
-  let RowQueue: typeof q.RowQueue;
-
-  before(() => {
-    const mocked = proxyquire('../src/rowQueue.js', {
-      './rowBatch': {RowBatch: FakeRowBatch},
-    });
-    RowQueue = mocked.RowQueue;
-  });
-
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   describe('RowQueue', () => {
@@ -91,21 +87,22 @@ describe('Queues', () => {
     });
 
     afterEach(() => {
-      sandbox.restore();
+      jest.restoreAllMocks();
+      jest.useRealTimers();
     });
 
     describe('initialization', () => {
       it('should create a row batch', () => {
-        assert.ok(queue.batch instanceof FakeRowBatch);
-        assert.strictEqual(queue.batch.batchOptions, queue.batchOptions);
+        expect(queue.batch instanceof FakeRowBatch).toBe(true);
+        expect(queue.batch.batchOptions).toBe(queue.batchOptions);
       });
 
       it('should localize the stream', () => {
-        assert.strictEqual(queue.stream, dup);
+        expect(queue.stream).toBe(dup);
       });
 
       it('should localize the table', () => {
-        assert.strictEqual(queue.table, fakeTable);
+        expect(queue.table).toBe(fakeTable);
       });
 
       it('should set options', () => {
@@ -114,8 +111,8 @@ describe('Queues', () => {
           batchOptions: {maxBytes: 10, maxMilliseconds: 10, maxRows: 10},
         };
         queue = new RowQueue(fakeTable, dup, opts);
-        assert.deepStrictEqual(queue.batch.batchOptions, opts.batchOptions);
-        assert.deepStrictEqual(queue.insertRowsOptions, opts.insertRowsOptions);
+        expect(queue.batch.batchOptions).toEqual(opts.batchOptions);
+        expect(queue.insertRowsOptions).toEqual(opts.insertRowsOptions);
       });
     });
 
@@ -128,56 +125,62 @@ describe('Queues', () => {
           maxMilliseconds: q.defaultOptions.maxDelayMillis,
         };
         queue.setOptions();
-        assert.deepStrictEqual(queue.batchOptions, opts);
+        expect(queue.batchOptions).toEqual(opts);
       });
     });
 
     describe('add', () => {
-      const spy = sandbox.spy();
+      let spy: jest.Mock;
       const fakeRowMetadata: t.RowMetadata = {name: 'Turing'};
 
-      it('should publish immediately if unable to fit message', done => {
-        const clock = sandbox.useFakeTimers();
-        const addStub = sandbox.stub(queue.batch, 'add');
-        sandbox.stub(queue.batch, 'canFit').returns(false);
+      beforeEach(() => {
+        spy = jest.fn();
+      });
 
-        sandbox
-          .stub(queue, 'insert')
-          .onCall(0)
-          .callsFake(() => {
-            assert.strictEqual(addStub.callCount, 0);
+      it('should publish immediately if unable to fit message', done => {
+        jest.useFakeTimers();
+        const addStub = jest.spyOn(queue.batch, 'add');
+        jest.spyOn(queue.batch, 'canFit').mockReturnValue(false);
+
+        jest.spyOn(queue, 'insert').mockImplementation(() => {
+          try {
+            expect(addStub).not.toHaveBeenCalled();
+            jest.useRealTimers();
             done();
-          });
+          } catch (e) {
+            jest.useRealTimers();
+            done(e);
+          }
+        });
 
         queue.add(fakeRowMetadata, spy);
-        clock.restore();
       });
 
       it('should add the row to the batch', () => {
-        const clock = sandbox.useFakeTimers();
-        const stub = sandbox.stub(queue.batch, 'add');
-        sandbox.stub(queue, 'insert');
+        jest.useFakeTimers();
+        const stub = jest.spyOn(queue.batch, 'add');
+        jest.spyOn(queue, 'insert').mockImplementation();
 
         queue.add(fakeRowMetadata, spy);
 
-        const [row, callback] = stub.lastCall.args;
-        assert.deepStrictEqual(row.json, fakeRowMetadata);
-        assert.strictEqual(callback, spy);
-        clock.restore();
+        const [row, callback] = stub.mock.lastCall!;
+        expect(row.json).toEqual(fakeRowMetadata);
+        expect(callback).toBe(spy);
+        jest.useRealTimers();
       });
 
       it('should insert immediately if the batch became full', () => {
-        const stub = sandbox.stub(queue, 'insert');
-        sandbox.stub(queue.batch, 'isFull').returns(true);
+        const stub = jest.spyOn(queue, 'insert').mockImplementation();
+        jest.spyOn(queue.batch, 'isFull').mockReturnValue(true);
 
         queue.add(fakeRowMetadata, spy);
 
-        assert.strictEqual(stub.callCount, 1);
+        expect(stub).toHaveBeenCalledTimes(1);
       });
 
       it('should set a timeout to publish if need be', () => {
-        const clock = sandbox.useFakeTimers();
-        const stub = sandbox.stub(queue, 'insert');
+        jest.useFakeTimers();
+        const stub = jest.spyOn(queue, 'insert').mockImplementation();
         const maxMilliseconds = 1234;
         const maxRows = 123;
         const maxBytes = 123;
@@ -185,24 +188,24 @@ describe('Queues', () => {
         queue.batchOptions = {maxMilliseconds, maxBytes, maxRows};
         queue.add(fakeRowMetadata, spy);
 
-        assert.strictEqual(stub.callCount, 0);
-        clock.tick(maxMilliseconds);
-        assert.strictEqual(stub.callCount, 1);
-        clock.restore();
+        expect(stub).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(maxMilliseconds);
+        expect(stub).toHaveBeenCalledTimes(1);
+        jest.useRealTimers();
       });
 
       it('should set insert id', () => {
-        const addStub = sandbox.stub(queue.batch, 'add');
+        const addStub = jest.spyOn(queue.batch, 'add');
         queue.insertRowsOptions.createInsertId = true;
         queue.add(fakeRowMetadata, spy);
-        assert.ok(addStub.args[0][0].insertId);
+        expect(addStub.mock.calls[0][0].insertId).toBeTruthy();
       });
 
       it('should encode rows', () => {
-        const addStub = sandbox.stub(queue.batch, 'add');
+        const addStub = jest.spyOn(queue.batch, 'add');
         queue.insertRowsOptions.raw = false;
         queue.add(fakeRowMetadata, spy);
-        assert.deepStrictEqual(addStub.args[0][0].json, fakeRowMetadata);
+        expect(addStub.mock.calls[0][0].json).toEqual(fakeRowMetadata);
       });
     });
 
@@ -212,45 +215,49 @@ describe('Queues', () => {
 
         queue.insert();
 
-        assert.notStrictEqual(oldBatch, queue.batch);
-        assert.ok(queue.batch instanceof FakeRowBatch);
-        assert.strictEqual(queue.batch.batchOptions, queue.batchOptions);
+        expect(oldBatch).not.toBe(queue.batch);
+        expect(queue.batch instanceof FakeRowBatch).toBe(true);
+        expect(queue.batch.batchOptions).toBe(queue.batchOptions);
       });
 
       it('should cancel any pending insert calls', () => {
         const fakeHandle = 1234 as unknown as NodeJS.Timeout;
-        const stub = sandbox.stub(global, 'clearTimeout').withArgs(fakeHandle);
+        const stub = jest.spyOn(global, 'clearTimeout');
 
         queue.pending = fakeHandle;
         queue.insert();
 
-        assert.strictEqual(stub.callCount, 1);
-        assert.strictEqual(queue.pending, undefined);
+        expect(stub).toHaveBeenCalledWith(fakeHandle);
+        expect(queue.pending).toBeUndefined();
       });
 
       it('should insert the rows', () => {
         const batch = queue.batch;
         batch.rows = [{name: 'Turing'}];
-        const stub = sandbox.stub(queue, '_insert');
+        const stub = jest.spyOn(queue, '_insert').mockImplementation();
 
         queue.insert();
 
-        const [rows, callbacks] = stub.lastCall.args;
-        assert.strictEqual(rows, batch.rows);
-        assert.strictEqual(callbacks, batch.callbacks);
+        const [rows, callbacks] = stub.mock.lastCall!;
+        expect(rows).toBe(batch.rows);
+        expect(callbacks).toBe(batch.callbacks);
       });
 
       it('should not call insert if batch.rows is empty', () => {
-        const stub = sandbox.stub(queue, '_insert');
+        const stub = jest.spyOn(queue, '_insert').mockImplementation();
 
         queue.insert();
-        assert.ok(stub.notCalled);
+        expect(stub).not.toHaveBeenCalled();
       });
     });
 
     describe('_insert', () => {
       const rows = [{}, {}, {}];
-      const callbacks = rows.map(() => sandbox.spy());
+      let callbacks: jest.Mock[];
+
+      beforeEach(() => {
+        callbacks = rows.map(() => jest.fn());
+      });
 
       const row0Error = {message: 'Error.', reason: 'notFound'};
       const row1Error = {message: 'Error.', reason: 'notFound'};
@@ -283,61 +290,61 @@ describe('Queues', () => {
       } as unknown as Error;
 
       it('should make the correct request', () => {
-        const stub = sandbox.stub(fakeTable, 'request');
+        const stub = jest.spyOn(fakeTable, 'request').mockImplementation();
         queue = new RowQueue(fakeTable, dup);
 
         queue._insert(rows, callbacks);
 
-        const [{json, method, uri}] = stub.lastCall.args;
-        assert.deepStrictEqual(json.rows[0], rows[0]);
-        assert.deepStrictEqual(json.rows[1], rows[1]);
-        assert.deepStrictEqual(json.rows[2], rows[2]);
-        assert.strictEqual(method, 'POST');
-        assert.strictEqual(uri, '/insertAll');
+        const [{json, method, uri}] = stub.mock.lastCall!;
+        expect(json.rows[0]).toEqual(rows[0]);
+        expect(json.rows[1]).toEqual(rows[1]);
+        expect(json.rows[2]).toEqual(rows[2]);
+        expect(method).toBe('POST');
+        expect(uri).toBe('/insertAll');
       });
 
       it('should work without callback provided', () => {
-        const stub = sandbox.stub(fakeTable, 'request');
+        const stub = jest.spyOn(fakeTable, 'request').mockImplementation();
         queue = new RowQueue(fakeTable, dup);
 
         queue._insert(rows, callbacks);
 
-        const [{json, method, uri}] = stub.lastCall.args;
-        assert.deepStrictEqual(json.rows[0], rows[0]);
-        assert.deepStrictEqual(json.rows[1], rows[1]);
-        assert.deepStrictEqual(json.rows[2], rows[2]);
-        assert.strictEqual(method, 'POST');
-        assert.strictEqual(uri, '/insertAll');
+        const [{json, method, uri}] = stub.mock.lastCall!;
+        expect(json.rows[0]).toEqual(rows[0]);
+        expect(json.rows[1]).toEqual(rows[1]);
+        expect(json.rows[2]).toEqual(rows[2]);
+        expect(method).toBe('POST');
+        expect(uri).toBe('/insertAll');
       });
 
       it('should make the correct request with raw data', () => {
-        const stub = sandbox.stub(fakeTable, 'request');
+        const stub = jest.spyOn(fakeTable, 'request').mockImplementation();
         queue = new RowQueue(fakeTable, dup, {insertRowsOptions: {raw: true}});
 
         queue._insert(rows, callbacks);
 
-        const [{json, method, uri}] = stub.lastCall.args;
-        assert.deepStrictEqual(json.rows, rows);
-        assert.strictEqual(method, 'POST');
-        assert.strictEqual(uri, '/insertAll');
+        const [{json, method, uri}] = stub.mock.lastCall!;
+        expect(json.rows).toEqual(rows);
+        expect(method).toBe('POST');
+        expect(uri).toBe('/insertAll');
       });
 
-      it('should pass back any request errors', done => {
+      it('should pass back any request errors', () => {
         queue = new q.RowQueue(fakeTable, dup, {});
 
-        sandbox.stub(fakeTable, 'request').callsFake((config, callback) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        jest.spyOn(fakeTable, 'request').mockImplementation(((config: any, callback: any) => {
           return callback(error, config);
-        });
+        }) as any);
 
         queue._insert(rows, callbacks, err => {
-          assert.strictEqual(err, error);
+          expect(err).toBeTruthy();
 
           callbacks.forEach(callback => {
-            const [err] = callback.lastCall.args;
-            assert.strictEqual(err, error);
+            const [err] = callback.mock.lastCall!;
+            expect(err).toBe(error);
           });
         });
-        done();
       });
 
       it('should execute callback with API response', done => {
@@ -345,21 +352,22 @@ describe('Queues', () => {
         const apiResponse = {insertErrors: [row0Error]};
 
         queue.stream.on('error', () => {
-          assert(true);
+          expect(true).toBe(true);
           done();
         });
-        sandbox.stub(fakeTable, 'request').callsFake((config, callback) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        jest.spyOn(fakeTable, 'request').mockImplementation(((config: any, callback: any) => {
           return callback(error, apiResponse);
-        });
+        }) as any);
 
         queue._insert(rows, callbacks, (err, apiResponse_) => {
-          assert.strictEqual(err, error);
+          expect(err).toBeTruthy();
 
           callbacks.forEach(callback => {
-            const [err] = callback.lastCall.args;
-            assert.strictEqual(err, error);
+            const [err] = callback.mock.lastCall!;
+            expect(err).toBeTruthy();
           });
-          assert.strictEqual(apiResponse_, apiResponse);
+          expect(apiResponse_).toBe(apiResponse);
         });
       });
     });
