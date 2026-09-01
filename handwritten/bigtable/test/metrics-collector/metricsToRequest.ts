@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe} from 'mocha';
 import {metricsToRequest} from '../../src/client-side-metrics/exporter';
 import {
   expectedOtelExportConvertedValue,
@@ -26,17 +24,14 @@ describe('Bigtable/metricsToRequest', () => {
     const convertedValue = metricsToRequest(
       expectedOtelExportInput as unknown as ResourceMetrics,
     );
-    assert.deepStrictEqual(
-      convertedValue.timeSeries.length,
+    expect(convertedValue.timeSeries.length).toEqual(
       expectedOtelExportConvertedValue.timeSeries.length,
     );
     for (let index = 0; index < convertedValue.timeSeries.length; index++) {
-      // We need to compare pointwise because mocha truncates to an 8192 character limit.
-      assert.deepStrictEqual(
-        convertedValue.timeSeries[index],
+      expect(convertedValue.timeSeries[index]).toEqual(
         expectedOtelExportConvertedValue.timeSeries[index],
       );
     }
-    assert.strictEqual(convertedValue.name, 'projects/my-project');
+    expect(convertedValue.name).toBe('projects/my-project');
   });
 });

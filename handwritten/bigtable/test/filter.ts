@@ -12,97 +12,83 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {afterEach, before, beforeEach, describe, it} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
-import * as fr from '../src/filter';
-import {Row} from '../src/row';
-
-const sandbox = sinon.createSandbox();
-
 const FakeMutation = {
-  convertToBytes: sandbox.spy(value => {
-    return value;
-  }),
-  createTimeRange: sandbox.stub(),
+  convertToBytes: jest.fn(value => value),
+  createTimeRange: jest.fn(),
 };
 
+jest.mock('../src/mutation', () => ({
+  Mutation: FakeMutation,
+}));
+
+import * as fr from '../src/filter';
+import {Filter, FilterError} from '../src/filter';
+import {Row} from '../src/row';
+
 describe('Bigtable/Filter', () => {
-  let Filter: typeof fr.Filter;
-  let FilterError: typeof fr.FilterError;
-  let filter: fr.Filter;
+      let filter: fr.Filter;
 
-  before(() => {
-    const Fake = proxyquire('../src/filter', {
-      './mutation.js': {Mutation: FakeMutation},
-    });
-    Filter = Fake.Filter;
-    FilterError = Fake.FilterError;
-  });
-
+  
   beforeEach(() => {
     filter = new Filter();
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
   describe('instantiation', () => {
     it('should create an empty array of filters', () => {
-      assert.deepStrictEqual(filter.filters_, []);
+      expect(filter.filters_).toEqual([]);
     });
   });
 
   describe('convertToRegExpString', () => {
     it('should convert a RegExp to a string', () => {
       const str = Filter.convertToRegExpString(/\d+/);
-      assert.strictEqual(str, '\\d+');
+      expect(str).toBe('\\d+');
     });
 
     it('should convert an Array of strings to a single string', () => {
       const things = ['a', 'b', 'c'];
       const str = Filter.convertToRegExpString(things);
-      assert.strictEqual(str, '(a|b|c)');
+      expect(str).toBe('(a|b|c)');
     });
 
     it('should convert an Array of buffers to a single string', () => {
       const faces = [Buffer.from('.|.'), Buffer.from('=|=')];
       const str = Filter.convertToRegExpString(faces);
-      assert.strictEqual(str, '(\\.\\|\\.|=\\|=)');
+      expect(str).toBe('(\\.\\|\\.|=\\|=)');
     });
 
     it('should not do anything to a string', () => {
       const str1 = 'hello';
       const str2 = Filter.convertToRegExpString(str1);
-      assert.strictEqual(str1, str2);
+      expect(str1).toBe(str2);
     });
 
     it('should convert a number to a string', () => {
       const str = Filter.convertToRegExpString(1);
-      assert.strictEqual(str, '1');
+      expect(str).toBe('1');
     });
 
     it('should not do anything to a buffer', () => {
       const str1 = 'hello';
       const buffer = Buffer.from(str1);
       const str2 = Filter.convertToRegExpString(buffer);
-      assert.deepStrictEqual(buffer, str2);
+      expect(buffer).toEqual(str2);
     });
 
     it('should use a binary encoding on a non utf8 buffer', () => {
       const str1 = 'æ';
       const buffer = Buffer.from('æ', 'binary');
       const str2 = Filter.convertToRegExpString(buffer).toString('binary');
-      assert.strictEqual(str1, str2);
+      expect(str1).toBe(str2);
     });
 
     it('should throw an error for unknown types', () => {
       const errorReg = /Can't convert to RegExp String from unknown type\./;
-      assert.throws(() => {
-        Filter.convertToRegExpString(true as {} as string);
-      }, errorReg);
+      expect(() => { Filter.convertToRegExpString(true as {} as string); }).toThrow(errorReg);
     });
   });
 
@@ -112,7 +98,7 @@ describe('Bigtable/Filter', () => {
       const end = 'b' as fr.BoundData;
       const key = 'Key';
       const range = Filter.createRange(start, end, key);
-      assert.deepStrictEqual(range, {
+      expect(range).toEqual({
         startKeyClosed: start,
         endKeyClosed: end,
       });
@@ -122,8 +108,8 @@ describe('Bigtable/Filter', () => {
       const start = 'a' as fr.BoundData;
       const key = 'Key';
       const range = Filter.createRange(start, null, key);
-      assert(FakeMutation.convertToBytes.calledWithExactly(start));
-      assert.deepStrictEqual(range, {
+      expect(FakeMutation.convertToBytes).toHaveBeenCalledWith(start);
+      expect(range).toEqual({
         startKeyClosed: start,
       });
     });
@@ -132,8 +118,8 @@ describe('Bigtable/Filter', () => {
       const end = 'b' as fr.BoundData;
       const key = 'Key';
       const range = Filter.createRange(null, end, key);
-      assert(FakeMutation.convertToBytes.calledWithExactly(end));
-      assert.deepStrictEqual(range, {
+      expect(FakeMutation.convertToBytes).toHaveBeenCalledWith(end);
+      expect(range).toEqual({
         endKeyClosed: end,
       });
     });
@@ -153,7 +139,7 @@ describe('Bigtable/Filter', () => {
 
       const range = Filter.createRange(start, end, key);
 
-      assert.deepStrictEqual(range, {
+      expect(range).toEqual({
         startKeyOpen: start.value,
         endKeyOpen: end.value,
       });
@@ -162,8 +148,8 @@ describe('Bigtable/Filter', () => {
 
   describe('parse', () => {
     it('should call each individual filter method', () => {
-      sandbox.spy(Filter.prototype, 'row');
-      sandbox.spy(Filter.prototype, 'value');
+      jest.spyOn(Filter.prototype, 'row');
+      jest.spyOn(Filter.prototype, 'value');
       const fakeFilter = [
         {
           row: 'a',
@@ -173,13 +159,10 @@ describe('Bigtable/Filter', () => {
         },
       ];
       Filter.parse(fakeFilter);
-      assert.strictEqual((Filter.prototype.row as sinon.SinonSpy).callCount, 1);
-      assert((Filter.prototype.row as sinon.SinonSpy).calledWithExactly('a'));
-      assert.strictEqual(
-        (Filter.prototype.value as sinon.SinonSpy).callCount,
-        1,
-      );
-      assert((Filter.prototype.value as sinon.SinonSpy).calledWithExactly('b'));
+      expect(Filter.prototype.row).toHaveBeenCalledTimes(1);
+      expect(Filter.prototype.row).toHaveBeenCalledWith('a');
+      expect(Filter.prototype.value).toHaveBeenCalledTimes(1);
+      expect(Filter.prototype.value).toHaveBeenCalledWith('b');
     });
 
     it('should throw an error for unknown filters', () => {
@@ -189,7 +172,7 @@ describe('Bigtable/Filter', () => {
         },
       ];
 
-      assert.throws(Filter.parse.bind(null, fakeFilter), FilterError);
+      expect(() => { Filter.parse(fakeFilter); }).toThrow(FilterError);
     });
 
     it('should return the filter in JSON form', () => {
@@ -199,22 +182,19 @@ describe('Bigtable/Filter', () => {
           column: 'a',
         },
       ];
-      const stub = sandbox.stub(Filter.prototype, 'toProto').returns(fakeProto);
+      const stub = jest.spyOn(Filter.prototype, 'toProto').mockReturnValue(fakeProto as any);
       const parsedFilter = Filter.parse(fakeFilter);
-      assert.strictEqual(parsedFilter, fakeProto);
-      assert.strictEqual(
-        (Filter.prototype.toProto as sinon.SinonSpy).callCount,
-        1,
-      );
-      stub.restore();
+      expect(parsedFilter).toBe(fakeProto);
+      expect(Filter.prototype.toProto).toHaveBeenCalledTimes(1);
+      stub.mockRestore();
     });
   });
 
   describe('all', () => {
     it('should create a pass all filter when set to true', done => {
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'passAllFilter');
-        assert.strictEqual(value, true);
+        expect(filterName).toBe('passAllFilter');
+        expect(value).toBe(true);
         done();
       };
 
@@ -223,8 +203,8 @@ describe('Bigtable/Filter', () => {
 
     it('should create a block all filter when set to false', done => {
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'blockAllFilter');
-        assert.strictEqual(value, true);
+        expect(filterName).toBe('blockAllFilter');
+        expect(value).toBe(true);
         done();
       };
 
@@ -238,14 +218,14 @@ describe('Bigtable/Filter', () => {
         name: 'fake-column',
       };
 
-      const spy = sandbox.stub(Filter, 'convertToRegExpString').returnsArg(0);
+      const spy = jest.spyOn(Filter, 'convertToRegExpString').mockImplementation(((x: any) => x) as any);
 
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'columnQualifierRegexFilter');
-        assert.strictEqual(value, column.name);
-        assert(spy.calledWithExactly(column.name));
-        assert(FakeMutation.convertToBytes.calledWithExactly(column.name));
-        spy.restore();
+        expect(filterName).toBe('columnQualifierRegexFilter');
+        expect(value).toBe(column.name);
+        expect(spy).toHaveBeenCalledWith(column.name);
+        expect(FakeMutation.convertToBytes).toHaveBeenCalledWith(column.name);
+        
         done();
       };
 
@@ -258,9 +238,9 @@ describe('Bigtable/Filter', () => {
       };
 
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'columnQualifierRegexFilter');
-        assert.deepStrictEqual(value, column.name);
-        assert(FakeMutation.convertToBytes.calledWithExactly(column.name));
+        expect(filterName).toBe('columnQualifierRegexFilter');
+        expect(value).toEqual(column.name);
+        expect(FakeMutation.convertToBytes).toHaveBeenCalledWith(column.name);
         done();
       };
 
@@ -271,8 +251,8 @@ describe('Bigtable/Filter', () => {
       const column = 'fake-column';
 
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'columnQualifierRegexFilter');
-        assert.strictEqual(value, column);
+        expect(filterName).toBe('columnQualifierRegexFilter');
+        expect(value).toBe(column);
         done();
       };
 
@@ -285,8 +265,8 @@ describe('Bigtable/Filter', () => {
       };
 
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'cellsPerColumnLimitFilter');
-        assert.strictEqual(value, column.cellLimit);
+        expect(filterName).toBe('cellsPerColumnLimitFilter');
+        expect(value).toBe(column.cellLimit);
         done();
       };
 
@@ -302,12 +282,12 @@ describe('Bigtable/Filter', () => {
         start: 'a' as fr.BoundData,
         end: 'b' as fr.BoundData,
       };
-      const spy = sandbox.stub(Filter, 'createRange').returns(fakeRange);
+      const spy = jest.spyOn(Filter, 'createRange').mockReturnValue(fakeRange as any);
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'columnRangeFilter');
-        assert.strictEqual(value, fakeRange);
-        assert(spy.calledWithExactly(column.start, column.end, 'Qualifier'));
-        spy.restore();
+        expect(filterName).toBe('columnRangeFilter');
+        expect(value).toBe(fakeRange);
+        expect(spy).toHaveBeenCalledWith(column.start, column.end, 'Qualifier');
+        
         done();
       };
       filter.column(column);
@@ -321,18 +301,18 @@ describe('Bigtable/Filter', () => {
         pass: {b: 'b'},
         fail: {c: 'c'},
       };
-      const spy = sandbox.stub(Filter, 'parse').returnsArg(0);
+      const spy = jest.spyOn(Filter, 'parse').mockImplementation(((x: any) => x) as any);
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'condition');
-        assert.deepStrictEqual(value, {
+        expect(filterName).toBe('condition');
+        expect(value).toEqual({
           predicateFilter: condition.test,
           trueFilter: condition.pass,
           falseFilter: condition.fail,
         });
-        assert.strictEqual(spy.getCall(0).args[0], condition.test);
-        assert.strictEqual(spy.getCall(1).args[0], condition.pass);
-        assert.strictEqual(spy.getCall(2).args[0], condition.fail);
-        spy.restore();
+        expect((spy as jest.Mock).mock.calls[0][0]).toBe(condition.test);
+        expect((spy as jest.Mock).mock.calls[1][0]).toBe(condition.pass);
+        expect((spy as jest.Mock).mock.calls[2][0]).toBe(condition.fail);
+        
         done();
       };
       filter.condition(condition);
@@ -342,12 +322,12 @@ describe('Bigtable/Filter', () => {
   describe('family', () => {
     it('should create a family name regex filter', done => {
       const familyName = 'fake-family';
-      const spy = sandbox.stub(Filter, 'convertToRegExpString').returnsArg(0);
+      const spy = jest.spyOn(Filter, 'convertToRegExpString').mockImplementation(((x: any) => x) as any);
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'familyNameRegexFilter');
-        assert.strictEqual(value, familyName);
-        assert(spy.calledWithExactly(familyName));
-        spy.restore();
+        expect(filterName).toBe('familyNameRegexFilter');
+        expect(value).toBe(familyName);
+        expect(spy).toHaveBeenCalledWith(familyName);
+        
         done();
       };
       filter.family(familyName);
@@ -358,17 +338,17 @@ describe('Bigtable/Filter', () => {
     it('should create an interleave filter', done => {
       const fakeFilters = [{}, {}, {}];
 
-      const spy = sandbox.stub(Filter, 'parse').returnsArg(0);
+      const spy = jest.spyOn(Filter, 'parse').mockImplementation(((x: any) => x) as any);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       filter.set = (filterName, value: any) => {
-        assert.strictEqual(filterName, 'interleave');
-        assert.strictEqual(value.filters[0], fakeFilters[0]);
-        assert.strictEqual(value.filters[1], fakeFilters[1]);
-        assert.strictEqual(value.filters[2], fakeFilters[2]);
-        assert.strictEqual(spy.getCall(0).args[0], fakeFilters[0]);
-        assert.strictEqual(spy.getCall(1).args[0], fakeFilters[1]);
-        assert.strictEqual(spy.getCall(2).args[0], fakeFilters[2]);
-        spy.restore();
+        expect(filterName).toBe('interleave');
+        expect(value.filters[0]).toBe(fakeFilters[0]);
+        expect(value.filters[1]).toBe(fakeFilters[1]);
+        expect(value.filters[2]).toBe(fakeFilters[2]);
+        expect((spy as jest.Mock).mock.calls[0][0]).toBe(fakeFilters[0]);
+        expect((spy as jest.Mock).mock.calls[1][0]).toBe(fakeFilters[1]);
+        expect((spy as jest.Mock).mock.calls[2][0]).toBe(fakeFilters[2]);
+        
         done();
       };
 
@@ -381,8 +361,8 @@ describe('Bigtable/Filter', () => {
       const label = 'label';
 
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'applyLabelTransformer');
-        assert.strictEqual(value, label);
+        expect(filterName).toBe('applyLabelTransformer');
+        expect(value).toBe(label);
         done();
       };
 
@@ -397,16 +377,14 @@ describe('Bigtable/Filter', () => {
       };
       const convertedKey = 'abcd';
 
-      const spy = sandbox
-        .stub(Filter, 'convertToRegExpString')
-        .returns(convertedKey);
+      const spy = jest.spyOn(Filter, 'convertToRegExpString').mockReturnValue(convertedKey as any);
 
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'rowKeyRegexFilter');
-        assert.strictEqual(value, convertedKey);
-        assert(spy.calledWithExactly(row.key));
-        assert(FakeMutation.convertToBytes.calledWithExactly(convertedKey));
-        spy.restore();
+        expect(filterName).toBe('rowKeyRegexFilter');
+        expect(value).toBe(convertedKey);
+        expect(spy).toHaveBeenCalledWith(row.key);
+        expect(FakeMutation.convertToBytes).toHaveBeenCalledWith(convertedKey);
+        
         done();
       };
 
@@ -416,8 +394,8 @@ describe('Bigtable/Filter', () => {
     it('should accept the short-hand version of row key', done => {
       const rowKey = 'gwashington';
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'rowKeyRegexFilter');
-        assert.strictEqual(value, rowKey);
+        expect(filterName).toBe('rowKeyRegexFilter');
+        expect(value).toBe(rowKey);
         done();
       };
       filter.row(rowKey);
@@ -428,8 +406,8 @@ describe('Bigtable/Filter', () => {
         sample: 10,
       };
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'rowSampleFilter');
-        assert.strictEqual(value, row.sample);
+        expect(filterName).toBe('rowSampleFilter');
+        expect(value).toBe(row.sample);
         done();
       };
       filter.row(row as {} as Row);
@@ -440,8 +418,8 @@ describe('Bigtable/Filter', () => {
         cellOffset: 10,
       };
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'cellsPerRowOffsetFilter');
-        assert.strictEqual(value, row.cellOffset);
+        expect(filterName).toBe('cellsPerRowOffsetFilter');
+        expect(value).toBe(row.cellOffset);
         done();
       };
       filter.row(row);
@@ -452,8 +430,8 @@ describe('Bigtable/Filter', () => {
         cellLimit: 10,
       };
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'cellsPerRowLimitFilter');
-        assert.strictEqual(value, row.cellLimit);
+        expect(filterName).toBe('cellsPerRowLimitFilter');
+        expect(value).toBe(row.cellLimit);
         done();
       };
       filter.row(row);
@@ -465,7 +443,7 @@ describe('Bigtable/Filter', () => {
       const key = 'notARealFilter';
       const value = {a: 'b'};
       filter.set(key, value);
-      assert.strictEqual(filter.filters_[0][key], value);
+      expect(filter.filters_[0][key]).toBe(value);
     });
   });
 
@@ -473,8 +451,8 @@ describe('Bigtable/Filter', () => {
     it('should set the sink filter', done => {
       const sink = true;
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'sink');
-        assert.strictEqual(value, sink);
+        expect(filterName).toBe('sink');
+        expect(value).toBe(sink);
         done();
       };
       filter.sink(sink);
@@ -487,11 +465,11 @@ describe('Bigtable/Filter', () => {
         start: 10,
         end: 10,
       };
-      const spy = FakeMutation.createTimeRange.returns(fakeTimeRange);
+      const spy = FakeMutation.createTimeRange.mockReturnValue(fakeTimeRange as any);
       filter.set = (filterName, value) => {
-        assert.strictEqual(filterName, 'timestampRangeFilter');
-        assert.strictEqual(value, fakeTimeRange);
-        assert(spy.calledWithExactly(fakeTimeRange.start, fakeTimeRange.end));
+        expect(filterName).toBe('timestampRangeFilter');
+        expect(value).toBe(fakeTimeRange);
+        expect(spy).toHaveBeenCalledWith(fakeTimeRange.start, fakeTimeRange.end);
         done();
       };
       filter.time(fakeTimeRange);
@@ -502,20 +480,20 @@ describe('Bigtable/Filter', () => {
     it('should return null when no filters are present', () => {
       const filter = new Filter();
       const filterProto = filter.toProto();
-      assert.strictEqual(filterProto, null);
+      expect(filterProto).toBe(null);
     });
 
     it('should return a plain filter if there is only 1', () => {
       filter.filters_ = [{}];
       const filterProto = filter.toProto();
-      assert.strictEqual(filterProto, filter.filters_[0]);
+      expect(filterProto).toBe(filter.filters_[0]);
     });
 
     it('should create a chain filter if there are multiple', () => {
       filter.filters_ = [{}, {}];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filterProto = filter.toProto() as any;
-      assert.strictEqual(filterProto!.chain.filters, filter.filters_);
+      expect(filterProto!.chain.filters).toBe(filter.filters_);
     });
   });
 
@@ -527,24 +505,21 @@ describe('Bigtable/Filter', () => {
       const fakeRegExValue = 'abcd';
       const fakeConvertedValue = 'dcba';
 
-      const regSpy = sandbox
-        .stub(Filter, 'convertToRegExpString')
-        .returns(fakeRegExValue);
+      const regSpy = jest.spyOn(Filter, 'convertToRegExpString').mockReturnValue(fakeRegExValue as any);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const bytesSpy = ((FakeMutation as any).convertToBytes = sandbox.spy(
+      const bytesSpy = ((FakeMutation as any).convertToBytes = jest.fn(
         () => {
           return fakeConvertedValue;
         },
       ));
 
       filter.set = (filterName, val) => {
-        assert.strictEqual(filterName, 'valueRegexFilter');
-        assert.strictEqual(fakeConvertedValue, val);
-        assert(regSpy.calledWithExactly(value.value));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert((bytesSpy as any).calledWithExactly(fakeRegExValue));
-        regSpy.restore();
+        expect(filterName).toBe('valueRegexFilter');
+        expect(fakeConvertedValue).toBe(val);
+        expect(regSpy).toHaveBeenCalledWith(value.value);
+        expect(bytesSpy).toHaveBeenCalledWith(fakeRegExValue);
+        
         done();
       };
 
@@ -557,24 +532,21 @@ describe('Bigtable/Filter', () => {
       const fakeRegExValue = 'abcd';
       const fakeConvertedValue = 'dcba';
 
-      const regSpy = sandbox
-        .stub(Filter, 'convertToRegExpString')
-        .returns(fakeRegExValue);
+      const regSpy = jest.spyOn(Filter, 'convertToRegExpString').mockReturnValue(fakeRegExValue as any);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const bytesSpy = ((FakeMutation.convertToBytes as any) = sandbox.spy(
+      const bytesSpy = ((FakeMutation.convertToBytes as any) = jest.fn(
         () => {
           return fakeConvertedValue;
         },
       ));
 
       filter.set = (filterName, val) => {
-        assert.strictEqual(filterName, 'valueRegexFilter');
-        assert.strictEqual(fakeConvertedValue, val);
-        assert(regSpy.calledWithExactly(value));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert((bytesSpy as any).calledWithExactly(fakeRegExValue));
-        regSpy.restore();
+        expect(filterName).toBe('valueRegexFilter');
+        expect(fakeConvertedValue).toBe(val);
+        expect(regSpy).toHaveBeenCalledWith(value);
+        expect(bytesSpy).toHaveBeenCalledWith(fakeRegExValue);
+        
         done();
       };
 
@@ -590,12 +562,12 @@ describe('Bigtable/Filter', () => {
         start: 'a' as fr.BoundData,
         end: 'b' as fr.BoundData,
       };
-      const spy = sandbox.stub(Filter, 'createRange').returns(fakeRange);
+      const spy = jest.spyOn(Filter, 'createRange').mockReturnValue(fakeRange as any);
       filter.set = (filterName, val) => {
-        assert.strictEqual(filterName, 'valueRangeFilter');
-        assert.strictEqual(val, fakeRange);
-        assert(spy.calledWithExactly(value.start, value.end, 'Value'));
-        spy.restore();
+        expect(filterName).toBe('valueRangeFilter');
+        expect(val).toBe(fakeRange);
+        expect(spy).toHaveBeenCalledWith(value.start, value.end, 'Value');
+        
         done();
       };
       filter.value(value);
@@ -606,8 +578,8 @@ describe('Bigtable/Filter', () => {
         strip: true,
       };
       filter.set = (filterName, val) => {
-        assert.strictEqual(filterName, 'stripValueTransformer');
-        assert.strictEqual(val, value.strip);
+        expect(filterName).toBe('stripValueTransformer');
+        expect(val).toBe(value.strip);
         done();
       };
       filter.value(value);
@@ -617,13 +589,13 @@ describe('Bigtable/Filter', () => {
   describe('FilterError', () => {
     it('should set the correct message', () => {
       const err = new FilterError('test');
-      assert.strictEqual(err.message, 'Unknown filter: test.');
+      expect(err.message).toBe('Unknown filter: test.');
     });
 
     it('should set the correct name', () => {
       const err = new FilterError('test');
 
-      assert.strictEqual(err.name, 'FilterError');
+      expect(err.name).toBe('FilterError');
     });
   });
 });

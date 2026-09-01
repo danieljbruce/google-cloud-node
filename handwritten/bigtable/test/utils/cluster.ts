@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
 import {ClusterUtils} from '../../src/utils/cluster';
-import * as assert from 'assert';
 
 describe('Bigtable/Utils/Cluster', () => {
   describe('getRequestFromMetadata', () => {
@@ -28,7 +26,7 @@ describe('Bigtable/Utils/Cluster', () => {
       };
       const name = 'cluster1';
       const reqOpts = ClusterUtils.getRequestFromMetadata(metadata, name);
-      assert.deepStrictEqual(reqOpts, {
+      expect(reqOpts).toEqual({
         cluster: {
           name,
           location: metadata.location,
@@ -64,7 +62,7 @@ describe('Bigtable/Utils/Cluster', () => {
       };
       const name = 'cluster1';
       const reqOpts = ClusterUtils.getRequestFromMetadata(metadata, name);
-      assert.deepStrictEqual(reqOpts, {
+      expect(reqOpts).toEqual({
         cluster: {
           name,
           location: metadata.location,

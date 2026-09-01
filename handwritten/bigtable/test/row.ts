@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {afterEach, beforeEach, describe, it} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
-import {Mutation} from '../src/mutation.js';
-import * as rw from '../src/row';
+import {Bigtable} from '../src';
+import {TabularApiSurface} from '../src/tabular-api-surface';
 import {
   Table,
   Entry,
@@ -28,25 +23,27 @@ import {
   MutateOptions,
   MutateCallback,
 } from '../src/table.js';
+import {Mutation} from '../src/mutation.js';
+import * as rw from '../src/row';
+import {Row, RowError} from '../src/row';
 import {Chunk} from '../src/chunktransformer.js';
 import {CallOptions, ServiceError} from 'google-gax';
 import {ClientSideMetricsConfigManager} from '../src/client-side-metrics/metrics-config-manager';
-import {Bigtable} from '../src/';
-import {getRowsInternal} from '../src/utils/getRowsInternal';
-import {TabularApiSurface} from '../src/tabular-api-surface';
+import * as getRowsInternalModule from '../src/utils/getRowsInternal';
+import * as mutateInternalModule from '../src/utils/mutateInternal';
+import {RowDataUtils} from '../src/row-data-utils';
 import * as pumpify from 'pumpify';
 import {OperationMetricsCollector} from '../src/client-side-metrics/operation-metrics-collector';
 
-const sandbox = sinon.createSandbox();
-
-let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  promisifyAll(klass: Function) {
+(global as any).mockPromisified = (global as any).mockPromisified || false;
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (klass: Function) => {
     if (klass.name === 'Row') {
-      promisified = true;
+      (global as any).mockPromisified = true;
     }
   },
-});
+}));
 
 const ROW_ID = 'my-row';
 const CONVERTED_ROW_ID = 'my-converted-row';
@@ -55,85 +52,64 @@ const TABLE = {
   name: '/projects/project/instances/my-instance/tables/my-table',
 } as Table;
 
-const FakeMutation = {
-  methods: Mutation.methods,
-  convertToBytes: sandbox.spy(value => {
-    if (value === ROW_ID) {
-      return CONVERTED_ROW_ID;
-    }
-    return value;
-  }),
-  convertFromBytes: sandbox.spy(value => {
-    return value;
-  }),
-  parseColumnName: sandbox.spy(column => {
-    return Mutation.parseColumnName(column);
-  }),
-  parse: sandbox.spy(entry => {
-    return {
-      mutations: entry,
-    };
-  }),
-};
+jest.mock('../src/utils/getRowsInternal', () => ({
+  getRowsInternal: jest.fn(),
+}));
 
-const FakeFilter = {
-  parse: sandbox.spy(filter => {
-    return filter;
-  }),
-};
+jest.mock('../src/utils/mutateInternal', () => ({
+  mutateInternal: jest.fn(),
+}));
 
-const FakeRowDataUtil = proxyquire('../src/row-data-utils.js', {
-  './mutation.js': {Mutation: FakeMutation},
-  './filter.js': {Filter: FakeFilter},
-}).RowDataUtils;
+jest.mock('../src/mutation', () => {
+  const actual = jest.requireActual('../src/mutation');
+  const FakeMutation = {
+    methods: actual.Mutation.methods,
+    convertToBytes: jest.fn((value: any) => {
+      if (value === 'my-row') {
+        return 'my-converted-row';
+      }
+      return value;
+    }),
+    convertFromBytes: jest.fn((value: any) => {
+      return value;
+    }),
+    parseColumnName: jest.fn((column: any) => {
+      return actual.Mutation.parseColumnName(column);
+    }),
+    parse: jest.fn((entry: any) => {
+      return {
+        mutations: entry,
+      };
+    }),
+  };
+  (global as any).FakeMutation = FakeMutation;
+  return {
+    ...actual,
+    Mutation: FakeMutation,
+  };
+});
+
+jest.mock('../src/filter', () => {
+  const actual = jest.requireActual('../src/filter');
+  const FakeFilter = {
+    parse: jest.fn((filter: any) => {
+      return filter;
+    }),
+  };
+  (global as any).FakeFilter = FakeFilter;
+  return {
+    ...actual,
+    Filter: FakeFilter,
+  };
+});
+
+const FakeMutation = (global as any).FakeMutation;
+const FakeFilter = (global as any).FakeFilter;
+
+const FakeRowDataUtil = RowDataUtils;
 
 describe('Bigtable/Row', () => {
-  let Row: typeof rw.Row;
-  let RowError: typeof rw.RowError;
-  let row: rw.Row;
-
-  function getFakeMutateRow(
-    fn: (
-      table: TabularApiSurface,
-      metricsCollector: OperationMetricsCollector,
-      entry: Entry | Entry[],
-      gaxOptions_: MutateOptions | MutateCallback,
-      callback: Function,
-    ) => void | Promise<GetRowsResponse>,
-  ) {
-    const Fake = proxyquire('../src/row.js', {
-      '../src/utils/mutateInternal': {
-        mutateInternal: fn,
-      },
-    });
-    return Fake;
-  }
-
-  function getFakeRow(
-    getRowsInternal: (
-      table: TabularApiSurface,
-      singleRow: boolean,
-      optionsOrCallback?: GetRowsOptions | GetRowsCallback,
-      cb?: GetRowsCallback,
-    ) => void | Promise<GetRowsResponse>,
-  ) {
-    const Fake = proxyquire('../src/row.js', {
-      '@google-cloud/promisify': fakePromisify,
-      './mutation.js': {Mutation: FakeMutation},
-      './filter.js': {Filter: FakeFilter},
-      './row-data-utils.js': {RowDataUtils: FakeRowDataUtil},
-      './utils/getRowsInternal': {
-        getRowsInternal,
-      },
-    });
-    RowError = Fake.RowError;
-    return Fake;
-  }
-
-  before(() => {
-    const Fake = getFakeRow(() => {});
-    Row = Fake.Row;
-  });
+  let row: any;
 
   beforeEach(() => {
     row = new Row(TABLE, ROW_ID);
@@ -142,35 +118,35 @@ describe('Bigtable/Row', () => {
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
     Object.keys(FakeMutation).forEach(spy => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((FakeMutation as any)[spy].resetHistory) {
+      if ((FakeMutation as any)[spy].mockClear) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (FakeMutation as any)[spy].resetHistory();
+        (FakeMutation as any)[spy].mockClear();
       }
     });
   });
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect((global as any).mockPromisified).toBeTruthy();
     });
 
     it('should localize Bigtable instance', () => {
-      assert.strictEqual(row.bigtable, TABLE.bigtable);
+      expect(row.bigtable).toBe(TABLE.bigtable);
     });
 
     it('should localize Table instance', () => {
-      assert.strictEqual(row.table, TABLE);
+      expect(row.table).toBe(TABLE);
     });
 
     it('should localize ID', () => {
-      assert.strictEqual(row.id, ROW_ID);
+      expect(row.id).toBe(ROW_ID);
     });
 
     it('should create an empty data object', () => {
-      assert.deepStrictEqual(row.data, {});
+      expect(row.data).toEqual({});
     });
   });
 
@@ -179,7 +155,7 @@ describe('Bigtable/Row', () => {
 
     beforeEach(() => {
       convert = FakeMutation.convertFromBytes;
-      FakeMutation.convertFromBytes = sandbox.spy(val => {
+      FakeMutation.convertFromBytes = jest.fn(val => {
         return val.replace('unconverted', 'converted');
       });
     });
@@ -213,7 +189,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'convertedKey',
           data: {
@@ -258,7 +234,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'convertedKey',
           data: {
@@ -299,7 +275,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'convertedKey',
           data: {
@@ -345,7 +321,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'convertedKey',
           data: {
@@ -375,9 +351,9 @@ describe('Bigtable/Row', () => {
         decode: false,
       };
 
-      (FakeMutation.convertFromBytes as Function) = sandbox.spy(
+      (FakeMutation.convertFromBytes as Function) = jest.fn(
         (val, options) => {
-          assert.deepStrictEqual(options, {userOptions: formatOptions});
+          expect(options).toEqual({userOptions: formatOptions});
           return val.replace('unconverted', 'converted');
         },
       );
@@ -414,7 +390,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks, formatOptions);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'convertedKey',
           data: {
@@ -441,8 +417,8 @@ describe('Bigtable/Row', () => {
       // 0 === row key
       // 1 === qualifier
       // 2 === value
-      const args = FakeMutation.convertFromBytes.getCall(2).args;
-      assert.deepStrictEqual((args as string[])[1], {
+      const args = (FakeMutation.convertFromBytes as jest.Mock).mock.calls[2];
+      expect((args as string[])[1]).toEqual({
         userOptions: formatOptions,
       });
     });
@@ -452,9 +428,9 @@ describe('Bigtable/Row', () => {
         encoding: 'binary' as BufferEncoding,
       };
 
-      (FakeMutation.convertFromBytes as Function) = sandbox.spy(
+      (FakeMutation.convertFromBytes as Function) = jest.fn(
         (val, options) => {
-          assert.deepStrictEqual(options, {userOptions: formatOptions});
+          expect(options).toEqual({userOptions: formatOptions});
           return val.toString(formatOptions.encoding);
         },
       );
@@ -478,7 +454,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks, formatOptions);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'ø',
           data: {
@@ -499,8 +475,8 @@ describe('Bigtable/Row', () => {
       // 0 === row key
       // 1 === qualifier
       // 2 === value
-      const args: string[] = FakeMutation.convertFromBytes.getCall(2).args;
-      assert.deepStrictEqual(args[1], {userOptions: formatOptions});
+      const args: string[] = (FakeMutation.convertFromBytes as jest.Mock).mock.calls[2];
+      expect(args[1]).toEqual({userOptions: formatOptions});
     });
 
     it('should discard old data when reset row is found', () => {
@@ -541,7 +517,7 @@ describe('Bigtable/Row', () => {
 
       const rows = Row.formatChunks_(chunks);
 
-      assert.deepStrictEqual(rows, [
+      expect(rows).toEqual([
         {
           key: 'convertedKey2',
           data: {
@@ -596,34 +572,34 @@ describe('Bigtable/Row', () => {
 
     it('should format the families into a user-friendly format', () => {
       const formatted = Row.formatFamilies_(families);
-      assert.deepStrictEqual(formatted, formattedRowData);
+      expect(formatted).toEqual(formattedRowData);
       const convertStpy = FakeMutation.convertFromBytes;
-      assert.strictEqual(convertStpy.callCount, 2);
-      assert.strictEqual(convertStpy.getCall(0).args[0], 'test-column');
-      assert.strictEqual(convertStpy.getCall(1).args[0], 'test-value');
+      expect((convertStpy as jest.Mock).mock.calls.length).toBe(2);
+      expect((convertStpy as jest.Mock).mock.calls[0][0]).toBe('test-column');
+      expect((convertStpy as jest.Mock).mock.calls[1][0]).toBe('test-value');
     });
 
     it('should optionally not decode the value', () => {
       const formatted = Row.formatFamilies_(families, {
         decode: false,
       });
-      assert.deepStrictEqual(formatted, formattedRowData);
+      expect(formatted).toEqual(formattedRowData);
       const convertStpy = FakeMutation.convertFromBytes;
-      assert.strictEqual(convertStpy.callCount, 1);
-      assert.strictEqual(convertStpy.getCall(0).args[0], 'test-column');
+      expect((convertStpy as jest.Mock).mock.calls.length).toBe(1);
+      expect((convertStpy as jest.Mock).mock.calls[0][0]).toBe('test-column');
     });
   });
 
   describe('create', () => {
     it('should provide the proper request options', done => {
       (row.table.mutate as Function) = (entry: Entry, gaxOptions: {}) => {
-        assert.strictEqual(entry.key, row.id);
-        assert.strictEqual(entry.data, undefined);
-        assert.strictEqual(entry.method, Mutation.methods.INSERT);
-        assert.strictEqual(gaxOptions, undefined);
+        expect(entry.key).toBe(row.id);
+        expect(entry.data).toBe(undefined);
+        expect(entry.method).toBe(Mutation.methods.INSERT);
+        expect(gaxOptions).toBe(undefined);
         done();
       };
-      row.create(assert.ifError);
+      row.create(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept data to populate the row', done => {
@@ -634,10 +610,10 @@ describe('Bigtable/Row', () => {
         },
       };
       (row.table.mutate as Function) = (entry: Entry) => {
-        assert.strictEqual(entry.data, options.entry);
+        expect(entry.data).toBe(options.entry);
         done();
       };
-      row.create(options, assert.ifError);
+      row.create(options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept options when inserting data', done => {
@@ -645,31 +621,31 @@ describe('Bigtable/Row', () => {
         gaxOptions: {},
       };
       (row.table.mutate as Function) = (entry: Entry, gaxOptions: {}) => {
-        assert.strictEqual(gaxOptions, options.gaxOptions);
+        expect(gaxOptions).toBe(options.gaxOptions);
         done();
       };
-      row.create(options, assert.ifError);
+      row.create(options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error to the callback', done => {
       const err = new Error('err');
       const response = {};
-      sandbox.stub(row.table, 'mutate').callsArgWith(2, err, response);
-      row.create((err_, row, apiResponse) => {
-        assert.strictEqual(err, err_);
-        assert.strictEqual(row, null);
-        assert.strictEqual(response, apiResponse);
+      jest.spyOn(row.table, 'mutate').mockImplementation(((...args: any[]) => { args[2](err, response); }) as any);
+      row.create((err_: any, row: any, apiResponse: any) => {
+        expect(err).toBe(err_);
+        expect(row).toBe(null);
+        expect(response).toBe(apiResponse);
         done();
       });
     });
 
     it('should return the Row instance', done => {
       const response = {};
-      sandbox.stub(row.table, 'mutate').callsArgWith(2, null, response);
-      row.create((err, row_, apiResponse) => {
-        assert.ifError(err);
-        assert.strictEqual(row, row_);
-        assert.strictEqual(response, apiResponse);
+      jest.spyOn(row.table, 'mutate').mockImplementation(((...args: any[]) => { args[2](null, response); }) as any);
+      row.create((err: any, row_: any, apiResponse: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(row).toBe(row_);
+        expect(response).toBe(apiResponse);
         done();
       });
     });
@@ -685,9 +661,9 @@ describe('Bigtable/Row', () => {
     ];
 
     it('should throw if a rule is not provided', () => {
-      assert.throws(() => {
+      expect(() => {
         (row.createRules as Function)();
-      }, /At least one rule must be provided\./);
+      }).toThrow(/At least one rule must be provided\./);
     });
 
     it('should read/modify/write rules', done => {
@@ -696,11 +672,11 @@ describe('Bigtable/Row', () => {
         config: any,
         callback: Function,
       ) => {
-        assert.strictEqual(config.client, 'BigtableClient');
-        assert.strictEqual(config.method, 'readModifyWriteRow');
-        assert.strictEqual(config.reqOpts.tableName, TABLE.name);
-        assert.strictEqual(config.reqOpts.rowKey, CONVERTED_ROW_ID);
-        assert.deepStrictEqual(config.reqOpts.rules, [
+        expect(config.client).toBe('BigtableClient');
+        expect(config.method).toBe('readModifyWriteRow');
+        expect(config.reqOpts.tableName).toBe(TABLE.name);
+        expect(config.reqOpts.rowKey).toBe(CONVERTED_ROW_ID);
+        expect(config.reqOpts.rules).toEqual([
           {
             familyName: 'a',
             columnQualifier: 'b',
@@ -709,9 +685,9 @@ describe('Bigtable/Row', () => {
           },
         ]);
         const spy = FakeMutation.convertToBytes;
-        assert.strictEqual(spy.getCall(0).args[0], 'b');
-        assert.strictEqual(spy.getCall(1).args[0], 'c');
-        assert.strictEqual(spy.getCall(2).args[0], ROW_ID);
+        expect((spy as jest.Mock).mock.calls[0][0]).toBe('b');
+        expect((spy as jest.Mock).mock.calls[1][0]).toBe('c');
+        expect((spy as jest.Mock).mock.calls[2][0]).toBe(ROW_ID);
         callback(); // done()
       };
       row.createRules(rules, done);
@@ -722,23 +698,20 @@ describe('Bigtable/Row', () => {
       bigtableInstance.appProfileId = 'app-profile-id-12345';
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (bigtableInstance.request as Function) = (config: any) => {
-        assert.strictEqual(
-          config.reqOpts.appProfileId,
-          bigtableInstance.appProfileId,
-        );
+        expect(config.reqOpts.appProfileId).toBe(bigtableInstance.appProfileId);
         done();
       };
-      row.createRules(rules, assert.ifError);
+      row.createRules(rules, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (row.bigtable.request as Function) = (config: any) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
-      row.createRules(rules, gaxOptions, assert.ifError);
+      row.createRules(rules, gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
   });
 
@@ -750,9 +723,9 @@ describe('Bigtable/Row', () => {
         gaxOptions: {},
         callback: Function,
       ) => {
-        assert.strictEqual(mutation.key, ROW_ID);
-        assert.strictEqual(mutation.method, FakeMutation.methods.DELETE);
-        assert.deepStrictEqual(gaxOptions, {});
+        expect(mutation.key).toBe(ROW_ID);
+        expect(mutation.method).toBe(FakeMutation.methods.DELETE);
+        expect(gaxOptions).toEqual({});
         callback(); // done()
       };
       row.delete(done);
@@ -761,7 +734,7 @@ describe('Bigtable/Row', () => {
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
       (row.table.mutate as Function) = (mutation: {}, gaxOptions_: {}) => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
+        expect(gaxOptions_).toBe(gaxOptions);
         done();
       };
       row.delete(gaxOptions, done);
@@ -769,12 +742,15 @@ describe('Bigtable/Row', () => {
 
     it('should remove existing data', done => {
       const gaxOptions = {};
-      (row.table.mutate as Function) = (mutation: {}, gaxOptions_: {}) => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
-        done();
+      (row.table.mutate as Function) = (mutation: {}, gaxOptions_: {}, callback: Function) => {
+        expect(gaxOptions_).toBe(gaxOptions);
+        callback();
       };
-      row.delete(gaxOptions, done);
-      assert.strictEqual(row.data, undefined);
+      row.delete(gaxOptions, (err: any) => {
+        expect(err).toBeFalsy();
+        expect(row.data).toEqual({});
+        done();
+      });
     });
   });
 
@@ -788,10 +764,10 @@ describe('Bigtable/Row', () => {
         gaxOptions: {},
         callback: Function,
       ) => {
-        assert.strictEqual(mutation.key, ROW_ID);
-        assert.strictEqual(mutation.data, columns);
-        assert.strictEqual(mutation.method, FakeMutation.methods.DELETE);
-        assert.deepStrictEqual(gaxOptions, {});
+        expect(mutation.key).toBe(ROW_ID);
+        expect(mutation.data).toBe(columns);
+        expect(mutation.method).toBe(FakeMutation.methods.DELETE);
+        expect(gaxOptions).toEqual({});
         callback(); // done()
       };
       row.deleteCells(columns, done);
@@ -799,24 +775,27 @@ describe('Bigtable/Row', () => {
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
-      sandbox.stub(row.table, 'mutate').callsFake((mutation, gaxOptions_) => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
+      jest.spyOn(row.table as any, 'mutate').mockImplementation((mutation, gaxOptions_) => {
+        expect(gaxOptions_).toBe(gaxOptions);
         done();
       });
       row.deleteCells(columns, gaxOptions, done);
     });
 
     it('should remove existing data', done => {
-      sandbox.stub(row.table, 'mutate').callsArg(2);
-      row.deleteCells(columns, done);
-      assert.strictEqual(row.data, undefined);
+      jest.spyOn(row.table, 'mutate').mockImplementation(((...args: any[]) => { args[2](); }) as any);
+      row.deleteCells(columns, (err: any) => {
+        expect(err).toBeFalsy();
+        expect(row.data).toEqual({});
+        done();
+      });
     });
   });
 
   describe('exists', () => {
     it('should not require gaxOptions', done => {
-      sandbox.stub(row, 'getMetadata').callsFake(gaxOptions => {
-        assert.deepStrictEqual(gaxOptions, {
+      jest.spyOn(row as any, 'getMetadata').mockImplementation(gaxOptions => {
+        expect(gaxOptions).toEqual({
           filter: [
             {
               row: {
@@ -832,13 +811,13 @@ describe('Bigtable/Row', () => {
         });
         done();
       });
-      row.exists(assert.ifError);
+      row.exists(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should add filter to the read row options', done => {
       const gaxOptions = {};
-      sandbox.stub(row, 'getMetadata').callsFake(gaxOptions_ => {
-        assert.deepStrictEqual(gaxOptions_, {
+      jest.spyOn(row as any, 'getMetadata').mockImplementation(gaxOptions_ => {
+        expect(gaxOptions_).toEqual({
           filter: [
             {
               row: {
@@ -854,7 +833,7 @@ describe('Bigtable/Row', () => {
         });
         done();
       });
-      row.exists(gaxOptions, assert.ifError);
+      row.exists(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass gaxOptions to getMetadata', done => {
@@ -862,43 +841,40 @@ describe('Bigtable/Row', () => {
         testProperty: true,
       } as CallOptions;
 
-      sandbox.stub(row, 'getMetadata').callsFake(gaxOptions_ => {
-        assert.strictEqual(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (gaxOptions_ as any).testProperty,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (gaxOptions as any).testProperty,
-        );
+      jest.spyOn(row as any, 'getMetadata').mockImplementation(gaxOptions_ => {
+        expect(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (gaxOptions_ as any).testProperty).toBe(// eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (gaxOptions as any).testProperty);
         done();
       });
 
-      row.exists(gaxOptions, assert.ifError);
+      row.exists(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return false if error is RowError', done => {
       const error = new RowError('Error.');
-      sandbox.stub(row, 'getMetadata').callsArgWith(1, error);
-      row.exists((err, exists) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, false);
+      jest.spyOn(row, 'getMetadata').mockImplementation(((...args: any[]) => { args[args.length - 1](error); }) as any);
+      row.exists((err: any, exists: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(false);
         done();
       });
     });
 
     it('should return error if not RowError', done => {
       const error = new Error('Error.');
-      sandbox.stub(row, 'getMetadata').callsArgWith(1, error);
-      row.exists(err => {
-        assert.strictEqual(err, error);
+      jest.spyOn(row, 'getMetadata').mockImplementation(((...args: any[]) => { args[args.length - 1](error); }) as any);
+      row.exists((err: any) => {
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should return true if no error', done => {
-      sandbox.stub(row, 'getMetadata').callsArgWith(1, null, {});
-      row.exists((err, exists) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, true);
+      jest.spyOn(row, 'getMetadata').mockImplementation(((...args: any[]) => { args[args.length - 1](null, {}); }) as any);
+      row.exists((err: any, exists: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(true);
         done();
       });
     });
@@ -923,8 +899,8 @@ describe('Bigtable/Row', () => {
     } as {} as {mutations: rw.FilterConfigOption};
 
     beforeEach(() => {
-      FakeMutation.parse.resetHistory();
-      FakeFilter.parse.resetHistory();
+      FakeMutation.parse.mockClear();
+      FakeFilter.parse.mockClear();
     });
 
     it('should provide the proper request options', done => {
@@ -936,45 +912,36 @@ describe('Bigtable/Row', () => {
         column: 'b',
       };
 
-      (FakeFilter.parse as Function) = sandbox.spy(() => {
+      (FakeFilter.parse as Function) = jest.fn(() => {
         return fakeParsedFilter;
       });
 
-      (FakeMutation.parse as Function) = sandbox.spy(() => {
+      (FakeMutation.parse as Function) = jest.fn(() => {
         return fakeMutations;
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (row.bigtable.request as Function) = (config: any) => {
-        assert.strictEqual(config.client, 'BigtableClient');
-        assert.strictEqual(config.method, 'checkAndMutateRow');
-        assert.strictEqual(config.reqOpts.tableName, TABLE.name);
-        assert.strictEqual(config.reqOpts.rowKey, CONVERTED_ROW_ID);
-        assert.deepStrictEqual(
-          config.reqOpts.predicateFilter,
-          fakeParsedFilter,
-        );
-        assert.deepStrictEqual(
-          config.reqOpts.trueMutations,
-          fakeMutations.mutations,
-        );
-        assert.deepStrictEqual(
-          config.reqOpts.falseMutations,
-          fakeMutations.mutations,
-        );
+        expect(config.client).toBe('BigtableClient');
+        expect(config.method).toBe('checkAndMutateRow');
+        expect(config.reqOpts.tableName).toBe(TABLE.name);
+        expect(config.reqOpts.rowKey).toBe(CONVERTED_ROW_ID);
+        expect(config.reqOpts.predicateFilter).toEqual(fakeParsedFilter);
+        expect(config.reqOpts.trueMutations).toEqual(fakeMutations.mutations);
+        expect(config.reqOpts.falseMutations).toEqual(fakeMutations.mutations);
         config.gaxOpts.otherArgs.options.interceptors = [];
-        assert.deepStrictEqual(config.gaxOpts, {
+        expect(config.gaxOpts).toEqual({
           otherArgs: {
             options: {
               interceptors: [],
             },
           },
         });
-        assert.strictEqual(FakeMutation.parse.callCount, 2);
-        assert.strictEqual(FakeMutation.parse.getCall(0).args[0], mutations[0]);
-        assert.strictEqual(FakeMutation.parse.getCall(1).args[0], mutations[0]);
-        assert.strictEqual(FakeFilter.parse.callCount, 1);
-        assert(FakeFilter.parse.calledWithExactly(filter));
+        expect(FakeMutation.parse).toHaveBeenCalledTimes(2);
+        expect((FakeMutation.parse as jest.Mock).mock.calls[0][0]).toBe(mutations[0]);
+        expect((FakeMutation.parse as jest.Mock).mock.calls[1][0]).toBe(mutations[0]);
+        expect(FakeFilter.parse).toHaveBeenCalledTimes(1);
+        expect(FakeFilter.parse).toHaveBeenCalledWith(filter);
         done();
       };
 
@@ -984,7 +951,7 @@ describe('Bigtable/Row', () => {
           onMatch: mutations,
           onNoMatch: mutations,
         },
-        assert.ifError,
+        ((err: any) => { expect(err).toBeFalsy(); }),
       );
     });
 
@@ -993,11 +960,11 @@ describe('Bigtable/Row', () => {
         column: 'a',
       };
       const gaxOptions = {};
-      sandbox.stub(row.bigtable, 'request').callsFake(config => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+      jest.spyOn(row.bigtable as any, 'request').mockImplementation((config: any) => {
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       });
-      row.filter(filter, {gaxOptions}, assert.ifError);
+      row.filter(filter, {gaxOptions}, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should use an appProfileId', done => {
@@ -1006,27 +973,24 @@ describe('Bigtable/Row', () => {
       };
       const bigtableInstance = row.bigtable;
       bigtableInstance.appProfileId = 'app-profile-id-12345';
-      sandbox.stub(bigtableInstance, 'request').callsFake(config => {
-        assert.strictEqual(
-          config.reqOpts.appProfileId,
-          bigtableInstance.appProfileId,
-        );
+      jest.spyOn(bigtableInstance as any, 'request').mockImplementation((config: any) => {
+        expect(config.reqOpts.appProfileId).toBe(bigtableInstance.appProfileId);
         done();
       });
-      row.filter(filter, assert.ifError);
+      row.filter(filter, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error to the callback', done => {
       const err = new Error('err');
       const response = {};
-      sandbox.stub(row.bigtable, 'request').callsArgWith(1, err, response);
+      jest.spyOn(row.bigtable, 'request').mockImplementation(((...args: any[]) => { args[1](err, response); }) as any);
       (row.filter as Function)(
         {},
         mutations,
         (err_: Error, matched: boolean, apiResponse: {}) => {
-          assert.strictEqual(err, err_);
-          assert.strictEqual(matched, null);
-          assert.strictEqual(response, apiResponse);
+          expect(err).toBe(err_);
+          expect(matched).toBe(null);
+          expect(response).toBe(apiResponse);
           done();
         },
       );
@@ -1036,14 +1000,14 @@ describe('Bigtable/Row', () => {
       const response = {
         predicateMatched: true,
       };
-      sandbox.stub(row.bigtable, 'request').callsArgWith(1, null, response);
+      jest.spyOn(row.bigtable, 'request').mockImplementation(((...args: any[]) => { args[1](null, response); }) as any);
       (row.filter as Function)(
         {},
         mutations,
         (err: Error, matched: boolean, apiResponse: {}) => {
-          assert.ifError(err);
-          assert(matched);
-          assert.strictEqual(response, apiResponse);
+          ((err: any) => { expect(err).toBeFalsy(); })(err);
+          expect(matched).toBeTruthy();
+          expect(response).toBe(apiResponse);
           done();
         },
       );
@@ -1062,8 +1026,7 @@ describe('Bigtable/Row', () => {
       ) => {
         return fn(optionsOrCallback);
       };
-      const Fake = getFakeRow(getRowsInternal);
-      Row = Fake.Row;
+      jest.spyOn(getRowsInternalModule, 'getRowsInternal').mockImplementation(getRowsInternal as any);
       row = new Row(TABLE, ROW_ID);
       return row;
     }
@@ -1079,21 +1042,20 @@ describe('Bigtable/Row', () => {
           cb(err, resp);
         }
       };
-      const Fake = getFakeRow(getRowsInternal);
-      Row = Fake.Row;
+      jest.spyOn(getRowsInternalModule, 'getRowsInternal').mockImplementation(getRowsInternal as any);
       row = new Row(TABLE, ROW_ID);
       return row;
     }
     it('should provide the proper request options', done => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.strictEqual(reqOpts.keys[0], ROW_ID);
-        assert.strictEqual(reqOpts.filter, undefined);
-        assert.strictEqual(FakeMutation.parseColumnName.callCount, 0);
+        expect(reqOpts.keys[0]).toBe(ROW_ID);
+        expect(reqOpts.filter).toBe(undefined);
+        expect(FakeMutation.parseColumnName).toHaveBeenCalledTimes(0);
         done();
       };
       const row = getRowInstance(fn);
-      row.get(assert.ifError);
+      row.get(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should create a filter for a single column', done => {
@@ -1110,13 +1072,13 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.deepStrictEqual(reqOpts.filter, expectedFilter);
-        assert.strictEqual(FakeMutation.parseColumnName.callCount, 1);
-        assert(FakeMutation.parseColumnName.calledWith(keys[0]));
+        expect(reqOpts.filter).toEqual(expectedFilter);
+        expect(FakeMutation.parseColumnName).toHaveBeenCalledTimes(1);
+        expect((FakeMutation.parseColumnName as jest.Mock).mock.calls[0][0]).toBe(keys[0]);
         done();
       };
       const row = getRowInstance(fn);
-      row.get(keys, assert.ifError);
+      row.get(keys, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should create a filter for multiple columns', done => {
@@ -1147,18 +1109,18 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.deepStrictEqual(reqOpts.filter, expectedFilter);
+        expect(reqOpts.filter).toEqual(expectedFilter);
 
         const spy = FakeMutation.parseColumnName;
 
-        assert.strictEqual(spy.callCount, 2);
-        assert.strictEqual(spy.getCall(0).args[0], keys[0]);
-        assert.strictEqual(spy.getCall(1).args[0], keys[1]);
+        expect((spy as jest.Mock).mock.calls.length).toBe(2);
+        expect((spy as jest.Mock).mock.calls[0][0]).toBe(keys[0]);
+        expect((spy as jest.Mock).mock.calls[1][0]).toBe(keys[1]);
         done();
       };
       const row = getRowInstance(fn);
 
-      row.get(keys, assert.ifError);
+      row.get(keys, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should respect supplying only family names', done => {
@@ -1172,14 +1134,14 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.deepStrictEqual(reqOpts.filter, expectedFilter);
-        assert.strictEqual(FakeMutation.parseColumnName.callCount, 1);
-        assert(FakeMutation.parseColumnName.calledWith(keys[0]));
+        expect(reqOpts.filter).toEqual(expectedFilter);
+        expect(FakeMutation.parseColumnName).toHaveBeenCalledTimes(1);
+        expect((FakeMutation.parseColumnName as jest.Mock).mock.calls[0][0]).toBe(keys[0]);
         done();
       };
       const row = getRowInstance(fn);
 
-      row.get(keys, assert.ifError);
+      row.get(keys, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should respect the options object', done => {
@@ -1212,15 +1174,15 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.deepStrictEqual(reqOpts.filter, expectedFilter);
-        assert.strictEqual(FakeMutation.parseColumnName.callCount, 1);
-        assert(FakeMutation.parseColumnName.calledWith(keys[0]));
-        assert.strictEqual(reqOpts.decode, options.decode);
+        expect(reqOpts.filter).toEqual(expectedFilter);
+        expect(FakeMutation.parseColumnName).toHaveBeenCalledTimes(1);
+        expect((FakeMutation.parseColumnName as jest.Mock).mock.calls[0][0]).toBe(keys[0]);
+        expect(reqOpts.decode).toBe(options.decode);
         done();
       };
       const row = getRowInstance(fn);
 
-      row.get(keys, options, assert.ifError);
+      row.get(keys, options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should respect the options object with filter for multiple columns', done => {
@@ -1267,15 +1229,15 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.deepStrictEqual(reqOpts.filter, expectedFilter);
-        assert.strictEqual(FakeMutation.parseColumnName.callCount, 2);
-        assert(FakeMutation.parseColumnName.calledWith(keys[0]));
-        assert.strictEqual(reqOpts.decode, options.decode);
+        expect(reqOpts.filter).toEqual(expectedFilter);
+        expect(FakeMutation.parseColumnName).toHaveBeenCalledTimes(2);
+        expect((FakeMutation.parseColumnName as jest.Mock).mock.calls[0][0]).toBe(keys[0]);
+        expect(reqOpts.decode).toBe(options.decode);
         done();
       };
       const row = getRowInstance(fn);
 
-      row.get(keys, options, assert.ifError);
+      row.get(keys, options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should respect filter in options object', done => {
@@ -1289,12 +1251,12 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.deepStrictEqual(reqOpts.filter, expectedFilter);
+        expect(reqOpts.filter).toEqual(expectedFilter);
         done();
       };
       const row = getRowInstance(fn);
 
-      row.get(keys, options, assert.ifError);
+      row.get(keys, options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept options without keys', done => {
@@ -1304,31 +1266,31 @@ describe('Bigtable/Row', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fn = (reqOpts: any) => {
-        assert.strictEqual(reqOpts.decode, options.decode);
-        assert(!reqOpts.filter);
+        expect(reqOpts.decode).toBe(options.decode);
+        expect(!reqOpts.filter).toBeTruthy();
         done();
       };
       const row = getRowInstance(fn);
 
-      row.get(options, assert.ifError);
+      row.get(options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error to the callback', done => {
       const error = new Error('err');
       const row = getRowInstanceForErrResp(error as ServiceError);
-      row.get((err, row) => {
-        assert.strictEqual(error, err);
-        assert.strictEqual(row, undefined);
+      row.get((err: any, row: any) => {
+        expect(error).toBe(err);
+        expect(row).toBe(undefined);
         done();
       });
     });
 
     it('should return a custom error if the row is not found', done => {
       const row = getRowInstanceForErrResp(null, []);
-      row.get((err, row_) => {
-        assert(err instanceof RowError);
-        assert.strictEqual(err!.message, 'Unknown row: ' + row.id + '.');
-        assert.deepStrictEqual(row_, undefined);
+      row.get((err: any, row_: any) => {
+        expect(err instanceof RowError).toBeTruthy();
+        expect(err!.message).toBe('Unknown row: ' + row.id + '.');
+        expect(row_).toEqual(undefined);
         done();
       });
     });
@@ -1340,10 +1302,10 @@ describe('Bigtable/Row', () => {
         b: 'b',
       };
       const row = getRowInstanceForErrResp(null, [fakeRow]);
-      row.get((err, row_) => {
-        assert.ifError(err);
-        assert.strictEqual(row_, row);
-        assert.deepStrictEqual(row.data, fakeRow.data);
+      row.get((err: any, row_: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(row_).toBe(row);
+        expect(row.data).toEqual(fakeRow.data);
         done();
       });
     });
@@ -1362,9 +1324,9 @@ describe('Bigtable/Row', () => {
       row.data = {
         c: 'c',
       };
-      row.get(keys, (err, data) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(Object.keys(data), keys);
+      row.get(keys, (err: any, data: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(Object.keys(data)).toEqual(keys);
         done();
       });
     });
@@ -1373,10 +1335,10 @@ describe('Bigtable/Row', () => {
   describe('getMetadata', () => {
     it('should return an error to the callback', done => {
       const error = new Error('err');
-      sandbox.stub(row, 'get').callsArgWith(1, error);
-      row.getMetadata((err, metadata) => {
-        assert.strictEqual(error, err);
-        assert.strictEqual(metadata, undefined);
+      jest.spyOn(row, 'get').mockImplementation(((...args: any[]) => { args[args.length - 1](error); }) as any);
+      row.getMetadata((err: any, metadata: any) => {
+        expect(error).toBe(err);
+        expect(metadata).toBe(undefined);
         done();
       });
     });
@@ -1386,11 +1348,11 @@ describe('Bigtable/Row', () => {
         a: 'a',
         b: 'b',
       };
-      sandbox.stub(row, 'get').callsArgWith(1, null, row);
+      jest.spyOn(row, 'get').mockImplementation(((...args: any[]) => { args[args.length - 1](null, row); }) as any);
       row.metadata = fakeMetadata;
-      row.getMetadata((err, metadata) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, fakeMetadata);
+      row.getMetadata((err: any, metadata: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(metadata).toBe(fakeMetadata);
         done();
       });
     });
@@ -1401,13 +1363,13 @@ describe('Bigtable/Row', () => {
         decode: false,
       };
       (row.get as Function) = (options: {}, callback: Function) => {
-        assert.strictEqual(options, fakeOptions);
+        expect(options).toBe(fakeOptions);
         callback(null, row);
       };
       row.metadata = fakeMetadata;
-      row.getMetadata(fakeOptions, (err, metadata) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, fakeMetadata);
+      row.getMetadata(fakeOptions, (err: any, metadata: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(metadata).toBe(fakeMetadata);
         done();
       });
     });
@@ -1415,12 +1377,10 @@ describe('Bigtable/Row', () => {
 
   describe('increment', () => {
     const COLUMN_NAME = 'a:b';
-    let formatFamiliesSpy: sinon.SinonSpy;
+    let formatFamiliesSpy: any;
 
     beforeEach(() => {
-      formatFamiliesSpy = sandbox
-        .stub(FakeRowDataUtil, 'formatFamilies_Util')
-        .returns({
+      formatFamiliesSpy = jest.spyOn(FakeRowDataUtil as any, 'formatFamilies_Util').mockReturnValue({
           a: {
             b: [
               {
@@ -1432,64 +1392,56 @@ describe('Bigtable/Row', () => {
     });
 
     afterEach(() => {
-      formatFamiliesSpy.restore();
+      formatFamiliesSpy.mockRestore();
     });
 
     it('should provide the proper request options', done => {
-      sandbox
-        .stub(FakeRowDataUtil, 'createRulesUtil')
-        .callsFake((reqOpts, properties, gaxOptions, cb) => {
-          assert.strictEqual((reqOpts as rw.Rule).column, COLUMN_NAME);
-          assert.strictEqual((reqOpts as rw.Rule).increment, 1);
-          assert.deepStrictEqual(gaxOptions, {});
+      jest.spyOn(FakeRowDataUtil as any, 'createRulesUtil').mockImplementation((reqOpts, properties, gaxOptions, cb) => {
+          expect((reqOpts as rw.Rule).column).toBe(COLUMN_NAME);
+          expect((reqOpts as rw.Rule).increment).toBe(1);
+          expect(gaxOptions).toEqual({});
           done();
         });
-      row.increment(COLUMN_NAME, assert.ifError);
+      row.increment(COLUMN_NAME, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should optionally accept an increment amount', done => {
       const increment = 10;
-      sandbox.stub(FakeRowDataUtil, 'createRulesUtil').callsFake(reqOpts => {
-        assert.strictEqual((reqOpts as rw.Rule).increment, increment);
+      jest.spyOn(FakeRowDataUtil as any, 'createRulesUtil').mockImplementation(reqOpts => {
+        expect((reqOpts as rw.Rule).increment).toBe(increment);
         done();
       });
-      row.increment(COLUMN_NAME, increment, assert.ifError);
+      row.increment(COLUMN_NAME, increment, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
-      sandbox
-        .stub(FakeRowDataUtil, 'createRulesUtil')
-        .callsFake((reqOpts, properties, gaxOptions_) => {
-          assert.strictEqual(gaxOptions_, gaxOptions);
+      jest.spyOn(FakeRowDataUtil as any, 'createRulesUtil').mockImplementation((reqOpts, properties, gaxOptions_) => {
+          expect(gaxOptions_).toBe(gaxOptions);
           done();
         });
-      row.increment(COLUMN_NAME, gaxOptions, assert.ifError);
+      row.increment(COLUMN_NAME, gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should accept increment amount and gaxOptions', done => {
       const increment = 10;
       const gaxOptions = {};
-      sandbox
-        .stub(FakeRowDataUtil, 'createRulesUtil')
-        .callsFake((reqOpts, properties, gaxOptions_) => {
-          assert.strictEqual((reqOpts as rw.Rule).increment, increment);
-          assert.strictEqual(gaxOptions_, gaxOptions);
+      jest.spyOn(FakeRowDataUtil as any, 'createRulesUtil').mockImplementation((reqOpts, properties, gaxOptions_) => {
+          expect((reqOpts as rw.Rule).increment).toBe(increment);
+          expect(gaxOptions_).toBe(gaxOptions);
           done();
         });
-      row.increment(COLUMN_NAME, increment, gaxOptions, assert.ifError);
+      row.increment(COLUMN_NAME, increment, gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error to the callback', done => {
       const error = new Error('err');
       const response = {};
-      sandbox
-        .stub(FakeRowDataUtil, 'createRulesUtil')
-        .callsArgWith(3, error, response);
-      row.increment(COLUMN_NAME, (err, value, apiResponse) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(value, null);
-        assert.strictEqual(apiResponse, response);
+      jest.spyOn(RowDataUtils, 'createRulesUtil').mockImplementation(((...args: any[]) => { args[3](error, response); }) as any);
+      row.increment(COLUMN_NAME, (err: any, value: any, apiResponse: any) => {
+        expect(err).toBe(error);
+        expect(value).toBe(null);
+        expect(apiResponse).toBe(response);
         done();
       });
     });
@@ -1518,15 +1470,13 @@ describe('Bigtable/Row', () => {
         },
       };
 
-      sandbox
-        .stub(FakeRowDataUtil, 'createRulesUtil')
-        .callsArgWith(3, null, response);
-      row.increment(COLUMN_NAME, (err, value, apiResponse) => {
-        assert.ifError(err);
-        assert.strictEqual(value, fakeValue);
-        assert.strictEqual(apiResponse, response);
-        assert.strictEqual(formatFamiliesSpy.callCount, 1);
-        assert(formatFamiliesSpy.calledWithExactly(response.row.families));
+      jest.spyOn(RowDataUtils, 'createRulesUtil').mockImplementation(((...args: any[]) => { args[3](null, response); }) as any);
+      row.increment(COLUMN_NAME, (err: any, value: any, apiResponse: any) => {
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(value).toBe(fakeValue);
+        expect(apiResponse).toBe(response);
+        expect((formatFamiliesSpy as jest.Mock).mock.calls.length).toBe(1);
+        expect(formatFamiliesSpy).toHaveBeenCalledWith(response.row.families);
         done();
       });
     });
@@ -1548,11 +1498,11 @@ describe('Bigtable/Row', () => {
         gaxOptions: {},
         callback: Function,
       ) => {
-        assert.strictEqual(entry.data, data);
+        expect(entry.data).toBe(data);
         callback(); // done()
       };
-      const SavedRow = getFakeMutateRow(fn).Row;
-      const savedRow = new SavedRow(TABLE, ROW_ID);
+      jest.spyOn(mutateInternalModule, 'mutateInternal').mockImplementation(fn as any);
+      const savedRow = new Row(TABLE, ROW_ID);
       savedRow.save(data, done);
     });
 
@@ -1564,12 +1514,12 @@ describe('Bigtable/Row', () => {
         entry: Entry | Entry[],
         gaxOptions_: MutateOptions | MutateCallback,
       ) => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
+        expect(gaxOptions_).toBe(gaxOptions);
         done();
       };
-      const SavedRow = getFakeMutateRow(fn).Row;
-      const savedRow = new SavedRow(TABLE, ROW_ID);
-      savedRow.save(data, gaxOptions, assert.ifError);
+      jest.spyOn(mutateInternalModule, 'mutateInternal').mockImplementation(fn as any);
+      const savedRow = new Row(TABLE, ROW_ID);
+      savedRow.save(data, gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should remove existing data', done => {
@@ -1579,26 +1529,30 @@ describe('Bigtable/Row', () => {
         metricsCollector: OperationMetricsCollector,
         entry: Entry | Entry[],
         gaxOptions_: MutateOptions | MutateCallback,
+        callback: Function,
       ) => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
-        done();
+        expect(gaxOptions_).toBe(gaxOptions);
+        callback();
       };
-      const SavedRow = getFakeMutateRow(fn).Row;
-      const savedRow = new SavedRow(TABLE, ROW_ID);
-      savedRow.save(data, gaxOptions, assert.ifError);
-      assert.strictEqual(row.data, undefined);
+      jest.spyOn(mutateInternalModule, 'mutateInternal').mockImplementation(fn as any);
+      const savedRow = new Row(TABLE, ROW_ID);
+      savedRow.save(data, gaxOptions, (err: any) => {
+        expect(err).toBeFalsy();
+        expect(savedRow.data).toEqual({});
+        done();
+      });
     });
   });
 
   describe('RowError', () => {
     it('should supply the correct message', () => {
       const error = new RowError('test');
-      assert.strictEqual(error.message, 'Unknown row: test.');
+      expect(error.message).toBe('Unknown row: test.');
     });
 
     it('should supply a 404 error code', () => {
       const error = new RowError('test');
-      assert.strictEqual(error.code, 404);
+      expect(error.code).toBe(404);
     });
   });
 });

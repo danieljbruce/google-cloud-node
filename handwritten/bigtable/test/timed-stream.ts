@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
 import {PassThrough, Readable} from 'stream';
 import {TimedStream} from '../src/timed-stream';
-import * as assert from 'assert';
 
 // set up streams
 function* numberGenerator(n: number) {
@@ -35,10 +33,11 @@ class UserStream extends TimedStream {
 }
 
 describe('Bigtable/TimedStream', () => {
+  jest.setTimeout(250000);
+
   describe('with handlers', () => {
     describe('with no delay from server', () => {
-      it('should measure the total time accurately for a series of 30 rows with a synchronous call', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows with a synchronous call', done => {
         const sourceStream = Readable.from(numberGenerator(30));
         const timedStream = new UserStream();
         // @ts-ignore
@@ -54,16 +53,15 @@ describe('Bigtable/TimedStream', () => {
         timedStream.on('end', () => {
           const totalMilliseconds = timedStream.getTotalDurationMs();
           try {
-            assert(totalMilliseconds > 29000);
-            assert(totalMilliseconds < 31000);
+            expect(totalMilliseconds).toBeGreaterThan(29000);
+            expect(totalMilliseconds).toBeLessThan(31000);
             done();
           } catch (e) {
             done(e);
           }
         });
       });
-      it('should measure the total time accurately for a series of 30 rows with an async call', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows with an async call', done => {
         const sourceStream = Readable.from(numberGenerator(30));
         const timedStream = new UserStream();
         // @ts-ignore
@@ -78,15 +76,14 @@ describe('Bigtable/TimedStream', () => {
         timedStream.on('end', () => {
           const totalMilliseconds = timedStream.getTotalDurationMs();
           try {
-            assert(totalMilliseconds < 500);
+            expect(totalMilliseconds).toBeLessThan(500);
             done();
           } catch (e) {
             done(e);
           }
         });
       });
-      it('should measure the total time accurately for a series of 30 rows with a sync then an async call', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows with a sync then an async call', done => {
         const sourceStream = Readable.from(numberGenerator(30));
         const timedStream = new UserStream();
         // @ts-ignore
@@ -105,16 +102,15 @@ describe('Bigtable/TimedStream', () => {
         timedStream.on('end', () => {
           const totalMilliseconds = timedStream.getTotalDurationMs();
           try {
-            assert(totalMilliseconds < 32000);
-            assert(totalMilliseconds > 28000);
+            expect(totalMilliseconds).toBeLessThan(32000);
+            expect(totalMilliseconds).toBeGreaterThan(28000);
             done();
           } catch (e) {
             done(e);
           }
         });
       });
-      it('should measure the total time accurately for a series of 30 rows with an async call then a sync call', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows with an async call then a sync call', done => {
         const sourceStream = Readable.from(numberGenerator(30));
         const timedStream = new UserStream();
         // @ts-ignore
@@ -134,7 +130,7 @@ describe('Bigtable/TimedStream', () => {
         timedStream.on('end', () => {
           const totalMilliseconds = timedStream.getTotalDurationMs();
           try {
-            assert(totalMilliseconds < 500);
+            expect(totalMilliseconds).toBeLessThan(500);
             done();
           } catch (e) {
             done(e);
@@ -143,8 +139,7 @@ describe('Bigtable/TimedStream', () => {
       });
     });
     describe('with delay from server', () => {
-      it('should measure the total time accurately for a series of 10 rows', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 10 rows', done => {
         const dataEvents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i =>
           i.toString(),
         );
@@ -168,8 +163,8 @@ describe('Bigtable/TimedStream', () => {
             try {
               const totalMilliseconds = timedStream.getTotalDurationMs();
               // totalMilliseconds should be around 10 seconds, 1 per row
-              assert(totalMilliseconds > 9000);
-              assert(totalMilliseconds < 11000);
+              expect(totalMilliseconds).toBeGreaterThan(9000);
+              expect(totalMilliseconds).toBeLessThan(11000);
               done();
             } catch (e) {
               done(e);
@@ -186,8 +181,7 @@ describe('Bigtable/TimedStream', () => {
           }
         }, 5000);
       });
-      it('should measure the total time accurately for a series of 30 rows with backpressure and a delay', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows with backpressure and a delay', done => {
         const eventNumbers = [];
         for (let i = 0; i < 40; i++) {
           eventNumbers.push(i);
@@ -209,8 +203,8 @@ describe('Bigtable/TimedStream', () => {
           clearInterval(interval);
           const totalMilliseconds = timedStream.getTotalDurationMs();
           try {
-            assert(totalMilliseconds > 38000);
-            assert(totalMilliseconds < 42000);
+            expect(totalMilliseconds).toBeGreaterThan(38000);
+            expect(totalMilliseconds).toBeLessThan(42000);
             done();
           } catch (e) {
             done(e);
@@ -235,8 +229,7 @@ describe('Bigtable/TimedStream', () => {
   });
   describe('while iterating through a stream loop', () => {
     describe('with no delay from server', () => {
-      it('should measure the total time accurately for a series of 30 rows', async function () {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows', async () => {
         const sourceStream = Readable.from(numberGenerator(30));
         const timedStream = new UserStream();
         // @ts-ignore
@@ -250,11 +243,10 @@ describe('Bigtable/TimedStream', () => {
           }
         }
         const totalMilliseconds = timedStream.getTotalDurationMs();
-        assert(totalMilliseconds > 29000);
-        assert(totalMilliseconds < 31000);
+        expect(totalMilliseconds).toBeGreaterThan(29000);
+        expect(totalMilliseconds).toBeLessThan(31000);
       });
-      it('should measure the total time accurately for a series of 30 rows with an async call', async function () {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 30 rows with an async call', async () => {
         const sourceStream = Readable.from(numberGenerator(30));
         const timedStream = new UserStream();
         // @ts-ignore
@@ -267,12 +259,11 @@ describe('Bigtable/TimedStream', () => {
           await sleep(1000);
         }
         const totalMilliseconds = timedStream.getTotalDurationMs();
-        assert(totalMilliseconds < 500);
+        expect(totalMilliseconds).toBeLessThan(500);
       });
     });
     describe('with delay from server', () => {
-      it('should measure the total time accurately for a series of 10 rows', function (done) {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 10 rows', done => {
         const dataEvents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i =>
           i.toString(),
         );
@@ -294,8 +285,8 @@ describe('Bigtable/TimedStream', () => {
             clearInterval(interval);
             const totalMilliseconds = timedStream.getTotalDurationMs();
             // totalMilliseconds should be around 10 seconds, 1 per row
-            assert(totalMilliseconds > 9000);
-            assert(totalMilliseconds < 11000);
+            expect(totalMilliseconds).toBeGreaterThan(9000);
+            expect(totalMilliseconds).toBeLessThan(11000);
             done();
           } catch (e) {
             done(e);
@@ -311,8 +302,7 @@ describe('Bigtable/TimedStream', () => {
           }
         }, 5000);
       });
-      it('should measure the total time accurately for a series of 40 rows with backpressure and a delay', async function () {
-        this.timeout(200000);
+      it('should measure the total time accurately for a series of 40 rows with backpressure and a delay', async () => {
         const eventNumbers = [];
         for (let i = 0; i < 40; i++) {
           eventNumbers.push(i);
@@ -346,8 +336,8 @@ describe('Bigtable/TimedStream', () => {
         }
         clearInterval(interval);
         const totalMilliseconds = timedStream.getTotalDurationMs();
-        assert(totalMilliseconds > 37000);
-        assert(totalMilliseconds < 43000);
+        expect(totalMilliseconds).toBeGreaterThan(37000);
+        expect(totalMilliseconds).toBeLessThan(43000);
       });
     });
   });

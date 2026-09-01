@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe} from 'mocha';
-import * as assert from 'assert';
 import * as fs from 'fs';
 import {TestMetricsHandler} from '../../test-common/test-metrics-handler';
 import {
@@ -23,8 +21,8 @@ import {
 import {grpc} from 'google-gax';
 import {expectedRequestsHandled} from '../../test-common/metrics-handler-fixture';
 import * as gax from 'google-gax';
-import * as proxyquire from 'proxyquire';
 import {GCPMetricsHandler} from '../../src/client-side-metrics/gcp-metrics-handler';
+import {OperationMetricsCollector} from '../../src/client-side-metrics/operation-metrics-collector';
 import {getProtoPath} from '../../src/utils/protos';
 const protoPath = getProtoPath('google/bigtable/v2/response_params.proto');
 const root = gax.protobuf.loadSync(protoPath);
@@ -66,18 +64,20 @@ describe('Bigtable/MetricsCollector', () => {
     }
   }
 
-  const stubs = {
-    'node:process': {
-      hrtime: new FakeHRTime(),
-    },
-    './gcp-metrics-handler': {
-      GCPMetricsHandler: testHandler,
-    },
-  };
-  const FakeOperationsMetricsCollector = proxyquire(
-    '../../src/client-side-metrics/operation-metrics-collector.js',
-    stubs,
-  ).OperationMetricsCollector;
+  let hrtimeSpy: any;
+
+  beforeEach(() => {
+    logger.value = '';
+    testHandler.requestsHandled = [];
+    const fakeHRTime = new FakeHRTime();
+    hrtimeSpy = jest
+      .spyOn(process.hrtime, 'bigint')
+      .mockImplementation(() => fakeHRTime.bigint());
+  });
+
+  afterEach(() => {
+    hrtimeSpy.mockRestore();
+  });
 
   it('should record the right metrics with a typical method call', async () => {
     class FakeTable {
@@ -117,8 +117,8 @@ describe('Bigtable/MetricsCollector', () => {
               options: {},
             },
           };
-          const metricsCollector = new FakeOperationsMetricsCollector(
-            this,
+          const metricsCollector = new OperationMetricsCollector(
+            this as any,
             MethodName.READ_ROWS,
             StreamingState.STREAMING,
             [testHandler as unknown as GCPMetricsHandler],
@@ -135,12 +135,12 @@ describe('Bigtable/MetricsCollector', () => {
           logger.value += '4. Client receives metadata.\n';
           metricsCollector.onMetadataReceived(createMetadata('101'));
           logger.value += '5. Client receives first row.\n';
-          metricsCollector.onResponse(this.bigtable.projectId);
+          metricsCollector.onResponse();
           logger.value += '6. User receives first row.\n';
           logger.value += '7. Client receives metadata.\n';
           metricsCollector.onMetadataReceived(createMetadata('102'));
           logger.value += '8. Client receives second row.\n';
-          metricsCollector.onResponse(this.bigtable.projectId);
+          metricsCollector.onResponse();
           logger.value += '9. User receives second row.\n';
           logger.value += '10. A transient error occurs.\n';
           metricsCollector.onAttemptComplete(grpc.status.DEADLINE_EXCEEDED);
@@ -151,12 +151,12 @@ describe('Bigtable/MetricsCollector', () => {
           logger.value += '13. Client receives metadata.\n';
           metricsCollector.onMetadataReceived(createMetadata('103'));
           logger.value += '14. Client receives third row.\n';
-          metricsCollector.onResponse(this.bigtable.projectId);
+          metricsCollector.onResponse();
           logger.value += '15. User receives third row.\n';
           logger.value += '16. Client receives metadata.\n';
           metricsCollector.onMetadataReceived(createMetadata('104'));
           logger.value += '17. Client receives fourth row.\n';
-          metricsCollector.onResponse(this.bigtable.projectId);
+          metricsCollector.onResponse();
           logger.value += '18. User receives fourth row.\n';
           logger.value += '19. User reads row 1\n';
           logger.value += '20. Stream ends, operation completes\n';
@@ -174,10 +174,7 @@ describe('Bigtable/MetricsCollector', () => {
       'utf8',
     );
     // Ensure events occurred in the right order here:
-    assert.strictEqual(logger.value, expectedOutput.replace(/\r/g, ''));
-    assert.deepStrictEqual(
-      testHandler.requestsHandled,
-      expectedRequestsHandled,
-    );
+    expect(logger.value).toBe(expectedOutput.replace(/\r/g, ''));
+    expect(testHandler.requestsHandled).toEqual(expectedRequestsHandled);
   });
 });

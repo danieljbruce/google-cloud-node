@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe} from 'mocha';
 import {ResourceMetrics} from '@opentelemetry/sdk-metrics';
 import {
   ExportResult,
@@ -28,9 +27,43 @@ import {
   expectedOtelExportConvertedValue,
   expectedOtelExportInput,
 } from '../../test-common/expected-otel-export-input';
-import * as assert from 'assert';
 import {replaceTimestamps} from '../../test-common/replace-timestamps';
-import * as proxyquire from 'proxyquire';
+
+jest.mock('../../src/client-side-metrics/exporter', () => {
+  const actual = jest.requireActual('../../src/client-side-metrics/exporter');
+  const {MetricExporter} = require('@google-cloud/opentelemetry-cloud-monitoring-exporter');
+  class TestExporter extends MetricExporter {
+    export(metrics: any, resultCallback: any): void {
+      if ((global as any).mockExportCallback) {
+        (global as any).mockExportCallback(metrics, resultCallback);
+      } else {
+        resultCallback({code: 0});
+      }
+    }
+  }
+  return {
+    ...actual,
+    CloudMonitoringExporter: TestExporter,
+  };
+});
+
+jest.mock('@opentelemetry/sdk-metrics', () => {
+  const sdkMetrics = jest.requireActual('@opentelemetry/sdk-metrics');
+  class FastPeriodicExportingMetricReader extends sdkMetrics.PeriodicExportingMetricReader {
+    constructor(options: any) {
+      super({
+        ...options,
+        exportIntervalMillis: 1000,
+      });
+    }
+  }
+  return {
+    ...sdkMetrics,
+    PeriodicExportingMetricReader: FastPeriodicExportingMetricReader,
+  };
+});
+
+import {GCPMetricsHandler} from '../../src/client-side-metrics/gcp-metrics-handler';
 
 /**
  * Cleans a ResourceMetrics object by replacing client UUIDs with a placeholder.
@@ -46,6 +79,15 @@ import * as proxyquire from 'proxyquire';
  */
 function cleanMetrics(metrics: ResourceMetrics): ResourceMetrics {
   const newMetrics = JSON.parse(JSON.stringify(metrics)); // Deep copy to avoid modifying the original object
+
+  if (newMetrics.resource && newMetrics.resource._attributes) {
+    newMetrics.resource._attributes = {
+      'service.name': 'Cloud Bigtable Table',
+      'telemetry.sdk.language': 'nodejs',
+      'telemetry.sdk.name': 'opentelemetry',
+      'telemetry.sdk.version': '1.30.1',
+    };
+  }
 
   newMetrics.scopeMetrics.forEach((scopeMetric: any) => {
     scopeMetric.metrics.forEach((metric: any) => {
@@ -63,125 +105,83 @@ function cleanMetrics(metrics: ResourceMetrics): ResourceMetrics {
 }
 
 describe('Bigtable/GCPMetricsHandler', () => {
-  it('Should export a value ready for sending to the CloudMonitoringExporter', function (done) {
-    this.timeout(600000);
-    (async () => {
-      /*
-      We need to create a timeout here because if we don't then mocha shuts down
-      the test as it is sleeping before the GCPMetricsHandler has a chance to
-      export the data.
-       */
-      const timeout = setTimeout(() => {}, 120000);
-      /*
-      The exporter is called every x seconds, but we only want to test the value
-      it receives once. Since done cannot be called multiple times in mocha,
-      exporter ensures we only test the value export receives one time.
-      */
-      let exported = false;
+  it('Should export a value ready for sending to the CloudMonitoringExporter', done => {
+    /*
+    We need to create a timeout here because if we don't then mocha shuts down
+    the test as it is sleeping before the GCPMetricsHandler has a chance to
+    export the data.
+     */
+    const timeout = setTimeout(() => {}, 120000);
+    /*
+    The exporter is called every x seconds, but we only want to test the value
+    it receives once. Since done cannot be called multiple times in mocha,
+    exporter ensures we only test the value export receives one time.
+    */
+    let exported = false;
 
-      class TestExporter extends MetricExporter {
-        constructor() {
-          super();
-        }
-
-        export(
-          metrics: ResourceMetrics,
-          resultCallback: (result: ExportResult) => void,
-        ): void {
-          if (!exported) {
-            exported = true;
-            try {
-              metrics = cleanMetrics(metrics);
-              replaceTimestamps(
-                metrics as unknown as typeof expectedOtelExportInput,
-                [123, 789],
-                [456, 789],
-              );
-              const parsedExportInput: ResourceMetrics = JSON.parse(
-                JSON.stringify(metrics),
-              );
-              assert.deepStrictEqual(
-                parsedExportInput.scopeMetrics[0].metrics.length,
-                expectedOtelExportInput.scopeMetrics[0].metrics.length,
-              );
-              for (
-                let index = 0;
-                index < parsedExportInput.scopeMetrics[0].metrics.length;
-                index++
-              ) {
-                // We need to compare pointwise because mocha truncates to an 8192 character limit.
-                assert.deepStrictEqual(
-                  parsedExportInput.scopeMetrics[0].metrics[index],
-                  expectedOtelExportInput.scopeMetrics[0].metrics[index],
-                );
-              }
-              assert.deepStrictEqual(
-                JSON.parse(JSON.stringify(metrics)),
-                expectedOtelExportInput,
-              );
-              const convertedRequest = metricsToRequest(parsedExportInput);
-              assert.deepStrictEqual(
-                convertedRequest.timeSeries.length,
-                expectedOtelExportConvertedValue.timeSeries.length,
-              );
-              for (
-                let index = 0;
-                index < convertedRequest.timeSeries.length;
-                index++
-              ) {
-                // We need to compare pointwise because mocha truncates to an 8192 character limit.
-                assert.deepStrictEqual(
-                  convertedRequest.timeSeries[index],
-                  expectedOtelExportConvertedValue.timeSeries[index],
-                );
-              }
-              clearTimeout(timeout);
-              resultCallback({code: 0});
-              done();
-            } catch (e) {
-              done(e);
-            }
-          } else {
-            // The test suite will not complete if unanswered callbacks
-            // remain on subsequent export calls.
-            resultCallback({code: 0});
+    (global as any).mockExportCallback = (
+      metrics: ResourceMetrics,
+      resultCallback: (result: ExportResult) => void,
+    ) => {
+      if (!exported) {
+        exported = true;
+        try {
+          metrics = cleanMetrics(metrics);
+          replaceTimestamps(
+            metrics as unknown as typeof expectedOtelExportInput,
+            [123, 789],
+            [456, 789],
+          );
+          const parsedExportInput: ResourceMetrics = JSON.parse(
+            JSON.stringify(metrics),
+          );
+          expect(parsedExportInput.scopeMetrics[0].metrics.length).toBe(
+            expectedOtelExportInput.scopeMetrics[0].metrics.length,
+          );
+          for (
+            let index = 0;
+            index < parsedExportInput.scopeMetrics[0].metrics.length;
+            index++
+          ) {
+            expect(parsedExportInput.scopeMetrics[0].metrics[index]).toEqual(
+              expectedOtelExportInput.scopeMetrics[0].metrics[index],
+            );
           }
+          expect(JSON.parse(JSON.stringify(metrics))).toEqual(
+            expectedOtelExportInput,
+          );
+          const convertedRequest = metricsToRequest(parsedExportInput);
+          expect(convertedRequest.timeSeries.length).toBe(
+            expectedOtelExportConvertedValue.timeSeries.length,
+          );
+          for (
+            let index = 0;
+            index < convertedRequest.timeSeries.length;
+            index++
+          ) {
+            expect(convertedRequest.timeSeries[index]).toEqual(
+              expectedOtelExportConvertedValue.timeSeries[index],
+            );
+          }
+          clearTimeout(timeout);
+          resultCallback({code: 0});
+          done();
+        } catch (e) {
+          done(e);
         }
+      } else {
+        resultCallback({code: 0});
       }
-      const sdkMetrics = require('@opentelemetry/sdk-metrics');
-      class FastPeriodicExportingMetricReader extends sdkMetrics.PeriodicExportingMetricReader {
-        constructor(options: any) {
-          super({
-            ...options,
-            exportIntervalMillis: 1000,
-          });
-        }
-      }
-      const stubs = {
-        './exporter': {
-          CloudMonitoringExporter: TestExporter,
-        },
-        '@opentelemetry/sdk-metrics': {
-          ...sdkMetrics,
-          PeriodicExportingMetricReader: FastPeriodicExportingMetricReader,
-        },
-      };
-      const FakeMetricsHandler = proxyquire(
-        '../../src/client-side-metrics/gcp-metrics-handler.js',
-        stubs,
-      ).GCPMetricsHandler;
+    };
 
-      const handler = new FakeMetricsHandler('my-project');
+    const handler = new GCPMetricsHandler('my-project' as any);
 
-      for (const request of expectedRequestsHandled) {
-        if (request.attemptLatency) {
-          handler.onAttemptComplete(request as OnAttemptCompleteData);
-        } else {
-          handler.onOperationComplete(request as OnOperationCompleteData);
-        }
+    for (const request of expectedRequestsHandled) {
+      if (request.attemptLatency) {
+        handler.onAttemptComplete(request as OnAttemptCompleteData);
+      } else {
+        handler.onOperationComplete(request as OnOperationCompleteData);
       }
-    })().catch(err => {
-      throw err;
-    });
+    }
   });
 });

@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import * as sinon from 'sinon';
-import {SinonStub, SinonSandbox} from 'sinon';
-import {describe, it} from 'mocha';
 import * as bigtabletableadminModule from '../../src';
 
 import {protobuf, operationsProtos} from 'google-gax';
@@ -34,8 +30,8 @@ function generateSampleMessage<T extends object>(instance: T) {
 // Copied from v2/gapic_bigtable_table_admin_v2.ts
 function stubSimpleCall<ResponseType>(response?: ResponseType, error?: Error) {
   return error
-    ? sinon.stub().rejects(error)
-    : sinon.stub().resolves([response]);
+    ? jest.fn().mockRejectedValue(error)
+    : jest.fn().mockResolvedValue([response]);
 }
 
 // The GAPIC generated tests don't cover our supplemental methods, so this
@@ -58,9 +54,11 @@ describe('restoreTable', () => {
     const decodedOperation = await client.checkOptimizeRestoredTableProgress(
       expectedResponse.name,
     );
-    assert.deepStrictEqual(decodedOperation.name, expectedResponse.name);
-    assert(decodedOperation.metadata);
-    assert((client.operationsClient.getOperation as SinonStub).getCall(0));
+    expect(decodedOperation.name).toEqual(expectedResponse.name);
+    expect(decodedOperation.metadata).toBeTruthy();
+    expect(
+      (client.operationsClient.getOperation as jest.Mock).mock.calls[0],
+    ).toBeTruthy();
   });
 
   it('invokes checkOptimizeRestoredTableProgress with error', async () => {
@@ -75,81 +73,66 @@ describe('restoreTable', () => {
       undefined,
       expectedError,
     );
-    await assert.rejects(
+    await expect(
       client.checkOptimizeRestoredTableProgress(''),
-      expectedError,
-    );
-    assert((client.operationsClient.getOperation as SinonStub).getCall(0));
+    ).rejects.toThrow(expectedError);
+    expect(
+      (client.operationsClient.getOperation as jest.Mock).mock.calls[0],
+    ).toBeTruthy();
   });
 });
 
 describe('waitForConsistency', () => {
-  let sandbox: SinonSandbox;
-
-  beforeEach(() => {
-    sandbox = sinon.createSandbox();
-  });
-
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   it('accepts a token object', async () => {
     const token = 'test';
     const client = new TableAdminClient();
-    sandbox.stub(client, 'generateConsistencyToken').callsFake(() => {
-      assert.ok(false, 'should not have been called');
+    jest.spyOn(client, 'generateConsistencyToken').mockImplementation(() => {
+      throw new Error('should not have been called');
     });
 
-    sandbox.stub(client, 'checkConsistency').callsFake(req => {
-      assert.strictEqual(req.consistencyToken, token);
-      return [
+    jest.spyOn(client, 'checkConsistency').mockImplementation((req: any) => {
+      expect(req.consistencyToken).toBe(token);
+      return Promise.resolve([
         {
           consistent: true,
         },
-      ];
+      ]) as any;
     });
 
     await client.waitForConsistency('tableName', token);
   });
 
   it('calls without error', async () => {
+    jest.useFakeTimers();
+
     const tableName = 'test';
     const consistencyToken = 'token';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const config: any = {
-      toFake: [
-        'setTimeout',
-        'clearTimeout',
-        'setInterval',
-        'clearInterval',
-        'Date',
-      ],
-    };
-
-    const fakeTimers = sandbox.useFakeTimers(config);
-
     const client = new TableAdminClient();
-    sandbox.stub(client, 'generateConsistencyToken').callsFake(tn => {
-      assert.strictEqual(tn.name, tableName);
-      return [
+    jest.spyOn(client, 'generateConsistencyToken').mockImplementation((tn: any) => {
+      expect(tn.name).toBe(tableName);
+      return Promise.resolve([
         {
           consistencyToken,
         },
-      ];
+      ]) as any;
     });
 
     let consistent = false;
-    const checkStub = sandbox
-      .stub(client, 'checkConsistency')
-      .callsFake(req => {
-        assert.strictEqual(req.consistencyToken, consistencyToken);
+    const checkStub = jest
+      .spyOn(client, 'checkConsistency')
+      .mockImplementation((req: any) => {
+        expect(req.consistencyToken).toBe(consistencyToken);
         const rv = {
           consistent,
         };
         consistent = true;
-        return [rv];
+        return Promise.resolve([rv]) as any;
       });
 
     const promise = client.waitForConsistency(tableName);
@@ -160,37 +143,39 @@ describe('waitForConsistency', () => {
       for (let i = 0; i < 5; i++) {
         await Promise.resolve();
       }
+      jest.advanceTimersByTime(5500);
     }
-    fakeTimers.tick(5500);
 
     await promise;
 
-    assert.strictEqual(checkStub.callCount, 2);
+    expect(checkStub).toHaveBeenCalledTimes(2);
   });
 
   it('errors on generateConsistencyToken', async () => {
     const client = new TableAdminClient();
-    sandbox.stub(client, 'generateConsistencyToken').callsFake(() => {
+    jest.spyOn(client, 'generateConsistencyToken').mockImplementation(() => {
       throw new Error('it failed!');
     });
-    sandbox.stub(client, 'checkConsistency').callsFake(() => {
+    jest.spyOn(client, 'checkConsistency').mockImplementation(() => {
       throw new Error('should not be called');
     });
 
-    await assert.rejects(() => client.waitForConsistency('foo'));
+    await expect(client.waitForConsistency('foo')).rejects.toThrow();
   });
 
   it('errors on checkConsistency', async () => {
     const client = new TableAdminClient();
-    sandbox.stub(client, 'generateConsistencyToken').callsFake(() => [
-      {
-        consistencyToken: 'foo',
-      },
-    ]);
-    sandbox.stub(client, 'checkConsistency').callsFake(() => {
+    jest.spyOn(client, 'generateConsistencyToken').mockImplementation(() =>
+      Promise.resolve([
+        {
+          consistencyToken: 'foo',
+        },
+      ]) as any,
+    );
+    jest.spyOn(client, 'checkConsistency').mockImplementation(() => {
       throw new Error('it failed!');
     });
 
-    await assert.rejects(() => client.waitForConsistency('foo'));
+    await expect(client.waitForConsistency('foo')).rejects.toThrow();
   });
 });

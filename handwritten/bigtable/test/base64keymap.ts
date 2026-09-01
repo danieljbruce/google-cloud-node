@@ -12,15 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
-import * as Long from 'long';
-import * as proxyquire from 'proxyquire';
-import * as sn from 'sinon';
-
-import {RowStateEnum} from '../src/chunktransformer.js';
-import {Mutation} from '../src/mutation.js';
-import {Row} from '../src/row.js';
 import {EncodedKeyMap, SqlValue} from '../src/execute-query/values.js';
 
 describe('Bigtable/EncodedKeyMap', () => {
@@ -34,14 +25,11 @@ describe('Bigtable/EncodedKeyMap', () => {
 
       const map = new EncodedKeyMap(entries);
       // get works with the same object
-      assert.deepStrictEqual(map.get(bufferKey), 'valueForBufferKey');
+      expect(map.get(bufferKey)).toEqual('valueForBufferKey');
       // get works with a new object
-      assert.deepStrictEqual(
-        map.get(Buffer.from('exampleKey')),
-        'valueForBufferKey',
-      );
+      expect(map.get(Buffer.from('exampleKey'))).toEqual('valueForBufferKey');
       // get works with a regular string
-      assert.deepStrictEqual(map.get('stringKey'), 'valueForStringKey');
+      expect(map.get('stringKey')).toEqual('valueForStringKey');
     });
     it('test duplicate keys', () => {
       const bufferKey1 = Buffer.from('exampleKey');
@@ -56,24 +44,18 @@ describe('Bigtable/EncodedKeyMap', () => {
 
       const map = new EncodedKeyMap(entries);
       // get works with the same object
-      assert.deepStrictEqual(map.get(bufferKey1), 'valueForBufferKey2');
-      assert.deepStrictEqual(map.get(bufferKey2), 'valueForBufferKey2');
+      expect(map.get(bufferKey1)).toEqual('valueForBufferKey2');
+      expect(map.get(bufferKey2)).toEqual('valueForBufferKey2');
       // get works with a new object
-      assert.deepStrictEqual(
-        map.get(Buffer.from('exampleKey')),
-        'valueForBufferKey2',
-      );
+      expect(map.get(Buffer.from('exampleKey'))).toEqual('valueForBufferKey2');
       // get works with a regular string
-      assert.deepStrictEqual(map.get('stringKey'), 'valueForStringKey2');
+      expect(map.get('stringKey')).toEqual('valueForStringKey2');
 
       // check that old value is replaced
       map.set(bufferKey3, 'valueForBufferKey3');
-      assert.deepStrictEqual(
-        map.get(Buffer.from('exampleKey')),
-        'valueForBufferKey3',
-      );
+      expect(map.get(Buffer.from('exampleKey'))).toEqual('valueForBufferKey3');
       map.set('stringKey', 'valueForStringKey3');
-      assert.deepStrictEqual(map.get('stringKey'), 'valueForStringKey3');
+      expect(map.get('stringKey')).toEqual('valueForStringKey3');
     });
     it('test get/set', () => {
       const bufferKey = Buffer.from('exampleKey');
@@ -81,14 +63,11 @@ describe('Bigtable/EncodedKeyMap', () => {
       map.set(bufferKey, 'valueForBufferKey');
       map.set('stringKey', 'valueForStringKey');
       // get works with the same object
-      assert.deepStrictEqual(map.get(bufferKey), 'valueForBufferKey');
+      expect(map.get(bufferKey)).toEqual('valueForBufferKey');
       // get works with a new object
-      assert.deepStrictEqual(
-        map.get(Buffer.from('exampleKey')),
-        'valueForBufferKey',
-      );
+      expect(map.get(Buffer.from('exampleKey'))).toEqual('valueForBufferKey');
       // get works with a regular string
-      assert.deepStrictEqual(map.get('stringKey'), 'valueForStringKey');
+      expect(map.get('stringKey')).toEqual('valueForStringKey');
     });
     it('test null vs empty bytes', () => {
       const entries: [string | Buffer | null, string][] = [
@@ -99,9 +78,9 @@ describe('Bigtable/EncodedKeyMap', () => {
       // TS normally would not permit a null key, thus we pass entries as any
       const map = new EncodedKeyMap(entries as any);
       // get works with the same object
-      assert.deepStrictEqual(map.get(''), 'valueForEmptyString');
+      expect(map.get('')).toEqual('valueForEmptyString');
       // get works with a regular string
-      assert.deepStrictEqual(map.get(null as any), 'valueForNull');
+      expect(map.get(null as any)).toEqual('valueForNull');
     });
     it('test null vs empty bytes', () => {
       const entries: [string | Buffer | null, string][] = [
@@ -112,9 +91,9 @@ describe('Bigtable/EncodedKeyMap', () => {
       // TS normally would not permit a null key, thus we pass entries as any
       const map = new EncodedKeyMap(entries as any);
       // get works with the same object
-      assert.deepStrictEqual(map.get(Buffer.from('')), 'valueForEmptyBuffer');
+      expect(map.get(Buffer.from(''))).toEqual('valueForEmptyBuffer');
       // get works with a regular string
-      assert.deepStrictEqual(map.get(null as any), 'valueForNull');
+      expect(map.get(null as any)).toEqual('valueForNull');
     });
     it('map builtin functions', () => {
       const entries: [string | Buffer | null, string][] = [
@@ -126,47 +105,41 @@ describe('Bigtable/EncodedKeyMap', () => {
       const map = new EncodedKeyMap(entries as any);
 
       // get works with a buffer
-      assert.deepStrictEqual(
-        map.get(Buffer.from('Buffer1')),
-        'valueForBuffer1',
-      );
+      expect(map.get(Buffer.from('Buffer1'))).toEqual('valueForBuffer1');
       // get works with a regular string
-      assert.deepStrictEqual(map.get('stringKey1'), 'valueForString1');
+      expect(map.get('stringKey1')).toEqual('valueForString1');
 
       // delete, set, has, size
 
       map.set(Buffer.from('Buffer2'), 'valueForBuffer2');
       map.set('stringKey2', 'valueForString2');
 
-      assert.deepStrictEqual(map.size, 4);
+      expect(map.size).toEqual(4);
 
-      assert.deepStrictEqual(
-        map.get(Buffer.from('Buffer2')),
-        'valueForBuffer2',
-      );
-      assert.deepStrictEqual(map.get('stringKey2'), 'valueForString2');
+      expect(map.get(Buffer.from('Buffer2'))).toEqual('valueForBuffer2');
+      expect(map.get('stringKey2')).toEqual('valueForString2');
 
-      assert.strictEqual(map.has('stringKey2'), true);
-      assert.strictEqual(map.has(Buffer.from('Buffer2')), true);
+      expect(map.has('stringKey2')).toBe(true);
+      expect(map.has(Buffer.from('Buffer2'))).toBe(true);
 
       map.delete('stringKey2');
       map.delete(Buffer.from('Buffer2'));
 
-      assert.strictEqual(map.has('stringKey2'), false);
-      assert.strictEqual(map.has(Buffer.from('Buffer2')), false);
+      expect(map.has('stringKey2')).toBe(false);
+      expect(map.has(Buffer.from('Buffer2'))).toBe(false);
 
-      assert.deepStrictEqual(map.size, 2);
+      expect(map.size).toEqual(2);
 
       // iterators
 
       const keys = [...map.keys()];
-      assert.deepStrictEqual(keys[0]?.toString(), 'Buffer1');
-      assert.deepStrictEqual(keys[0] instanceof Buffer, true);
-      assert.deepStrictEqual(keys[1], 'stringKey1');
+      expect(keys[0]?.toString()).toEqual('Buffer1');
+      expect(keys[0] instanceof Buffer).toBe(true);
+      expect(keys[1]).toEqual('stringKey1');
 
       const values = [...map.values()];
-      assert.deepStrictEqual(values[0], 'valueForBuffer1');
-      assert.deepStrictEqual(values[1], 'valueForString1');
+      expect(values[0]).toEqual('valueForBuffer1');
+      expect(values[1]).toEqual('valueForString1');
 
       const resultForEach: [string | bigint | Uint8Array | null, SqlValue][] =
         [];
@@ -174,11 +147,11 @@ describe('Bigtable/EncodedKeyMap', () => {
         resultForEach.push([key, value]);
       });
 
-      assert.deepStrictEqual(resultForEach[0][0]?.toString(), 'Buffer1');
-      assert.deepStrictEqual(resultForEach[0][0] instanceof Buffer, true);
-      assert.deepStrictEqual(resultForEach[0][1], 'valueForBuffer1');
-      assert.deepStrictEqual(resultForEach[1][0], 'stringKey1');
-      assert.deepStrictEqual(resultForEach[1][1], 'valueForString1');
+      expect(resultForEach[0][0]?.toString()).toEqual('Buffer1');
+      expect(resultForEach[0][0] instanceof Buffer).toBe(true);
+      expect(resultForEach[0][1]).toEqual('valueForBuffer1');
+      expect(resultForEach[1][0]).toEqual('stringKey1');
+      expect(resultForEach[1][1]).toEqual('valueForString1');
     });
   });
 });

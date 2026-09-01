@@ -15,9 +15,6 @@
 import * as gc from '../../src/admin/gc-rule-builder';
 import {GcRuleBuilder} from '../../src/admin/gc-rule-builder';
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-
 describe('GcRuleBuilder', () => {
   it('has working TypeScript types', () => {
     // Not really much to do here at runtime, but this will break
@@ -37,10 +34,10 @@ describe('GcRuleBuilder', () => {
       maxNumVersions: 10,
     };
 
-    assert.ok(union);
-    assert.ok(intersection);
-    assert.ok(grouping);
-    assert.ok(ruleItem);
+    expect(union).toBeTruthy();
+    expect(intersection).toBeTruthy();
+    expect(grouping).toBeTruthy();
+    expect(ruleItem).toBeTruthy();
   });
 
   it('makes basic rules', () => {
@@ -62,7 +59,7 @@ describe('GcRuleBuilder', () => {
       }),
     );
 
-    assert.deepStrictEqual(rule, {
+    expect(rule).toEqual({
       union: {
         rules: [
           {
@@ -90,7 +87,7 @@ describe('GcRuleBuilder', () => {
       }),
     );
 
-    assert.deepStrictEqual(rule, {
+    expect(rule).toEqual({
       intersection: {
         rules: [
           {
@@ -123,7 +120,7 @@ describe('GcRuleBuilder', () => {
       }),
     );
 
-    assert.deepStrictEqual(rule, {
+    expect(rule).toEqual({
       intersection: {
         rules: [
           {
@@ -150,37 +147,37 @@ describe('GcRuleBuilder', () => {
 
   it('catches invalid groupings', () => {
     // Both a union and intersection
-    assert.throws(() => {
+    expect(() => {
       GcRuleBuilder.union({
         union: {},
         intersection: {},
       });
-    });
+    }).toThrow();
 
     // Union/intersection + rules
-    assert.throws(() => {
+    expect(() => {
       GcRuleBuilder.union({
         union: {},
         maxNumVersions: 1,
       });
-    });
+    }).toThrow();
 
     // Union/intersection as rule
-    assert.throws(() => {
+    expect(() => {
       GcRuleBuilder.rule(
         GcRuleBuilder.union({
           maxNumVersions: 1,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any,
       );
-    });
+    }).toThrow();
   });
 
   it('catches invalid rules', () => {
     // Unfortunately, limitations in TypeScript keep us from doing a really
     // thorough check on rule validity (no runtime types). We can at least check
     // that the user didn't pass more than one thing.
-    assert.throws(() => {
+    expect(() => {
       // TS won't compile this.
       GcRuleBuilder.rule({
         maxNumVersions: 1,
@@ -189,6 +186,6 @@ describe('GcRuleBuilder', () => {
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-    });
+    }).toThrow();
   });
 });

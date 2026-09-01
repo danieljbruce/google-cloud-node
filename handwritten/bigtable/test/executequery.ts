@@ -11,13 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
-import * as sinon from 'sinon';
-import * as proxyquire from 'proxyquire';
+
 import {grpc} from 'google-gax';
 import * as inst from '../src/instance';
+import {Instance} from '../src/instance';
 import {Bigtable} from '../src';
 import {protos} from '@google-cloud/bigtable-api';
 import google = protos.google;
@@ -39,15 +36,15 @@ import {MetadataConsumer} from '../src/execute-query/metadataconsumer';
 import {PassThrough} from 'stream';
 import * as SqlValues from '../src/execute-query/values';
 
-const sandbox = sinon.createSandbox();
-
-const fakePromisify = Object.assign({}, promisify, {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  promisifyAll(klass: Function, options: any) {
+(global as any).mockPromisified = (global as any).mockPromisified || false;
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (klass: Function, options: any) => {
     if (klass.name !== 'Instance') {
       return;
     }
-    assert.deepStrictEqual(options.exclude, [
+    (global as any).mockPromisified = true;
+    expect(options.exclude).toEqual([
       'appProfile',
       'cluster',
       'table',
@@ -57,7 +54,7 @@ const fakePromisify = Object.assign({}, promisify, {
       'view',
     ]);
   },
-});
+}));
 
 class MockPreparedStatement {
   callbacks: any[] = [];
@@ -116,27 +113,18 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
     projectId: 'my-project',
     request: () => {},
   } as Bigtable;
-  let Instance: typeof inst.Instance;
-  let instance: inst.Instance;
+    let instance: inst.Instance;
   let checksumValidStub: any;
 
-  before(() => {
-    Instance = proxyquire('../src/instance.js', {
-      '@google-cloud/promisify': fakePromisify,
-      pumpify,
-    }).Instance;
-  });
-
+  
   beforeEach(() => {
     instance = new Instance(BIGTABLE, INSTANCE_ID);
-    checksumValidStub = sinon
-      .stub(SqlValues, 'checksumValid')
-      .callsFake(() => true);
+    checksumValidStub = jest.spyOn(SqlValues as any, 'checksumValid').mockImplementation(() => true);
   });
 
   afterEach(() => {
-    sandbox.restore();
-    checksumValidStub.restore();
+    jest.restoreAllMocks();
+    
   });
 
   describe('happy_path', () => {
@@ -159,7 +147,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -167,54 +155,39 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, 111, undefined, {intValue: 2}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', undefined, undefined),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token2', undefined, undefined),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.emit('end');
             bigtableStream.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(responses.length, 2);
-            assert.equal(responses[0].get(0), 1);
-            assert.equal(responses[1].get(0), 2);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(responses.length).toEqual(2);
+            expect(responses[0].get(0)).toEqual(1);
+            expect(responses[1].get(0)).toEqual(2);
             done();
           },
         ],
@@ -244,15 +217,15 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](new Error('fetching QP failed'));
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 2);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(2);
             preparedStatement.callbacks[1](
               undefined,
               'bytes',
@@ -260,25 +233,19 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', 111, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.emit('end');
             bigtableStream.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(responses[0].get(0), 1);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(responses[0].get(0)).toEqual(1);
             done();
           },
         ],
@@ -314,8 +281,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -325,29 +292,23 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', expiredError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainAndRefreshQueryPlan',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
-            assert.equal(preparedStatement.markedAsExpired, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainAndRefreshQueryPlan');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
+            expect(preparedStatement.markedAsExpired).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 2);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(2);
             preparedStatement.callbacks[1](
               undefined,
               'bytes',
@@ -355,29 +316,23 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows('token1', 111, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream2.emit('end');
             bigtableStream2.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.throws(() => {
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(() => {
               // we make sure that the column name from the first preparedStatement is not present.
               responses[0].get('f1');
-            });
-            assert.equal(responses[0].get('f2'), 1);
+            }).toThrow();
+            expect(responses[0].get('f2')).toEqual(1);
             done();
           },
         ],
@@ -413,8 +368,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -424,37 +379,28 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', expiredError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainAndRefreshQueryPlan',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainAndRefreshQueryPlan');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 2);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(2);
             preparedStatement.callbacks[1](
               undefined,
               'bytes',
@@ -462,27 +408,21 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows('token1', 111, undefined, {intValue: 2}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream2.emit('end');
             bigtableStream2.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
+            expect(resultStream._stateMachine.state).toEqual('Finished');
             // assert we only got the second response, the first one was discarded
-            assert.equal(responses.length, 1);
-            assert.equal(responses[0].get(0), 2);
+            expect(responses.length).toEqual(1);
+            expect(responses[0].get(0)).toEqual(2);
             done();
           },
         ],
@@ -518,8 +458,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -529,26 +469,20 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', 111, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.write(expiredError);
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(responses.length, 1);
-            assert.equal(responses[0].get(0), 1);
-            assert.equal(errorEmitted, true);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(responses.length).toEqual(1);
+            expect(responses[0].get(0)).toEqual(1);
+            expect(errorEmitted).toEqual(true);
             done();
           },
         ],
@@ -586,8 +520,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -597,18 +531,15 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.emit('end');
             bigtableStream.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(errorEmitted, false);
-            assert.equal(responses.length, 0);
-            assert.equal(streamEnded, true);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(errorEmitted).toEqual(false);
+            expect(responses.length).toEqual(0);
+            expect(streamEnded).toEqual(true);
             done();
           },
         ],
@@ -641,8 +572,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -652,26 +583,20 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.emit('end');
             bigtableStream.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(rowsEmitted, 0);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(rowsEmitted).toEqual(0);
             done();
           },
         ],
@@ -702,8 +627,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -713,46 +638,34 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', 111, undefined, {intValue: 2}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 3}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.emit('end');
             bigtableStream.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(responses.length, 2);
-            assert.equal(responses[0].get(0), 1);
-            assert.equal(responses[1].get(0), 2);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(responses.length).toEqual(2);
+            expect(responses[0].get(0)).toEqual(1);
+            expect(responses[1].get(0)).toEqual(2);
             done();
           },
         ],
@@ -785,8 +698,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -796,26 +709,20 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', undefined, undefined),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream.emit('end');
             bigtableStream.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(errorEmitted, false);
-            assert.equal(rowsEmitted, 0);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(errorEmitted).toEqual(false);
+            expect(rowsEmitted).toEqual(0);
             done();
           },
         ],
@@ -856,7 +763,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -864,57 +771,42 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', retryableError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainingBeforeResumeToken',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainingBeforeResumeToken');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(preparedStatement.callbacks.length, 1); // query plan was not refreshed
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(preparedStatement.callbacks.length).toEqual(1); // query plan was not refreshed
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows('token', 111, undefined, {intValue: 2}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream2.emit('end');
             bigtableStream2.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(responses.length, 2);
-            assert.equal(responses[0].get(0), 1);
-            assert.equal(responses[1].get(0), 2);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(responses.length).toEqual(2);
+            expect(responses[0].get(0)).toEqual(1);
+            expect(responses[1].get(0)).toEqual(2);
             done();
           },
         ],
@@ -953,7 +845,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -961,67 +853,49 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', retryableError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainingBeforeResumeToken',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainingBeforeResumeToken');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(preparedStatement.callbacks.length, 1); // query plan was not refreshed
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(preparedStatement.callbacks.length).toEqual(1); // query plan was not refreshed
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 2}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows('token', 111, undefined, {intValue: 3}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream2.emit('end');
             bigtableStream2.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(responses.length, 2);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(responses.length).toEqual(2);
             // the first message before the retry should have been discarded
-            assert.equal(responses[0].get(0), 2);
-            assert.equal(responses[1].get(0), 3);
+            expect(responses[0].get(0)).toEqual(2);
+            expect(responses[1].get(0)).toEqual(3);
             done();
           },
         ],
@@ -1064,7 +938,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -1072,19 +946,13 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
@@ -1102,48 +970,36 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             ]);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainingBeforeResumeToken',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainingBeforeResumeToken');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(preparedStatement.callbacks.length, 1); // query plan was not refreshed
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(preparedStatement.callbacks.length).toEqual(1); // query plan was not refreshed
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 3}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream2.write(
               createProtoRows('token', 111, undefined, {intValue: 4}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream2.emit('end');
             bigtableStream2.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(responses.length, 2);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(responses.length).toEqual(2);
             // the first message before the retry should have been discarded
-            assert.equal(responses[0].get(0), 3);
-            assert.equal(responses[1].get(0), 4);
+            expect(responses[0].get(0)).toEqual(3);
+            expect(responses[1].get(0)).toEqual(4);
             done();
           },
         ],
@@ -1190,7 +1046,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -1198,58 +1054,43 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', retryableError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainingBeforeResumeToken',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainingBeforeResumeToken');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(preparedStatement.callbacks.length, 1); // query plan was not refreshed
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(preparedStatement.callbacks.length).toEqual(1); // query plan was not refreshed
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream3 as any;
             };
             bigtableStream2.emit('error', expiredError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainAndRefreshQueryPlan',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainAndRefreshQueryPlan');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 2);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(2);
             preparedStatement.callbacks[1](
               undefined,
               'bytes',
@@ -1257,31 +1098,25 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream3.write(
               createProtoRows('token1', 111, undefined, {intValue: 2}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             bigtableStream3.emit('end');
             bigtableStream3.emit('close');
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Finished');
-            assert.equal(responses.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('Finished');
+            expect(responses.length).toEqual(1);
             // the first message before the retry should have been discarded
-            assert.equal(responses[0].get('f2'), 2);
-            assert.throws(() => {
+            expect(responses[0].get('f2')).toEqual(2);
+            expect(() => {
               // we make sure that the column name from the first preparedStatement is not present.
               responses[0].get('f1');
-            });
+            }).toThrow();
             done();
           },
         ],
@@ -1332,7 +1167,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -1340,50 +1175,38 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', 111, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', retryableError);
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'DrainingAfterResumeToken',
-            );
-            assert.equal(resultStream._stateMachine.retryTimer !== null, true);
+            expect(resultStream._stateMachine.state).toEqual('DrainingAfterResumeToken');
+            expect(resultStream._stateMachine.retryTimer !== null).toEqual(true);
             // speed up the retry timer
             clearTimeout(resultStream._stateMachine.retryTimer);
             resultStream._stateMachine.startNextAttempt();
           },
           () => {
-            assert.equal(preparedStatement.callbacks.length, 1); // query plan was not refreshed
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(preparedStatement.callbacks.length).toEqual(1); // query plan was not refreshed
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream3 as any;
             };
             bigtableStream2.emit('error', expiredError);
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(responses.length, 1);
-            assert.equal(responses[0].get(0), 1);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(responses.length).toEqual(1);
+            expect(responses[0].get(0)).toEqual(1);
             done();
           },
         ],
@@ -1427,7 +1250,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -1435,28 +1258,22 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows(undefined, undefined, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', nonretryableError);
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(rowsEmitted, 0);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(rowsEmitted).toEqual(0);
             done();
           },
         ],
@@ -1499,7 +1316,7 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
             preparedStatement.callbacks[0](
               undefined,
               'bytes',
@@ -1507,29 +1324,23 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', 111, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             BIGTABLE.request = () => {
               return bigtableStream2 as any;
             };
             bigtableStream.emit('error', nonretryableError);
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(responses.length, 1);
-            assert.equal(responses[0].get(0), 1);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(responses.length).toEqual(1);
+            expect(responses[0].get(0)).toEqual(1);
             done();
           },
         ],
@@ -1563,15 +1374,15 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
           },
           () => {
             resultStream._stateMachine.handleTotalTimeout();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(rowsEmitted, 0);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(rowsEmitted).toEqual(0);
             done();
           },
         ],
@@ -1603,28 +1414,28 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](new Error('fetching QP failed!'));
           },
           () => {
-            assert.equal(errorEmitted, false);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 2);
+            expect(errorEmitted).toEqual(false);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(2);
             preparedStatement.callbacks[1](
               new Error('fetching QP failed again!'),
             );
           },
           () => {
-            assert.equal(errorEmitted, false);
+            expect(errorEmitted).toEqual(false);
             resultStream._stateMachine.handleTotalTimeout();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(rowsEmitted, 0);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(rowsEmitted).toEqual(0);
             done();
           },
         ],
@@ -1657,8 +1468,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -1668,16 +1479,13 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             resultStream._stateMachine.handleTotalTimeout();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(rowsEmitted, 0);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(rowsEmitted).toEqual(0);
             done();
           },
         ],
@@ -1709,8 +1517,8 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
         [
           () => {
             clearTimeout(resultStream._stateMachine.timeoutTimer);
-            assert.equal(resultStream._stateMachine.state, 'AwaitingQueryPlan');
-            assert.equal(preparedStatement.callbacks.length, 1);
+            expect(resultStream._stateMachine.state).toEqual('AwaitingQueryPlan');
+            expect(preparedStatement.callbacks.length).toEqual(1);
           },
           () => {
             preparedStatement.callbacks[0](
@@ -1720,26 +1528,20 @@ describe('Bigtable/ExecuteQueryStateMachine', () => {
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'BeforeFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('BeforeFirstResumeToken');
             bigtableStream.write(
               createProtoRows('token1', 111, undefined, {intValue: 1}),
             );
           },
           () => {
-            assert.equal(
-              resultStream._stateMachine.state,
-              'AfterFirstResumeToken',
-            );
+            expect(resultStream._stateMachine.state).toEqual('AfterFirstResumeToken');
             resultStream._stateMachine.handleTotalTimeout();
           },
           () => {
-            assert.equal(resultStream._stateMachine.state, 'Failed');
-            assert.equal(errorEmitted, true);
-            assert.equal(responses.length, 1);
-            assert.equal(responses[0].get(0), 1);
+            expect(resultStream._stateMachine.state).toEqual('Failed');
+            expect(errorEmitted).toEqual(true);
+            expect(responses.length).toEqual(1);
+            expect(responses[0].get(0)).toEqual(1);
             done();
           },
         ],
@@ -1758,17 +1560,14 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
     request: () => {},
   } as Bigtable;
 
-  let clock: sinon.SinonFakeTimers;
-
+  
   beforeEach(() => {
-    clock = sinon.useFakeTimers({
-      toFake: ['setTimeout', 'clearTimeout', 'Date'],
-    });
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
-    clock.restore();
-    sandbox.restore();
+    jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   describe('happy_path', () => {
@@ -1780,12 +1579,12 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
         {a: SqlTypes.Int64()},
       );
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f').type).toEqual('int64');
         done();
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
     });
 
     it('getting prepared query plan close to validUntil', done => {
@@ -1810,35 +1609,35 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
         },
       );
       // Set the time to 100 ms after the "should-refresh" point in time
-      clock.setSystemTime(someTimestamp - SHOULD_REFRESH_SOON_PERIOD_MS + 100);
+      jest.setSystemTime(someTimestamp - SHOULD_REFRESH_SOON_PERIOD_MS + 100);
       let getDataCalls = 0;
       const doneAfterGetData = () => {
         getDataCalls += 1;
         if (getDataCalls > 1) {
           // assert only one request was made.
-          assert.equal(requestCounter, 1);
+          expect(requestCounter).toEqual(1);
           done();
         }
       };
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f').type).toEqual('int64');
         doneAfterGetData();
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
 
       // refresh is scheduled
-      assert.equal(pqRequestCb !== null, true);
+      expect(pqRequestCb !== null).toEqual(true);
 
       // both getData calls should get the old value before the refresh finishes
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f').type).toEqual('int64');
         doneAfterGetData();
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
     });
 
     it('getting prepared query plan past validUntil', done => {
@@ -1857,14 +1656,14 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
         },
       );
       // Set the time to 100 ms after the "validUntil" point in time
-      clock.setSystemTime(someTimestamp + 100);
+      jest.setSystemTime(someTimestamp + 100);
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f').type).toEqual('int64');
         done();
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
     });
 
     it('multiple getData calls result in only one request', done => {
@@ -1896,41 +1695,41 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
         },
       );
       // Set the time to 100 ms after the "should-refresh" point in time
-      clock.setSystemTime(someTimestamp - SHOULD_REFRESH_SOON_PERIOD_MS + 100);
+      jest.setSystemTime(someTimestamp - SHOULD_REFRESH_SOON_PERIOD_MS + 100);
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f1').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f1').type).toEqual('int64');
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
 
       // refresh is scheduled
-      assert.equal(pqRequestCb !== null, true);
+      expect(pqRequestCb !== null).toEqual(true);
 
       // second getData call
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f1').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f1').type).toEqual('int64');
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
 
       // assert only one request was made even though getData was called twice
-      assert.equal(requestCounter, 1);
+      expect(requestCounter).toEqual(1);
 
       // Bigtable returns the prepareQuery response
       pqRequestCb!(null, secondResp);
 
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f2').type, 'int64');
-        assert.throws(() => {
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f2').type).toEqual('int64');
+        expect(() => {
           // we make sure that the column name from the first preparedStatement is not present.
           metadata?.get('f1');
-        });
+        }).toThrow();
       }, 1000);
-      clock.runAll();
+      jest.runAllTimers();
       done();
     });
   });
@@ -1949,24 +1748,24 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
       (BIGTABLE as any).request = (req: any, cb: any) => cb(null, resp);
 
       preparedStatement.markAsExpired();
-      assert.equal(preparedStatement.isExpired(), true);
-      assert.equal((preparedStatement as any).isRefreshing, false);
-      assert.equal((preparedStatement as any).timer, null);
+      expect(preparedStatement.isExpired()).toEqual(true);
+      expect((preparedStatement as any).isRefreshing).toEqual(false);
+      expect((preparedStatement as any).timer).toEqual(null);
 
       let callbackCalled = false;
       preparedStatement.getData((err, pqBytes, metadata) => {
         callbackCalled = true;
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f').type).toEqual('int64');
       }, 1000);
 
       // getData scheduled getting the query plan immediately after
-      assert.equal((preparedStatement as any).timer !== null, true);
-      assert.equal(callbackCalled, false);
-      clock.tick(1);
-      assert.equal((preparedStatement as any).timer, null);
-      assert.equal(callbackCalled, true);
+      expect((preparedStatement as any).timer !== null).toEqual(true);
+      expect(callbackCalled).toEqual(false);
+      jest.advanceTimersByTime(1);
+      expect((preparedStatement as any).timer).toEqual(null);
+      expect(callbackCalled).toEqual(true);
       done();
     });
 
@@ -1983,34 +1782,34 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
       (BIGTABLE as any).request = (req: any, cb: any) => cb(null, resp);
 
       preparedStatement.markAsExpired();
-      assert.equal(preparedStatement.isExpired(), true);
-      assert.equal((preparedStatement as any).isRefreshing, false);
-      assert.equal((preparedStatement as any).timer, null);
+      expect(preparedStatement.isExpired()).toEqual(true);
+      expect((preparedStatement as any).isRefreshing).toEqual(false);
+      expect((preparedStatement as any).timer).toEqual(null);
 
       let callbackCalled = false;
       preparedStatement.getData((err, pqBytes, metadata) => {
         callbackCalled = true;
-        assert.equal(err, undefined);
-        assert.equal(pqBytes, 'xd');
-        assert.equal(metadata?.get('f').type, 'int64');
+        expect(err).toEqual(undefined);
+        expect(pqBytes).toEqual('xd');
+        expect(metadata?.get('f').type).toEqual('int64');
         preparedStatement.markAsExpired();
       }, 1000);
 
       // this callback gets served second. It will get an error
       // because the query got expired between the last refresh and serving of this callback
       preparedStatement.getData((err, pqBytes, metadata) => {
-        assert.equal(callbackCalled, true);
-        assert.equal(pqBytes, undefined);
-        assert.equal(metadata, undefined);
-        assert.equal(err?.message, 'Getting a fresh query plan failed.');
+        expect(callbackCalled).toEqual(true);
+        expect(pqBytes).toEqual(undefined);
+        expect(metadata).toEqual(undefined);
+        expect(err?.message).toEqual('Getting a fresh query plan failed.');
       }, 1000);
 
       // getData scheduled getting the query plan immediately after
-      assert.equal((preparedStatement as any).timer !== null, true);
-      assert.equal(callbackCalled, false);
-      clock.tick(1);
-      assert.equal((preparedStatement as any).timer, null);
-      assert.equal(callbackCalled, true);
+      expect((preparedStatement as any).timer !== null).toEqual(true);
+      expect(callbackCalled).toEqual(false);
+      jest.advanceTimersByTime(1);
+      expect((preparedStatement as any).timer).toEqual(null);
+      expect(callbackCalled).toEqual(true);
       done();
     });
 
@@ -2028,22 +1827,22 @@ describe('Bigtable/ExecuteQueryPreparedStatementObject', () => {
         cb(new Error('Problem'));
 
       preparedStatement.markAsExpired();
-      assert.equal(preparedStatement.isExpired(), true);
-      assert.equal((preparedStatement as any).isRefreshing, false);
-      assert.equal((preparedStatement as any).timer, null);
+      expect(preparedStatement.isExpired()).toEqual(true);
+      expect((preparedStatement as any).isRefreshing).toEqual(false);
+      expect((preparedStatement as any).timer).toEqual(null);
 
       let callbackCalled = false;
       preparedStatement.getData((err, pqBytes, metadata) => {
         callbackCalled = true;
-        assert.equal(pqBytes, undefined);
-        assert.equal(metadata, undefined);
-        assert.equal(err?.message, 'Problem');
+        expect(pqBytes).toEqual(undefined);
+        expect(metadata).toEqual(undefined);
+        expect(err?.message).toEqual('Problem');
       }, 1000);
 
-      assert.equal(callbackCalled, false);
-      clock.tick(1);
-      assert.equal((preparedStatement as any).timer, null);
-      assert.equal(callbackCalled, true);
+      expect(callbackCalled).toEqual(false);
+      jest.advanceTimersByTime(1);
+      expect((preparedStatement as any).timer).toEqual(null);
+      expect(callbackCalled).toEqual(true);
       done();
     });
   });

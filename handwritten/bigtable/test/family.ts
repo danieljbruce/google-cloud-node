@@ -12,26 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {before, beforeEach, afterEach, describe, it} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import {protos} from '@google-cloud/bigtable-api';
 import google = protos.google;
 import * as fm from '../src/family';
+import {Family, FamilyError} from '../src/family';
 import {Table} from '../src/table';
 
-let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  promisifyAll(klass: Function) {
+(global as any).mockPromisified = (global as any).mockPromisified || false;
+jest.mock('@google-cloud/promisify', () => ({
+  ...jest.requireActual('@google-cloud/promisify'),
+  promisifyAll: (klass: Function) => {
     if (klass.name === 'Family') {
-      promisified = true;
+      (global as any).mockPromisified = true;
     }
   },
-});
-
-const sandbox = sinon.createSandbox();
+}));
 
 describe('Bigtable/Family', () => {
   const FAMILY_ID = 'family-test';
@@ -46,57 +41,46 @@ describe('Bigtable/Family', () => {
   } as {} as Table;
 
   const FAMILY_NAME = `${TABLE.name}/columnFamilies/${FAMILY_ID}`;
-  let Family: typeof fm.Family;
-  let family: fm.Family;
-  let FamilyError: typeof fm.FamilyError;
-
-  before(() => {
-    const Fake = proxyquire('../src/family.js', {
-      '@google-cloud/promisify': fakePromisify,
-    });
-    Family = Fake.Family;
-    FamilyError = Fake.FamilyError;
-  });
-
+    let family: fm.Family;
+  
+  
   beforeEach(() => {
     family = new Family(TABLE, FAMILY_NAME);
   });
 
-  afterEach(() => sandbox.restore());
+  afterEach(() => { jest.restoreAllMocks(); });
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect((global as any).mockPromisified).toBeTruthy();
     });
 
     it('should localize the Bigtable instance', () => {
-      assert.strictEqual(family.bigtable, TABLE.bigtable);
+      expect(family.bigtable).toBe(TABLE.bigtable);
     });
 
     it('should localize the Table instance', () => {
-      assert.strictEqual(family.table, TABLE);
+      expect(family.table).toBe(TABLE);
     });
 
     it('should localize the full resource path', () => {
-      assert.strictEqual(family.id, FAMILY_ID);
+      expect(family.id).toBe(FAMILY_ID);
     });
 
     it('should extract the family name', () => {
       const family = new Family(TABLE, FAMILY_ID);
-      assert.strictEqual(family.name, FAMILY_NAME);
+      expect(family.name).toBe(FAMILY_NAME);
     });
 
     it('should leave full family names unaltered and localize the id from the name', () => {
       const family = new Family(TABLE, FAMILY_NAME);
-      assert.strictEqual(family.name, FAMILY_NAME);
-      assert.strictEqual(family.id, FAMILY_ID);
+      expect(family.name).toBe(FAMILY_NAME);
+      expect(family.id).toBe(FAMILY_ID);
     });
 
     it('should throw if family id in wrong format', () => {
       const id = `/project/bad-project/instances/bad-instance/columnFamiles/${FAMILY_ID}`;
-      assert.throws(() => {
-        new Family(TABLE, id);
-      }, Error);
+      expect(() => { new Family(TABLE, id); }).toThrow(Error);
     });
   });
 
@@ -106,7 +90,7 @@ describe('Bigtable/Family', () => {
         age: 10,
       };
       const rule = Family.formatRule_(originalRule);
-      assert.deepStrictEqual(rule, {
+      expect(rule).toEqual({
         maxAge: originalRule.age,
       });
     });
@@ -116,7 +100,7 @@ describe('Bigtable/Family', () => {
         versions: 10,
       };
       const rule = Family.formatRule_(originalRule);
-      assert.deepStrictEqual(rule, {
+      expect(rule).toEqual({
         maxNumVersions: originalRule.versions,
       });
     });
@@ -128,7 +112,7 @@ describe('Bigtable/Family', () => {
         union: true,
       };
       const rule = Family.formatRule_(originalRule);
-      assert.deepStrictEqual(rule, {
+      expect(rule).toEqual({
         union: {
           rules: [
             {
@@ -148,7 +132,7 @@ describe('Bigtable/Family', () => {
         versions: 2,
       };
       const rule = Family.formatRule_(originalRule);
-      assert.deepStrictEqual(rule, {
+      expect(rule).toEqual({
         intersection: {
           rules: [
             {
@@ -169,7 +153,7 @@ describe('Bigtable/Family', () => {
         union: true,
       };
       const rule = Family.formatRule_(originalRule);
-      assert.deepStrictEqual(rule, {
+      expect(rule).toEqual({
         union: {
           rules: [
             {maxAge: originalRule.age},
@@ -187,15 +171,11 @@ describe('Bigtable/Family', () => {
     });
 
     it('should throw if union only has one rule', () => {
-      assert.throws(() => {
-        Family.formatRule_({age: 10, union: true});
-      }, /A union must have more than one garbage collection rule\./);
+      expect(() => { Family.formatRule_({age: 10, union: true}); }).toThrow(/A union must have more than one garbage collection rule\./);
     });
 
     it('should throw if no rules are provided', () => {
-      assert.throws(() => {
-        Family.formatRule_({});
-      }, /No garbage collection rules were specified\./);
+expect(() => { Family.formatRule_({}); }).toThrow(/No garbage collection rules were specified\./);
     });
   });
 
@@ -208,8 +188,8 @@ describe('Bigtable/Family', () => {
         options_: {},
         callback: Function,
       ) => {
-        assert.strictEqual(id, family.id);
-        assert.strictEqual(options_, options);
+        expect(id).toBe(family.id);
+        expect(options_).toBe(options);
         callback(); // done()
       };
       family.create(options, done);
@@ -222,7 +202,7 @@ describe('Bigtable/Family', () => {
         options: {},
         callback: Function,
       ) => {
-        assert.deepStrictEqual(options, {});
+        expect(options).toEqual({});
         callback(); // done()
       };
       family.create(done);
@@ -231,10 +211,10 @@ describe('Bigtable/Family', () => {
 
   describe('delete', () => {
     it('should make the correct request', done => {
-      sandbox.stub(family.bigtable, 'request').callsFake((config, callback) => {
-        assert.strictEqual(config.client, 'BigtableTableAdminClient');
-        assert.strictEqual(config.method, 'modifyColumnFamilies');
-        assert.deepStrictEqual(config.reqOpts, {
+      jest.spyOn(family.bigtable, 'request').mockImplementation((config, callback) => {
+        expect(config.client).toBe('BigtableTableAdminClient');
+        expect(config.method).toBe('modifyColumnFamilies');
+        expect(config.reqOpts).toEqual({
           name: family.table.name,
           modifications: [
             {
@@ -243,7 +223,7 @@ describe('Bigtable/Family', () => {
             },
           ],
         });
-        assert.deepStrictEqual(config.gaxOpts, {});
+        expect(config.gaxOpts).toEqual({});
         callback!(null); // done()
       });
       family.delete(done);
@@ -251,56 +231,56 @@ describe('Bigtable/Family', () => {
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
-      sandbox.stub(family.bigtable, 'request').callsFake(config => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+      jest.spyOn(family.bigtable, 'request').mockImplementation(config => {
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       });
-      family.delete(gaxOptions, assert.ifError);
+      family.delete(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
   });
 
   describe('exists', () => {
     it('should not require gaxOptions', done => {
-      sandbox.stub(family, 'getMetadata').callsFake(gaxOptions => {
-        assert.deepStrictEqual(gaxOptions, {});
+      jest.spyOn(family, 'getMetadata').mockImplementation(gaxOptions => {
+        expect(gaxOptions).toEqual({});
         done();
       });
-      family.exists(assert.ifError);
+      family.exists(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should pass gaxOptions to getMetadata', done => {
       const gaxOptions = {};
-      sandbox.stub(family, 'getMetadata').callsFake(gaxOptions_ => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
+      jest.spyOn(family, 'getMetadata').mockImplementation(gaxOptions_ => {
+        expect(gaxOptions_).toBe(gaxOptions);
         done();
       });
-      family.exists(gaxOptions, assert.ifError);
+      family.exists(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return false if FamilyError', done => {
       const error = new FamilyError('Error.');
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       family.exists((err, exists) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, false);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(false);
         done();
       });
     });
 
     it('should return error if not FamilyError', done => {
       const error = new Error('Error.');
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       family.exists(err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should return true if no error', done => {
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, null, {});
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(null, {}); }) as any);
       family.exists((err, exists) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, true);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(exists).toBe(true);
         done();
       });
     });
@@ -311,19 +291,19 @@ describe('Bigtable/Family', () => {
       const options = {
         gaxOptions: {},
       };
-      sandbox.stub(family, 'getMetadata').callsFake(gaxOptions => {
-        assert.strictEqual(gaxOptions, options.gaxOptions);
+      jest.spyOn(family, 'getMetadata').mockImplementation(gaxOptions => {
+        expect(gaxOptions).toBe(options.gaxOptions);
         done();
       });
-      family.get(options, assert.ifError);
+      family.get(options, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should not require an options object', done => {
-      sandbox.stub(family, 'getMetadata').callsFake(gaxOptions => {
-        assert.deepStrictEqual(gaxOptions, undefined);
+      jest.spyOn(family, 'getMetadata').mockImplementation(gaxOptions => {
+        expect(gaxOptions).toEqual(undefined);
         done();
       });
-      family.get(assert.ifError);
+      family.get(((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should auto create with a FamilyError error', done => {
@@ -332,10 +312,10 @@ describe('Bigtable/Family', () => {
         autoCreate: true,
         gaxOptions: {},
       };
-      sandbox.stub(family, 'getMetadata').callsArgOnWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (family as any).create = (options_: any, callback: Function) => {
-        assert.strictEqual(options_.gaxOptions, options.gaxOptions);
+        expect(options_.gaxOptions).toBe(options.gaxOptions);
         callback();
       };
       family.get(options, done);
@@ -349,10 +329,10 @@ describe('Bigtable/Family', () => {
           versions: 1,
         },
       };
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (family as any).create = (options_: {}, callback: Function) => {
-        assert.deepStrictEqual(options.rule, {versions: 1});
+        expect(options.rule).toEqual({versions: 1});
         callback();
       };
       family.get(options, done);
@@ -365,44 +345,44 @@ describe('Bigtable/Family', () => {
       const options = {
         autoCreate: true,
       };
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       family.create = () => {
         throw new Error('Should not create.');
       };
       family.get(options, err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should not auto create unless requested', done => {
       const error = new FamilyError(TABLE.id);
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       family.create = () => {
         throw new Error('Should not create.');
       };
       family.get(err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should return an error from getMetadata', done => {
       const error = new Error('Error.');
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, error);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       family.get(err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
 
     it('should return self and API response', done => {
       const apiResponse = {};
-      sandbox.stub(family, 'getMetadata').callsArgWith(1, null, apiResponse);
+      jest.spyOn(family, 'getMetadata').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(null, apiResponse); }) as any);
       family.get((err, family_, apiResponse_) => {
-        assert.ifError(err);
-        assert.strictEqual(family_, family);
-        assert.strictEqual(apiResponse_, apiResponse);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(family_).toBe(family);
+        expect(apiResponse_).toBe(apiResponse);
         done();
       });
     });
@@ -411,21 +391,19 @@ describe('Bigtable/Family', () => {
   describe('getMetadata', () => {
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
-      sandbox.stub(family.table, 'getFamilies').callsFake(gaxOptions_ => {
-        assert.strictEqual(gaxOptions_, gaxOptions);
+      jest.spyOn(family.table, 'getFamilies').mockImplementation(gaxOptions_ => {
+        expect(gaxOptions_).toBe(gaxOptions);
         done();
       });
-      family.getMetadata(gaxOptions, assert.ifError);
+      family.getMetadata(gaxOptions, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error to the callback', done => {
       const err = new Error('err');
       const response = {};
-      sandbox
-        .stub(family.table, 'getFamilies')
-        .callsArgWith(1, err, null, response);
+      jest.spyOn(family.table, 'getFamilies').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(err, null, response); }) as any);
       family.getMetadata(err_ => {
-        assert.strictEqual(err, err_);
+        expect(err).toBe(err_);
         done();
       });
     });
@@ -436,18 +414,18 @@ describe('Bigtable/Family', () => {
         a: 'a',
         b: 'b',
       } as google.bigtable.admin.v2.IColumnFamily;
-      sandbox.stub(family.table, 'getFamilies').callsArgWith(1, null, [family]);
+      jest.spyOn(family.table, 'getFamilies').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(null, [family]); }) as any);
       family.getMetadata((err, metadata) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, family.metadata);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(metadata).toBe(family.metadata);
         done();
       });
     });
 
     it('should return a custom error if no results', done => {
-      sandbox.stub(family.table, 'getFamilies').callsArgWith(1, null, []);
+      jest.spyOn(family.table, 'getFamilies').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(null, []); }) as any);
       family.getMetadata(err => {
-        assert(err instanceof FamilyError);
+        expect(err instanceof FamilyError).toBeTruthy();
         done();
       });
     });
@@ -455,11 +433,11 @@ describe('Bigtable/Family', () => {
 
   describe('setMetadata', () => {
     it('should provide the proper request options', done => {
-      sandbox.stub(family.bigtable, 'request').callsFake(config => {
-        assert.strictEqual(config.client, 'BigtableTableAdminClient');
-        assert.strictEqual(config.method, 'modifyColumnFamilies');
-        assert.strictEqual(config.reqOpts.name, TABLE.name);
-        assert.deepStrictEqual(config.reqOpts.modifications, [
+      jest.spyOn(family.bigtable, 'request').mockImplementation(config => {
+        expect(config.client).toBe('BigtableTableAdminClient');
+        expect(config.method).toBe('modifyColumnFamilies');
+        expect(config.reqOpts.name).toBe(TABLE.name);
+        expect(config.reqOpts.modifications).toEqual([
           {
             id: FAMILY_ID,
             update: {},
@@ -467,7 +445,7 @@ describe('Bigtable/Family', () => {
         ]);
         done();
       });
-      family.setMetadata({}, assert.ifError);
+      family.setMetadata({}, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should respect the gc rule option', done => {
@@ -484,12 +462,12 @@ describe('Bigtable/Family', () => {
           d: 'd',
         },
       } as fm.SetFamilyMetadataOptions;
-      sandbox.stub(Family, 'formatRule_').callsFake(rule => {
-        assert.strictEqual(rule, metadata.rule);
+      jest.spyOn(Family, 'formatRule_').mockImplementation(rule => {
+        expect(rule).toBe(metadata.rule);
         return formattedRule;
       });
-      sandbox.stub(family.bigtable, 'request').callsFake(config => {
-        assert.deepStrictEqual(config.reqOpts, {
+      jest.spyOn(family.bigtable, 'request').mockImplementation(config => {
+        expect(config.reqOpts).toEqual({
           name: TABLE.name,
           modifications: [
             {
@@ -503,14 +481,14 @@ describe('Bigtable/Family', () => {
         Family.formatRule_ = formatRule;
         done();
       });
-      family.setMetadata(metadata, assert.ifError);
+      family.setMetadata(metadata, ((err: any) => { expect(err).toBeFalsy(); }));
     });
 
     it('should return an error to the callback', done => {
       const error = new Error('err');
-      sandbox.stub(family.bigtable, 'request').callsArgWith(1, error);
+      jest.spyOn(family.bigtable, 'request').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(error); }) as any);
       family.setMetadata({}, err => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -522,12 +500,12 @@ describe('Bigtable/Family', () => {
           'family-test': fakeMetadata,
         },
       };
-      sandbox.stub(family.bigtable, 'request').callsArgWith(1, null, response);
+      jest.spyOn(family.bigtable, 'request').mockImplementation(((...args: any[]) => { const cb = args.find(a => typeof a === 'function'); if (cb) cb(null, response); }) as any);
       family.setMetadata({}, (err, metadata, apiResponse) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, fakeMetadata);
-        assert.strictEqual(family.metadata, fakeMetadata);
-        assert.strictEqual(apiResponse, response);
+        ((err: any) => { expect(err).toBeFalsy(); })(err);
+        expect(metadata).toBe(fakeMetadata);
+        expect(family.metadata).toBe(fakeMetadata);
+        expect(apiResponse).toBe(response);
         done();
       });
     });
@@ -537,10 +515,9 @@ describe('Bigtable/Family', () => {
     it('should set the code and message', () => {
       const err = new FamilyError(FAMILY_NAME);
 
-      assert.strictEqual(err.code, 404);
-      assert.strictEqual(
-        err.message,
-        'Column family not found: ' + FAMILY_NAME + '.',
+      expect(err.code).toBe(404);
+      expect(
+        err.message).toBe('Column family not found: ' + FAMILY_NAME + '.',
       );
     });
   });
