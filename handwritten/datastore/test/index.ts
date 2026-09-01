@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {before, beforeEach, after, afterEach, describe, it} from 'mocha';
 import * as gax from 'google-gax';
-import * as proxyquire from 'proxyquire';
 import {PassThrough, Readable} from 'stream';
 
 import * as ds from '../src';
@@ -31,14 +28,12 @@ import {
 import {RequestCallback, RequestConfig} from '../src/request';
 import {ExplainOptions, ExplainMetrics, RunQueryInfo} from '../src/query';
 import * as is from 'is';
-import * as sinon from 'sinon';
 import * as extend from 'extend';
 import {google} from '../src/protos';
 import {ServiceError} from 'google-gax';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const v1 = require('../src/v1/index.js');
-const async = require('async');
+const v1 = require('../src/v1');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fakeEntityInit: any = {
@@ -94,77 +89,117 @@ const fakeEntityInit: any = {
   URLSafeKey: entity.URLSafeKey,
 };
 
-const fakeEntity: any = {};
+// eslint-disable-next-line no-var
+var mockFakeEntity: any = fakeEntityInit;
 
-let googleAuthOverride: Function | null;
+
+let googleAuthOverride: Function | null = null;
 function fakeGoogleAuth(...args: Array<{}>) {
   return (googleAuthOverride || (() => {}))(...args);
 }
 
-let createInsecureOverride: Function | null;
+let createInsecureOverride: Function | null = null;
 
 const SECOND_DATABASE_ID = 'multidb-test';
-
 export {SECOND_DATABASE_ID};
 
-const fakeGoogleGax = {
+jest.mock('google-auth-library', () => ({
   GoogleAuth: fakeGoogleAuth,
-  GrpcClient: class extends gax.GrpcClient {
-    constructor(opts: gax.GrpcClientOptions) {
-      // super constructor must be called first!
-      super(opts);
-      this.grpc = {
-        credentials: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          createInsecure(...args: any[]) {
-            return (createInsecureOverride || (() => {}))(...args);
+}));
+
+jest.mock('google-gax', () => {
+  const actual = jest.requireActual('google-gax');
+  return {
+    ...actual,
+    GoogleAuth: fakeGoogleAuth,
+    GrpcClient: class extends actual.GrpcClient {
+      constructor(opts: any) {
+        super(opts);
+        this.grpc = {
+          credentials: {
+            createInsecure(...args: any[]) {
+              return (createInsecureOverride || (() => {}))(...args);
+            },
           },
-        },
-      } as {} as gax.GrpcModule;
-    }
-  },
+        } as any;
+      }
+    },
+  };
+});
+
+// eslint-disable-next-line no-var
+var MockIndex = class {
+  calledWith_: Array<{}>;
+  constructor(...args: any[]) {
+    this.calledWith_ = args;
+  }
 };
 
-class FakeIndex {
-  calledWith_: Array<{}>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(...args: any[]) {
-    this.calledWith_ = args;
-  }
-}
-
-class FakeQuery {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line no-var
+var MockQuery = class {
   calledWith_: any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   constructor(...args: any[]) {
     this.calledWith_ = args;
   }
-}
+};
 
-class FakeTransaction {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line no-var
+var MockTransaction = class {
   calledWith_: any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   constructor(...args: any[]) {
     this.calledWith_ = args;
   }
-}
+};
 
-function FakeV1() {}
+jest.mock('../src/index-class', () => {
+  const actual = jest.requireActual('../src/index-class');
+  return {
+    get Index() {
+      return MockIndex || actual.Index;
+    },
+  };
+});
+jest.mock('../src/query', () => {
+  const actual = jest.requireActual('../src/query');
+  return {
+    get Query() {
+      return MockQuery || actual.Query;
+    },
+  };
+});
+jest.mock('../src/transaction', () => {
+  const actual = jest.requireActual('../src/transaction');
+  return {
+    get Transaction() {
+      return MockTransaction || actual.Transaction;
+    },
+  };
+});
+jest.mock('../src/v1', () => {
+  const actual = jest.requireActual('../src/v1');
+  return actual;
+});
+jest.mock('../src/entity', () => {
+  const actual = jest.requireActual('../src/entity');
+  return {
+    get entity() {
+      return (mockFakeEntity && Object.keys(mockFakeEntity).length > 0)
+        ? mockFakeEntity
+        : actual.entity;
+    },
+  };
+});
 
-const sandbox = sinon.createSandbox();
 
-async.each(
-  [
-    {namespace: `${Date.now()}`},
-    {namespace: `second-db-${Date.now()}`, databaseId: SECOND_DATABASE_ID},
-  ],
-  (clientOptions: DatastoreOptions) => {
-    describe('Datastore', () => {
-      let Datastore: typeof ds.Datastore;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let datastore: any;
+const clientTestCases = [
+  {namespace: `${Date.now()}`},
+  {namespace: `second-db-${Date.now()}`, databaseId: SECOND_DATABASE_ID},
+];
+for (const clientOptions of clientTestCases) {
+  describe('Datastore', () => {
+    const Datastore = ds.Datastore;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let datastore: any;
 
       const PROJECT_ID = 'project-id';
       const NAMESPACE = 'namespace';
@@ -182,30 +217,10 @@ async.each(
 
       const OPTIONS = Object.assign(DEFAULT_OPTIONS, clientOptions);
 
-      before(() => {
-        Object.assign(fakeEntity, fakeEntityInit);
-        const buildEntityProtoModule = proxyquire(
-          '../src/utils/entity/buildEntityProto.js',
-          {
-            '../../entity.js': {entity: fakeEntity},
-          },
-        );
-        Datastore = proxyquire('../src', {
-          './entity.js': {entity: fakeEntity},
-          './index-class.js': {Index: FakeIndex},
-          './query.js': {Query: FakeQuery},
-          './transaction.js': {Transaction: FakeTransaction},
-          './v1': FakeV1,
-          'google-auth-library': {
-            GoogleAuth: fakeGoogleAuth,
-          },
-          'google-gax': fakeGoogleGax,
-          './utils/entity/buildEntityProto': buildEntityProtoModule,
-        }).Datastore;
-      });
+
 
       beforeEach(() => {
-        Object.assign(fakeEntity, fakeEntityInit);
+        Object.assign(mockFakeEntity, fakeEntityInit);
 
         createInsecureOverride = null;
         googleAuthOverride = null;
@@ -224,50 +239,47 @@ async.each(
         }
       });
 
-      after(() => {
+      afterAll(() => {
         createInsecureOverride = null;
         googleAuthOverride = null;
       });
 
       it('should export GAX client', () => {
-        assert.ok(require('../src').v1);
+        expect(require('../src').v1).toBeTruthy();
       });
 
       describe('instantiation', () => {
         it('should initialize an empty Client map', () => {
-          assert(datastore.clients_ instanceof Map);
-          assert.strictEqual(datastore.clients_.size, 0);
+          expect(datastore.clients_ instanceof Map).toBeTruthy();
+          expect(datastore.clients_.size).toBe(0);
         });
 
         it('should alias itself to the datastore property', () => {
-          assert.strictEqual(datastore.datastore, datastore);
+          expect(datastore.datastore).toBe(datastore);
         });
 
         it('should localize the namespace', () => {
-          assert.strictEqual(datastore.namespace, NAMESPACE);
+          expect(datastore.namespace).toBe(NAMESPACE);
         });
 
         it('should localize the projectId', () => {
-          assert.strictEqual(datastore.options.projectId, PROJECT_ID);
+          expect(datastore.options.projectId).toBe(PROJECT_ID);
         });
 
         it('should not default options.projectId to placeholder', () => {
           const datastore = new Datastore({});
-          assert.strictEqual(datastore.options.projectId, undefined);
+          expect(datastore.options.projectId).toBe(undefined);
         });
 
         it('should use DATASTORE_PROJECT_ID', () => {
           const projectId = 'overridden-project-id';
           process.env.DATASTORE_PROJECT_ID = projectId;
           const datastore = new Datastore({});
-          assert.strictEqual(datastore.options.projectId, projectId);
+          expect(datastore.options.projectId).toBe(projectId);
         });
 
         it('should set the default base URL', () => {
-          assert.strictEqual(
-            datastore.defaultBaseUrl_,
-            'datastore.googleapis.com',
-          );
+          expect(datastore.defaultBaseUrl_).toBe('datastore.googleapis.com');
         });
 
         it('should set default API connection details', done => {
@@ -276,7 +288,7 @@ async.each(
           Datastore.prototype.determineBaseUrl_ = customApiEndpoint => {
             Datastore.prototype.determineBaseUrl_ = determineBaseUrl_;
 
-            assert.strictEqual(customApiEndpoint, OPTIONS.apiEndpoint);
+            expect(customApiEndpoint).toBe(OPTIONS.apiEndpoint);
             done();
           };
 
@@ -293,11 +305,9 @@ async.each(
 
           const datastore = new Datastore(options);
 
-          assert.notStrictEqual(datastore.options, options);
+          expect(datastore.options).not.toBe(options);
 
-          assert.deepStrictEqual(
-            datastore.options,
-            Object.assign(
+          expect(datastore.options).toEqual(Object.assign(
               {
                 libName: 'gccl',
                 libVersion: require('../../package.json').version,
@@ -307,8 +317,7 @@ async.each(
                 projectId: undefined,
               },
               options,
-            ),
-          );
+            ));
         });
 
         it('should set port if detected', () => {
@@ -320,7 +329,7 @@ async.each(
           };
           const datastore = new Datastore(OPTIONS);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          assert.strictEqual((datastore.options as any).port, port);
+          expect((datastore.options as any).port).toBe(port);
         });
 
         it('should set grpc ssl credentials if localhost custom endpoint', () => {
@@ -331,7 +340,7 @@ async.each(
 
           const datastore = new Datastore(OPTIONS);
 
-          assert.strictEqual(datastore.options.sslCreds, fakeInsecureCreds);
+          expect(datastore.options.sslCreds).toBe(fakeInsecureCreds);
         });
 
         describe('checking ssl credentials are set correctly with custom endpoints', () => {
@@ -364,7 +373,7 @@ async.each(
                   sslCreds,
                 };
                 const datastore = new Datastore(options);
-                assert.strictEqual(datastore.options.sslCreds, sslCreds);
+                expect(datastore.options.sslCreds).toBe(sslCreds);
               });
               it('should use insecure ssl credentials when ssl credentials are not provided', () => {
                 // When using a localhost endpoint it is assumed that the emulator is being used.
@@ -372,10 +381,7 @@ async.each(
                 const datastore = new Datastore({
                   apiEndpoint,
                 });
-                assert.strictEqual(
-                  datastore.options.sslCreds,
-                  fakeInsecureCreds,
-                );
+                expect(datastore.options.sslCreds).toBe(fakeInsecureCreds);
               });
             });
             describe('using a remote endpoint', () => {
@@ -387,7 +393,7 @@ async.each(
                   sslCreds,
                 };
                 const datastore = new Datastore(options);
-                assert.strictEqual(datastore.options.sslCreds, sslCreds);
+                expect(datastore.options.sslCreds).toBe(sslCreds);
               });
               it('should not set ssl credentials when ssl credentials are not provided', () => {
                 // When using a remote endpoint without DATASTORE_EMULATOR_HOST set,
@@ -396,7 +402,7 @@ async.each(
                 const datastore = new Datastore({
                   apiEndpoint,
                 });
-                assert.strictEqual(datastore.options.sslCreds, undefined);
+                expect(datastore.options.sslCreds).toBe(undefined);
               });
             });
           });
@@ -417,7 +423,7 @@ async.each(
                   apiEndpoint,
                   sslCreds,
                 });
-                assert.strictEqual(datastore.options.sslCreds, sslCreds);
+                expect(datastore.options.sslCreds).toBe(sslCreds);
               });
 
               it('should use insecure ssl credentials when ssl credentials are not provided', () => {
@@ -426,10 +432,7 @@ async.each(
                 const datastore = new Datastore({
                   apiEndpoint,
                 });
-                assert.strictEqual(
-                  datastore.options.sslCreds,
-                  fakeInsecureCreds,
-                );
+                expect(datastore.options.sslCreds).toBe(fakeInsecureCreds);
               });
             });
 
@@ -445,7 +448,7 @@ async.each(
                   apiEndpoint,
                   sslCreds,
                 });
-                assert.strictEqual(datastore.options.sslCreds, sslCreds);
+                expect(datastore.options.sslCreds).toBe(sslCreds);
               });
 
               it('should use insecure ssl credentials when ssl credentials are not provided', () => {
@@ -454,14 +457,11 @@ async.each(
                 const datastore = new Datastore({
                   apiEndpoint,
                 });
-                assert.strictEqual(
-                  datastore.options.sslCreds,
-                  fakeInsecureCreds,
-                );
+                expect(datastore.options.sslCreds).toBe(fakeInsecureCreds);
               });
             });
 
-            after(() => {
+            afterAll(() => {
               delete process.env.DATASTORE_EMULATOR_HOST;
             });
           });
@@ -475,7 +475,7 @@ async.each(
           };
 
           const datastore = new Datastore({});
-          assert.strictEqual(datastore.auth, fakeGoogleAuthInstance);
+          expect(datastore.auth).toBe(fakeGoogleAuthInstance);
         });
       });
 
@@ -483,13 +483,13 @@ async.each(
         it('should expose Double builder', () => {
           const aDouble = 7.0;
           const double = Datastore.double(aDouble);
-          assert.strictEqual(double.value, aDouble);
+          expect(double.value).toBe(aDouble);
         });
 
         it('should also be on the prototype', () => {
           const aDouble = 7.0;
           const double = datastore.double(aDouble);
-          assert.strictEqual(double.value, aDouble);
+          expect(double.value).toBe(aDouble);
         });
       });
 
@@ -497,13 +497,13 @@ async.each(
         it('should expose GeoPoint builder', () => {
           const aGeoPoint = {latitude: 24, longitude: 88};
           const geoPoint = Datastore.geoPoint(aGeoPoint);
-          assert.strictEqual(geoPoint.value, aGeoPoint);
+          expect(geoPoint.value).toBe(aGeoPoint);
         });
 
         it('should also be on the prototype', () => {
           const aGeoPoint = {latitude: 24, longitude: 88};
           const geoPoint = datastore.geoPoint(aGeoPoint);
-          assert.strictEqual(geoPoint.value, aGeoPoint);
+          expect(geoPoint.value).toBe(aGeoPoint);
         });
       });
 
@@ -511,13 +511,13 @@ async.each(
         it('should expose Int builder', () => {
           const anInt = 7;
           const int = Datastore.int(anInt);
-          assert.strictEqual(int.value, anInt);
+          expect(int.value).toBe(anInt);
         });
 
         it('should also be on the prototype', () => {
           const anInt = 7;
           const int = datastore.int(anInt);
-          assert.strictEqual(int.value, anInt);
+          expect(int.value).toBe(anInt);
         });
       });
 
@@ -525,21 +525,21 @@ async.each(
         it('should pass value to entity', () => {
           const value = 0.42;
           let called = false;
-          const saved = fakeEntity.isDsDouble;
-          fakeEntity.isDsDouble = (arg: {}) => {
-            assert.strictEqual(arg, value);
+          const saved = mockFakeEntity.isDsDouble;
+          mockFakeEntity.isDsDouble = (arg: {}) => {
+            expect(arg).toBe(value);
             called = true;
             return false;
           };
-          assert.strictEqual(datastore.isDouble(value), false);
-          assert.strictEqual(called, true);
-          fakeEntity.isDsDouble = saved;
+          expect(datastore.isDouble(value)).toBe(false);
+          expect(called).toBe(true);
+          mockFakeEntity.isDsDouble = saved;
         });
 
         it('should expose Double identifier', () => {
           const something = {};
           Datastore.isDouble(something);
-          assert.strictEqual(fakeEntity.calledWith_[0], something);
+          expect(mockFakeEntity.calledWith_[0]).toBe(something);
         });
       });
 
@@ -547,21 +547,21 @@ async.each(
         it('should pass value to entity', () => {
           const value = {fakeLatitude: 1, fakeLongitude: 2};
           let called = false;
-          const saved = fakeEntity.isDsGeoPoint;
-          fakeEntity.isDsGeoPoint = (arg: {}) => {
-            assert.strictEqual(arg, value);
+          const saved = mockFakeEntity.isDsGeoPoint;
+          mockFakeEntity.isDsGeoPoint = (arg: {}) => {
+            expect(arg).toBe(value);
             called = true;
             return false;
           };
-          assert.strictEqual(datastore.isGeoPoint(value), false);
-          assert.strictEqual(called, true);
-          fakeEntity.isDsGeoPoint = saved;
+          expect(datastore.isGeoPoint(value)).toBe(false);
+          expect(called).toBe(true);
+          mockFakeEntity.isDsGeoPoint = saved;
         });
 
         it('should expose GeoPoint identifier', () => {
           const something = {};
           Datastore.isGeoPoint(something);
-          assert.strictEqual(fakeEntity.calledWith_[0], something);
+          expect(mockFakeEntity.calledWith_[0]).toBe(something);
         });
       });
 
@@ -569,21 +569,21 @@ async.each(
         it('should pass value to entity', () => {
           const value = 42;
           let called = false;
-          const saved = fakeEntity.isDsInt;
-          fakeEntity.isDsInt = (arg: {}) => {
-            assert.strictEqual(arg, value);
+          const saved = mockFakeEntity.isDsInt;
+          mockFakeEntity.isDsInt = (arg: {}) => {
+            expect(arg).toBe(value);
             called = true;
             return false;
           };
-          assert.strictEqual(datastore.isInt(value), false);
-          assert.strictEqual(called, true);
-          fakeEntity.isDsInt = saved;
+          expect(datastore.isInt(value)).toBe(false);
+          expect(called).toBe(true);
+          mockFakeEntity.isDsInt = saved;
         });
 
         it('should expose Int identifier', () => {
           const something = {};
           Datastore.isInt(something);
-          assert.strictEqual(fakeEntity.calledWith_[0], something);
+          expect(mockFakeEntity.calledWith_[0]).toBe(something);
         });
       });
 
@@ -591,76 +591,61 @@ async.each(
         it('should pass value to entity', () => {
           const value = {zz: true};
           let called = false;
-          const saved = fakeEntity.isDsKey;
-          fakeEntity.isDsKey = (arg: {}) => {
-            assert.strictEqual(arg, value);
+          const saved = mockFakeEntity.isDsKey;
+          mockFakeEntity.isDsKey = (arg: {}) => {
+            expect(arg).toBe(value);
             called = true;
             return false;
           };
-          assert.strictEqual(datastore.isKey(value), false);
-          assert.strictEqual(called, true);
-          fakeEntity.isDsKey = saved;
+          expect(datastore.isKey(value)).toBe(false);
+          expect(called).toBe(true);
+          mockFakeEntity.isDsKey = saved;
         });
 
         it('should expose Key identifier', () => {
           const something = {};
           datastore.isKey(something);
-          assert.strictEqual(fakeEntity.calledWith_[0], something);
+          expect(mockFakeEntity.calledWith_[0]).toBe(something);
         });
       });
 
       describe('KEY', () => {
         it('should expose the KEY symbol', () => {
-          assert.strictEqual(Datastore.KEY, fakeEntity.KEY_SYMBOL);
+          expect(Datastore.KEY).toBe(mockFakeEntity.KEY_SYMBOL);
         });
 
         it('should also be on the prototype', () => {
-          assert.strictEqual(datastore.KEY, Datastore.KEY);
+          expect(datastore.KEY).toBe(Datastore.KEY);
         });
       });
 
       describe('MORE_RESULTS_AFTER_CURSOR', () => {
         it('should expose a MORE_RESULTS_AFTER_CURSOR helper', () => {
-          assert.strictEqual(
-            Datastore.MORE_RESULTS_AFTER_CURSOR,
-            'MORE_RESULTS_AFTER_CURSOR',
-          );
+          expect(Datastore.MORE_RESULTS_AFTER_CURSOR).toBe('MORE_RESULTS_AFTER_CURSOR');
         });
 
         it('should also be on the prototype', () => {
-          assert.strictEqual(
-            datastore.MORE_RESULTS_AFTER_CURSOR,
-            Datastore.MORE_RESULTS_AFTER_CURSOR,
-          );
+          expect(datastore.MORE_RESULTS_AFTER_CURSOR).toBe(Datastore.MORE_RESULTS_AFTER_CURSOR);
         });
       });
 
       describe('MORE_RESULTS_AFTER_LIMIT', () => {
         it('should expose a MORE_RESULTS_AFTER_LIMIT helper', () => {
-          assert.strictEqual(
-            Datastore.MORE_RESULTS_AFTER_LIMIT,
-            'MORE_RESULTS_AFTER_LIMIT',
-          );
+          expect(Datastore.MORE_RESULTS_AFTER_LIMIT).toBe('MORE_RESULTS_AFTER_LIMIT');
         });
 
         it('should also be on the prototype', () => {
-          assert.strictEqual(
-            datastore.MORE_RESULTS_AFTER_LIMIT,
-            Datastore.MORE_RESULTS_AFTER_LIMIT,
-          );
+          expect(datastore.MORE_RESULTS_AFTER_LIMIT).toBe(Datastore.MORE_RESULTS_AFTER_LIMIT);
         });
       });
 
       describe('NO_MORE_RESULTS', () => {
         it('should expose a NO_MORE_RESULTS helper', () => {
-          assert.strictEqual(Datastore.NO_MORE_RESULTS, 'NO_MORE_RESULTS');
+          expect(Datastore.NO_MORE_RESULTS).toBe('NO_MORE_RESULTS');
         });
 
         it('should also be on the prototype', () => {
-          assert.strictEqual(
-            datastore.NO_MORE_RESULTS,
-            Datastore.NO_MORE_RESULTS,
-          );
+          expect(datastore.NO_MORE_RESULTS).toBe(Datastore.NO_MORE_RESULTS);
         });
       });
 
@@ -671,28 +656,28 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const query: any = datastore.createQuery(namespace, kind);
-          assert(query instanceof FakeQuery);
+          expect(query instanceof MockQuery).toBeTruthy();
 
-          assert.strictEqual(query.calledWith_[0], datastore);
-          assert.strictEqual(query.calledWith_[1], namespace);
-          assert.deepStrictEqual(query.calledWith_[2], kind);
+          expect(query.calledWith_[0]).toBe(datastore);
+          expect(query.calledWith_[1]).toBe(namespace);
+          expect(query.calledWith_[2]).toEqual(kind);
         });
 
         it('should include the default namespace', () => {
           const kind = ['Kind'];
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const query: any = datastore.createQuery(kind);
-          assert.strictEqual(query.calledWith_[0], datastore);
-          assert.strictEqual(query.calledWith_[1], datastore.namespace);
-          assert.deepStrictEqual(query.calledWith_[2], kind);
+          expect(query.calledWith_[0]).toBe(datastore);
+          expect(query.calledWith_[1]).toBe(datastore.namespace);
+          expect(query.calledWith_[2]).toEqual(kind);
         });
 
         it('should include the default namespace in a kindless query', () => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const query: any = datastore.createQuery();
-          assert.strictEqual(query.calledWith_[0], datastore);
-          assert.strictEqual(query.calledWith_[1], datastore.namespace);
-          assert.deepStrictEqual(query.calledWith_[2], []);
+          expect(query.calledWith_[0]).toBe(datastore);
+          expect(query.calledWith_[1]).toBe(datastore.namespace);
+          expect(query.calledWith_[2]).toEqual([]);
         });
       });
 
@@ -702,14 +687,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(
-              config.reqOpts.outputUrlPrefix,
-              `gs://${bucket}`,
-            );
+            expect(config.reqOpts.outputUrlPrefix).toBe(`gs://${bucket}`);
             done();
           };
 
-          datastore.export({bucket}, assert.ifError);
+          datastore.export({bucket}, () => {});
         });
 
         it('should remove extraneous gs:// prefix from input', done => {
@@ -717,11 +699,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.reqOpts.outputUrlPrefix, `${bucket}`);
+            expect(config.reqOpts.outputUrlPrefix).toBe(`${bucket}`);
             done();
           };
 
-          datastore.export({bucket}, assert.ifError);
+          datastore.export({bucket}, () => {});
         });
 
         it('should accept a Bucket object destination', done => {
@@ -729,32 +711,29 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(
-              config.reqOpts.outputUrlPrefix,
-              `gs://${bucket.name}`,
-            );
+            expect(config.reqOpts.outputUrlPrefix).toBe(`gs://${bucket.name}`);
             done();
           };
 
-          datastore.export({bucket}, assert.ifError);
+          datastore.export({bucket}, () => {});
         });
 
         it('should throw if a destination is not provided', () => {
-          assert.throws(() => {
-            datastore.export({}, assert.ifError);
-          }, /A Bucket object or URL must be provided\./);
+          expect(() => {
+            datastore.export({}, () => {});
+          }).toThrow(/A Bucket object or URL must be provided\./);
         });
 
         it('should throw if bucket and outputUrlPrefix are provided', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.export(
               {
                 bucket: 'bucket',
                 outputUrlPrefix: 'output-url-prefix',
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Both `bucket` and `outputUrlPrefix` were provided\./);
+          }).toThrow(/Both `bucket` and `outputUrlPrefix` were provided\./);
         });
 
         it('should accept kinds', done => {
@@ -763,24 +742,24 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.deepStrictEqual(config.reqOpts.entityFilter.kinds, kinds);
+            expect(config.reqOpts.entityFilter.kinds).toEqual(kinds);
             done();
           };
 
-          datastore.export(config, assert.ifError);
+          datastore.export(config, () => {});
         });
 
         it('should throw if both kinds and entityFilter are provided', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.export(
               {
                 bucket: 'bucket',
                 kinds: ['kind1', 'kind2'],
                 entityFilter: {},
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Both `entityFilter` and `kinds` were provided\./);
+          }).toThrow(/Both `entityFilter` and `kinds` were provided\./);
         });
 
         it('should accept namespaces', done => {
@@ -789,27 +768,24 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.deepStrictEqual(
-              config.reqOpts.entityFilter.namespaceIds,
-              namespaces,
-            );
+            expect(config.reqOpts.entityFilter.namespaceIds).toEqual(namespaces);
             done();
           };
 
-          datastore.export(config, assert.ifError);
+          datastore.export(config, () => {});
         });
 
         it('should throw if both namespaces and entityFilter are provided', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.export(
               {
                 bucket: 'bucket',
                 namespaces: ['ns1', 'ns2'],
                 entityFilter: {},
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Both `entityFilter` and `namespaces` were provided\./);
+          }).toThrow(/Both `entityFilter` and `namespaces` were provided\./);
         });
 
         it('should remove extraneous properties from request', done => {
@@ -822,14 +798,14 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(typeof config.reqOpts.bucket, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.gaxOptions, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.kinds, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.namespaces, 'undefined');
+            expect(typeof config.reqOpts.bucket).toBe('undefined');
+            expect(typeof config.reqOpts.gaxOptions).toBe('undefined');
+            expect(typeof config.reqOpts.kinds).toBe('undefined');
+            expect(typeof config.reqOpts.namespaces).toBe('undefined');
             done();
           };
 
-          datastore.export(config, assert.ifError);
+          datastore.export(config, () => {});
         });
 
         it('should send any user input to API', done => {
@@ -838,11 +814,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.reqOpts.userProperty, userProperty);
+            expect(config.reqOpts.userProperty).toBe(userProperty);
             done();
           };
 
-          datastore.export(config, assert.ifError);
+          datastore.export(config, () => {});
         });
 
         it('should send correct request', done => {
@@ -850,13 +826,13 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.client, 'DatastoreAdminClient');
-            assert.strictEqual(config.method, 'exportEntities');
-            assert.strictEqual(typeof config.gaxOpts, 'undefined');
+            expect(config.client).toBe('DatastoreAdminClient');
+            expect(config.method).toBe('exportEntities');
+            expect(typeof config.gaxOpts).toBe('undefined');
             done();
           };
 
-          datastore.export(config, assert.ifError);
+          datastore.export(config, () => {});
         });
 
         it('should accept gaxOptions', done => {
@@ -865,11 +841,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.gaxOpts, gaxOptions);
+            expect(config.gaxOpts).toBe(gaxOptions);
             done();
           };
 
-          datastore.export(config, assert.ifError);
+          datastore.export(config, () => {});
         });
       });
 
@@ -879,19 +855,19 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.client, 'DatastoreAdminClient');
-            assert.strictEqual(config.method, 'listIndexes');
-            assert.deepStrictEqual(config.reqOpts, {
+            expect(config.client).toBe('DatastoreAdminClient');
+            expect(config.method).toBe('listIndexes');
+            expect(config.reqOpts).toEqual({
               pageSize: undefined,
               pageToken: undefined,
               ...options,
             });
-            assert.deepStrictEqual(config.gaxOpts, {});
+            expect(config.gaxOpts).toEqual({});
 
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should locate pagination settings from gaxOptions', done => {
@@ -904,18 +880,12 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(
-              config.reqOpts.pageSize,
-              options.gaxOptions.pageSize,
-            );
-            assert.strictEqual(
-              config.reqOpts.pageToken,
-              options.gaxOptions.pageToken,
-            );
+            expect(config.reqOpts.pageSize).toBe(options.gaxOptions.pageSize);
+            expect(config.reqOpts.pageToken).toBe(options.gaxOptions.pageToken);
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should prefer pageSize and pageToken from options over gaxOptions', done => {
@@ -930,12 +900,12 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.reqOpts.pageSize, options.pageSize);
-            assert.strictEqual(config.reqOpts.pageToken, options.pageToken);
+            expect(config.reqOpts.pageSize).toBe(options.pageSize);
+            expect(config.reqOpts.pageToken).toBe(options.pageToken);
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should remove extraneous pagination settings from request', done => {
@@ -949,13 +919,13 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(typeof config.gaxOpts.pageSize, 'undefined');
-            assert.strictEqual(typeof config.gaxOpts.pageToken, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.autoPaginate, 'undefined');
+            expect(typeof config.gaxOpts.pageSize).toBe('undefined');
+            expect(typeof config.gaxOpts.pageToken).toBe('undefined');
+            expect(typeof config.reqOpts.autoPaginate).toBe('undefined');
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should accept gaxOptions', done => {
@@ -965,12 +935,12 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(typeof config.reqOpts.gaxOptions, 'undefined');
-            assert.deepStrictEqual(config.gaxOpts, options.gaxOptions);
+            expect(typeof config.reqOpts.gaxOptions).toBe('undefined');
+            expect(config.gaxOpts).toEqual(options.gaxOptions);
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should not send gaxOptions as request options', done => {
@@ -980,13 +950,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert(
-              Object.keys(options.gaxOptions).every(k => !config.reqOpts[k]),
-            );
+            expect(Object.keys(options.gaxOptions).every(k => !config.reqOpts[k])).toBeTruthy();
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should set autoPaginate from options', done => {
@@ -996,14 +964,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(
-              config.gaxOpts.autoPaginate,
-              options.autoPaginate,
-            );
+            expect(config.gaxOpts.autoPaginate).toBe(options.autoPaginate);
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should prefer autoPaginate from gaxOpts', done => {
@@ -1016,11 +981,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.gaxOpts.autoPaginate, true);
+            expect(config.gaxOpts.autoPaginate).toBe(true);
             done();
           };
 
-          datastore.getIndexes(options, assert.ifError);
+          datastore.getIndexes(options, () => {});
         });
 
         it('should execute callback with error and correct response arguments', done => {
@@ -1034,10 +999,10 @@ async.each(
 
           datastore.getIndexes(
             (err: Error, indexes: [], nextQuery: {}, apiResp: {}) => {
-              assert.strictEqual(err, error);
-              assert.deepStrictEqual(indexes, []);
-              assert.strictEqual(nextQuery, null);
-              assert.strictEqual(apiResp, apiResponse);
+              expect(err).toBe(error);
+              expect(indexes).toEqual([]);
+              expect(nextQuery).toBe(null);
+              expect(apiResp).toBe(apiResponse);
               done();
             },
           );
@@ -1048,7 +1013,7 @@ async.each(
           const indexInstance = {};
 
           datastore.index = (id: string) => {
-            assert.strictEqual(id, rawIndex.indexId);
+            expect(id).toBe(rawIndex.indexId);
             return indexInstance;
           };
 
@@ -1059,10 +1024,10 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.getIndexes((err: Error, indexes: any[]) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(indexes, [indexInstance]);
+            expect(err).toBeFalsy();
+            expect(indexes).toEqual([indexInstance]);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            assert.strictEqual((indexes[0] as any)!.metadata, rawIndex);
+            expect((indexes[0] as any)!.metadata).toBe(rawIndex);
             done();
           });
         });
@@ -1079,8 +1044,8 @@ async.each(
           datastore.getIndexes(
             options,
             (err: Error, indexes: [], _nextQuery: {}) => {
-              assert.ifError(err);
-              assert.deepStrictEqual(_nextQuery, nextQuery);
+              expect(err).toBeFalsy();
+              expect(_nextQuery).toEqual(nextQuery);
               done();
             },
           );
@@ -1093,12 +1058,12 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.requestStream_ = (config: any) => {
-            assert.strictEqual(config.client, 'DatastoreAdminClient');
-            assert.strictEqual(config.method, 'listIndexesStream');
-            assert.deepStrictEqual(config.reqOpts, {
+            expect(config.client).toBe('DatastoreAdminClient');
+            expect(config.method).toBe('listIndexesStream');
+            expect(config.reqOpts).toEqual({
               ...options,
             });
-            assert.strictEqual(typeof config.gaxOpts, 'undefined');
+            expect(typeof config.gaxOpts).toBe('undefined');
             setImmediate(done);
             return new PassThrough();
           };
@@ -1111,7 +1076,7 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.requestStream_ = (config: any) => {
-            assert.strictEqual(config.gaxOpts, options.gaxOptions);
+            expect(config.gaxOpts).toBe(options.gaxOptions);
             setImmediate(done);
             return new PassThrough();
           };
@@ -1131,7 +1096,7 @@ async.each(
           });
 
           datastore.index = (id: string) => {
-            assert.strictEqual(id, rawIndex.indexId);
+            expect(id).toBe(rawIndex.indexId);
             return indexInstance;
           };
 
@@ -1142,9 +1107,9 @@ async.each(
             .on('error', done)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .on('data', (index: any) => {
-              assert.strictEqual(index, indexInstance);
+              expect(index).toBe(indexInstance);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              assert.strictEqual((index as any).metadata, rawIndex);
+              expect((index as any).metadata).toBe(rawIndex);
               done();
             });
         });
@@ -1152,15 +1117,15 @@ async.each(
 
       describe('import', () => {
         it('should throw if both file and inputUrl are provided', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.import(
               {
                 file: 'file',
                 inputUrl: 'gs://file',
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Both `file` and `inputUrl` were provided\./);
+          }).toThrow(/Both `file` and `inputUrl` were provided\./);
         });
 
         it('should accept a file string source', done => {
@@ -1168,11 +1133,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.reqOpts.inputUrl, `gs://${file}`);
+            expect(config.reqOpts.inputUrl).toBe(`gs://${file}`);
             done();
           };
 
-          datastore.import({file}, assert.ifError);
+          datastore.import({file}, () => {});
         });
 
         it('should remove extraneous gs:// prefix from input', done => {
@@ -1180,11 +1145,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.reqOpts.inputUrl, `${file}`);
+            expect(config.reqOpts.inputUrl).toBe(`${file}`);
             done();
           };
 
-          datastore.import({file}, assert.ifError);
+          datastore.import({file}, () => {});
         });
 
         it('should accept a File object source', done => {
@@ -1192,20 +1157,17 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(
-              config.reqOpts.inputUrl,
-              `gs://${file.bucket.name}/${file.name}`,
-            );
+            expect(config.reqOpts.inputUrl).toBe(`gs://${file.bucket.name}/${file.name}`);
             done();
           };
 
-          datastore.import({file}, assert.ifError);
+          datastore.import({file}, () => {});
         });
 
         it('should throw if a source is not provided', () => {
-          assert.throws(() => {
-            datastore.import({}, assert.ifError);
-          }, /An input URL must be provided\./);
+          expect(() => {
+            datastore.import({}, () => {});
+          }).toThrow(/An input URL must be provided\./);
         });
 
         it('should accept kinds', done => {
@@ -1214,24 +1176,24 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.deepStrictEqual(config.reqOpts.entityFilter.kinds, kinds);
+            expect(config.reqOpts.entityFilter.kinds).toEqual(kinds);
             done();
           };
 
-          datastore.import(config, assert.ifError);
+          datastore.import(config, () => {});
         });
 
         it('should throw if both kinds and entityFilter are provided', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.import(
               {
                 file: 'file',
                 kinds: ['kind1', 'kind2'],
                 entityFilter: {},
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Both `entityFilter` and `kinds` were provided\./);
+          }).toThrow(/Both `entityFilter` and `kinds` were provided\./);
         });
 
         it('should accept namespaces', done => {
@@ -1240,27 +1202,24 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.deepStrictEqual(
-              config.reqOpts.entityFilter.namespaceIds,
-              namespaces,
-            );
+            expect(config.reqOpts.entityFilter.namespaceIds).toEqual(namespaces);
             done();
           };
 
-          datastore.import(config, assert.ifError);
+          datastore.import(config, () => {});
         });
 
         it('should throw if both namespaces and entityFilter are provided', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.import(
               {
                 file: 'file',
                 namespaces: ['ns1', 'ns2'],
                 entityFilter: {},
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Both `entityFilter` and `namespaces` were provided\./);
+          }).toThrow(/Both `entityFilter` and `namespaces` were provided\./);
         });
 
         it('should remove extraneous properties from request', done => {
@@ -1273,14 +1232,14 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(typeof config.reqOpts.file, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.gaxOptions, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.kinds, 'undefined');
-            assert.strictEqual(typeof config.reqOpts.namespaces, 'undefined');
+            expect(typeof config.reqOpts.file).toBe('undefined');
+            expect(typeof config.reqOpts.gaxOptions).toBe('undefined');
+            expect(typeof config.reqOpts.kinds).toBe('undefined');
+            expect(typeof config.reqOpts.namespaces).toBe('undefined');
             done();
           };
 
-          datastore.import(config, assert.ifError);
+          datastore.import(config, () => {});
         });
 
         it('should send any user input to API', done => {
@@ -1289,11 +1248,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.reqOpts.userProperty, userProperty);
+            expect(config.reqOpts.userProperty).toBe(userProperty);
             done();
           };
 
-          datastore.import(config, assert.ifError);
+          datastore.import(config, () => {});
         });
 
         it('should send correct request', done => {
@@ -1301,13 +1260,13 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.client, 'DatastoreAdminClient');
-            assert.strictEqual(config.method, 'importEntities');
-            assert.strictEqual(typeof config.gaxOpts, 'undefined');
+            expect(config.client).toBe('DatastoreAdminClient');
+            expect(config.method).toBe('importEntities');
+            expect(typeof config.gaxOpts).toBe('undefined');
             done();
           };
 
-          datastore.import(config, assert.ifError);
+          datastore.import(config, () => {});
         });
 
         it('should accept gaxOptions', done => {
@@ -1316,11 +1275,11 @@ async.each(
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           datastore.request_ = (config: any) => {
-            assert.strictEqual(config.gaxOpts, gaxOptions);
+            expect(config.gaxOpts).toBe(gaxOptions);
             done();
           };
 
-          datastore.import(config, assert.ifError);
+          datastore.import(config, () => {});
         });
       });
 
@@ -1328,17 +1287,17 @@ async.each(
         it('should return an Index object', () => {
           const indexId = 'index-id';
           const index = datastore.index(indexId);
-          assert(index instanceof FakeIndex);
+          expect(index instanceof MockIndex).toBeTruthy();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const args = (index as any).calledWith_;
-          assert.strictEqual(args[0], datastore);
-          assert.strictEqual(args[1], indexId);
+          expect(args[0]).toBe(datastore);
+          expect(args[1]).toBe(indexId);
         });
       });
 
       describe('insert', () => {
         afterEach(() => {
-          sandbox.restore();
+          jest.restoreAllMocks();
         });
 
         it('should prepare entity objects', done => {
@@ -1348,24 +1307,23 @@ async.each(
             method: 'insert',
           });
 
-          sandbox
-            .stub(ds.DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(ds.DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               return preparedEntityObject as {};
             });
 
           datastore.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(entities[0], expectedEntityObject);
+            expect(entities[0]).toEqual(expectedEntityObject);
             done();
           };
 
-          datastore.insert(entityObject, assert.ifError);
+          datastore.insert(entityObject, () => {});
         });
 
         it('should pass the correct arguments to save', done => {
           datastore.save = (entities: Entity[], callback: Function) => {
-            assert.deepStrictEqual(JSON.parse(JSON.stringify(entities)), [
+            expect(JSON.parse(JSON.stringify(entities))).toEqual([
               {
                 key: {
                   namespace: 'ns',
@@ -1388,15 +1346,15 @@ async.each(
           const options = {} as entity.KeyOptions;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const key: any = datastore.key(options);
-          assert.strictEqual(key.calledWith_[0], options);
+          expect(key.calledWith_[0]).toBe(options);
         });
 
         it('should use a non-object argument as the path', () => {
           const options = 'path';
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const key: any = datastore.key(options);
-          assert.strictEqual(key.calledWith_[0].namespace, datastore.namespace);
-          assert.deepStrictEqual(key.calledWith_[0].path, [options]);
+          expect(key.calledWith_[0].namespace).toBe(datastore.namespace);
+          expect(key.calledWith_[0].path).toEqual([options]);
         });
       });
 
@@ -1413,7 +1371,7 @@ async.each(
         });
 
         afterEach(() => {
-          sandbox.restore();
+          jest.restoreAllMocks();
         });
 
         it('should save with keys', done => {
@@ -1463,11 +1421,11 @@ async.each(
           };
 
           datastore.request_ = (config: RequestConfig, callback: Function) => {
-            assert.strictEqual(config.client, 'DatastoreClient');
-            assert.strictEqual(config.method, 'commit');
+            expect(config.client).toBe('DatastoreClient');
+            expect(config.method).toBe('commit');
 
-            assert.deepStrictEqual(config.reqOpts, expectedReq);
-            assert.deepStrictEqual(config.gaxOpts, {});
+            expect(config.reqOpts).toEqual(expectedReq);
+            expect(config.gaxOpts).toEqual({});
 
             callback();
           };
@@ -1506,10 +1464,7 @@ async.each(
           };
 
           datastore.request_ = (config: RequestConfig, callback: Function) => {
-            assert.deepStrictEqual(
-              config.reqOpts!.mutations![0].upsert!.properties,
-              expectedProperties,
-            );
+            expect(config.reqOpts!.mutations![0].upsert!.properties).toEqual(expectedProperties);
             callback();
           };
 
@@ -1530,7 +1485,7 @@ async.each(
           const gaxOptions = {};
 
           datastore.request_ = (config: RequestConfig) => {
-            assert.strictEqual(config.gaxOpts, gaxOptions);
+            expect(config.gaxOpts).toBe(gaxOptions);
             done();
           };
 
@@ -1540,7 +1495,7 @@ async.each(
               data: {},
             },
             gaxOptions,
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -1564,14 +1519,11 @@ async.each(
               },
             );
           } catch (err: unknown) {
-            assert.strictEqual(
-              (err as {message: string}).message,
-              'Unsupported field value, undefined, was provided.',
-            );
+            expect((err as {message: string}).message).toBe('Unsupported field value, undefined, was provided.');
             done();
             return;
           }
-          assert.fail('Calling save should have thrown an error');
+          throw new Error('Calling save should have thrown an error');
         });
 
         it('should throw error when name property does not support toString method', done => {
@@ -1594,26 +1546,23 @@ async.each(
               },
             );
           } catch (err: unknown) {
-            assert(
-              [
+            expect([
                 "Cannot read properties of null (reading 'toString')", // Later Node versions
                 "Cannot read property 'toString' of null", // Node 14
-              ].includes((err as {message: string}).message),
-            );
+              ].includes((err as {message: string}).message)).toBeTruthy();
             done();
             return;
           }
-          assert.fail('Calling save should have thrown an error');
+          throw new Error('Calling save should have thrown an error');
         });
 
         it('should prepare entity objects', done => {
           const entityObject = {};
           let prepared = false;
 
-          sandbox
-            .stub(ds.DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(ds.DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               prepared = true;
               return {
                 key,
@@ -1623,28 +1572,28 @@ async.each(
             });
 
           datastore.request_ = () => {
-            assert.strictEqual(prepared, true);
+            expect(prepared).toBe(true);
             done();
           };
 
-          datastore.save(entityObject, assert.ifError);
+          datastore.save(entityObject, () => {});
         });
 
         it('should save with specific method', done => {
           datastore.request_ = (config: RequestConfig, callback: Function) => {
-            assert.strictEqual(config.reqOpts!.mutations!.length, 3);
-            assert(is.object(config.reqOpts!.mutations![0].insert));
-            assert(is.object(config.reqOpts!.mutations![1].update));
-            assert(is.object(config.reqOpts!.mutations![2].upsert));
+            expect(config.reqOpts!.mutations!.length).toBe(3);
+            expect(is.object(config.reqOpts!.mutations![0].insert)).toBeTruthy();
+            expect(is.object(config.reqOpts!.mutations![1].update)).toBeTruthy();
+            expect(is.object(config.reqOpts!.mutations![2].upsert)).toBeTruthy();
 
             const insert = config.reqOpts!.mutations![0].insert!;
-            assert.deepStrictEqual(insert.properties!.k, {stringValue: 'v'});
+            expect(insert.properties!.k).toEqual({stringValue: 'v'});
 
             const update = config.reqOpts!.mutations![1].update!;
-            assert.deepStrictEqual(update.properties!.k2, {stringValue: 'v2'});
+            expect(update.properties!.k2).toEqual({stringValue: 'v2'});
 
             const upsert = config.reqOpts!.mutations![2].upsert!;
-            assert.deepStrictEqual(upsert.properties!.k3, {stringValue: 'v3'});
+            expect(upsert.properties!.k3).toEqual({stringValue: 'v3'});
 
             callback();
           };
@@ -1660,7 +1609,7 @@ async.each(
         });
 
         it('should throw if a given method is not recognized', () => {
-          assert.throws(() => {
+          expect(() => {
             datastore.save(
               {
                 key,
@@ -1669,9 +1618,9 @@ async.each(
                   k: 'v',
                 },
               },
-              assert.ifError,
+              () => {},
             );
-          }, /Method auto_insert_id not recognized/);
+          }).toThrow(/Method auto_insert_id not recognized/);
         });
 
         it('should not alter the provided data object', done => {
@@ -1693,11 +1642,11 @@ async.each(
           datastore.request_ = () => {
             // By the time the request is made, the original object has already been
             // transformed into a raw request.
-            assert.deepStrictEqual(entities, expectedEntities);
+            expect(entities).toEqual(expectedEntities);
             done();
           };
 
-          datastore.save(entities, assert.ifError);
+          datastore.save(entities, () => {});
         });
 
         it('should return apiResponse in callback', done => {
@@ -1709,8 +1658,8 @@ async.each(
           datastore.save(
             {key, data: {}},
             (err: Error | null, apiResponse: Entity) => {
-              assert.ifError(err);
-              assert.strictEqual(mockCommitResponse, apiResponse);
+              expect(err).toBeFalsy();
+              expect(mockCommitResponse).toBe(apiResponse);
               done();
             },
           );
@@ -1720,8 +1669,8 @@ async.each(
           datastore.request_ = (config: RequestConfig) => {
             const property =
               config.reqOpts!.mutations![0].upsert!.properties!.name;
-            assert.strictEqual(property.stringValue, 'value');
-            assert.strictEqual(property.excludeFromIndexes, true);
+            expect(property.stringValue).toBe('value');
+            expect(property.excludeFromIndexes).toBe(true);
             done();
           };
 
@@ -1736,7 +1685,7 @@ async.each(
                 },
               ],
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -1746,7 +1695,7 @@ async.each(
               config.reqOpts!.mutations![0].upsert!.properties!.name;
 
             property.arrayValue!.values!.forEach((value: Any) => {
-              assert.strictEqual(value.excludeFromIndexes, true);
+              expect(value.excludeFromIndexes).toBe(true);
             });
 
             done();
@@ -1763,7 +1712,7 @@ async.each(
                 },
               ],
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -1819,7 +1768,7 @@ async.each(
                 validateIndex(data.entityValue.properties[path]);
               });
             } else {
-              assert.strictEqual(data.excludeFromIndexes, true);
+              expect(data.excludeFromIndexes).toBe(true);
             }
           };
 
@@ -1837,7 +1786,7 @@ async.each(
               data,
               excludeFromIndexes: ['.*'],
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -1893,7 +1842,7 @@ async.each(
                 validateIndex(data.entityValue.properties[path]);
               });
             } else {
-              assert.strictEqual(data.excludeFromIndexes, true);
+              expect(data.excludeFromIndexes).toBe(true);
             }
           };
 
@@ -1919,7 +1868,7 @@ async.each(
                 'metadata.longStringArray[].*',
               ],
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -1929,7 +1878,7 @@ async.each(
               config.reqOpts!.mutations![0].upsert!.properties!.name;
 
             property.arrayValue!.values!.forEach((value: Any) => {
-              assert.strictEqual(value.excludeFromIndexes, true);
+              expect(value.excludeFromIndexes).toBe(true);
             });
 
             done();
@@ -1946,7 +1895,7 @@ async.each(
                 },
               ],
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -2002,20 +1951,14 @@ async.each(
             'metadata.longStringArray[].nestedLongStringArray[].longString',
           ];
 
-          fakeEntity.entityToEntityProto = (entity: EntityObject) => {
+          mockFakeEntity.entityToEntityProto = (entity: EntityObject) => {
             return entity as unknown as EntityProto;
           };
           datastore.request_ = (config: RequestConfig) => {
-            assert.strictEqual(
-              (config.reqOpts!.mutations![0].upsert! as Entity)
-                .excludeLargeProperties,
-              true,
-            );
-            assert.deepStrictEqual(
-              (config.reqOpts!.mutations![0].upsert! as Entity)
-                .excludeFromIndexes,
-              excludeFromIndexes,
-            );
+            expect((config.reqOpts!.mutations![0].upsert! as Entity)
+                .excludeLargeProperties).toBe(true);
+            expect((config.reqOpts!.mutations![0].upsert! as Entity)
+                .excludeFromIndexes).toEqual(excludeFromIndexes);
             done();
           };
 
@@ -2025,7 +1968,7 @@ async.each(
               data,
               excludeLargeProperties: true,
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -2043,11 +1986,8 @@ async.each(
           ];
 
           datastore.request_ = (config: RequestConfig) => {
-            assert.deepStrictEqual(
-              config.reqOpts!.mutations![0].upsert!.properties!.name
-                .excludeFromIndexes,
-              true,
-            );
+            expect(config.reqOpts!.mutations![0].upsert!.properties!.name
+                .excludeFromIndexes).toEqual(true);
             done();
           };
 
@@ -2057,7 +1997,7 @@ async.each(
               data,
               excludeLargeProperties: true,
             },
-            assert.ifError,
+            () => {},
           );
         });
 
@@ -2085,7 +2025,7 @@ async.each(
             callback(null, response);
           };
 
-          sandbox.stub(fakeEntity, 'keyFromKeyProto').callsFake(keyProto => {
+          jest.spyOn(mockFakeEntity, 'keyFromKeyProto').mockImplementation(keyProto => {
             keyProtos.push(keyProto as any);
             return {
               id: ids[keyProtos.length - 1],
@@ -2099,14 +2039,14 @@ async.each(
               {key: completeKey, data: {}},
             ],
             (err: Error) => {
-              assert.ifError(err);
+              expect(err).toBeFalsy();
 
-              assert.strictEqual(incompleteKey.id, ids[0]);
-              assert.strictEqual(incompleteKey2.id, ids[1]);
+              expect(incompleteKey.id).toBe(ids[0]);
+              expect(incompleteKey2.id).toBe(ids[1]);
 
-              assert.strictEqual(keyProtos.length, 2);
-              assert.strictEqual(keyProtos[0], response.mutationResults[0].key);
-              assert.strictEqual(keyProtos[1], response.mutationResults[1].key);
+              expect(keyProtos.length).toBe(2);
+              expect(keyProtos[0]).toBe(response.mutationResults[0].key);
+              expect(keyProtos[1]).toBe(response.mutationResults[1].key);
 
               done();
             },
@@ -2127,18 +2067,15 @@ async.each(
               data: [{name: 'name', value: 'value'}],
             });
 
-            assert.strictEqual(
-              typeof datastore.requestCallbacks_[0],
-              'function',
-            );
-            assert.strictEqual(typeof datastore.requests_[0], 'object');
+            expect(typeof datastore.requestCallbacks_[0]).toBe('function');
+            expect(typeof datastore.requests_[0]).toBe('object');
           });
         });
       });
 
       describe('update', () => {
         afterEach(() => {
-          sandbox.restore();
+          jest.restoreAllMocks();
         });
 
         it('should prepare entity objects', done => {
@@ -2148,24 +2085,23 @@ async.each(
             method: 'update',
           });
 
-          sandbox
-            .stub(ds.DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(ds.DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               return preparedEntityObject as {};
             });
 
           datastore.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(entities[0], expectedEntityObject);
+            expect(entities[0]).toEqual(expectedEntityObject);
             done();
           };
 
-          datastore.update(entityObject, assert.ifError);
+          datastore.update(entityObject, () => {});
         });
 
         it('should pass the correct arguments to save', done => {
           datastore.save = (entities: Entity[], callback: Function) => {
-            assert.deepStrictEqual(JSON.parse(JSON.stringify(entities)), [
+            expect(JSON.parse(JSON.stringify(entities))).toEqual([
               {
                 key: {
                   namespace: 'ns',
@@ -2186,7 +2122,7 @@ async.each(
 
       describe('upsert', () => {
         afterEach(() => {
-          sandbox.restore();
+          jest.restoreAllMocks();
         });
 
         it('should prepare entity objects', done => {
@@ -2196,24 +2132,23 @@ async.each(
             method: 'upsert',
           });
 
-          sandbox
-            .stub(ds.DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(ds.DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               return preparedEntityObject as {};
             });
 
           datastore.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(entities[0], expectedEntityObject);
+            expect(entities[0]).toEqual(expectedEntityObject);
             done();
           };
 
-          datastore.upsert(entityObject, assert.ifError);
+          datastore.upsert(entityObject, () => {});
         });
 
         it('should pass the correct arguments to save', done => {
           datastore.save = (entities: Entity[], callback: Function) => {
-            assert.deepStrictEqual(JSON.parse(JSON.stringify(entities)), [
+            expect(JSON.parse(JSON.stringify(entities))).toEqual([
               {
                 key: {
                   namespace: 'ns',
@@ -2236,13 +2171,13 @@ async.each(
       describe('transaction', () => {
         it('should return a Transaction object', () => {
           const transaction = datastore.transaction();
-          assert.strictEqual(transaction.calledWith_[0], datastore);
+          expect(transaction.calledWith_[0]).toBe(datastore);
         });
 
         it('should pass options to the Transaction constructor', () => {
           const options = {};
           const transaction = datastore.transaction(options);
-          assert.strictEqual(transaction.calledWith_[1], options);
+          expect(transaction.calledWith_[1]).toBe(options);
         });
       });
 
@@ -2260,7 +2195,7 @@ async.each(
           datastore.defaultBaseUrl_ = defaultBaseUrl_;
 
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.baseUrl_, defaultBaseUrl_);
+          expect(datastore.baseUrl_).toBe(defaultBaseUrl_);
         });
 
         it('should remove slashes from the baseUrl', () => {
@@ -2268,43 +2203,43 @@ async.each(
 
           setHost('localhost/');
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.baseUrl_, expectedBaseUrl);
+          expect(datastore.baseUrl_).toBe(expectedBaseUrl);
 
           setHost('localhost//');
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.baseUrl_, expectedBaseUrl);
+          expect(datastore.baseUrl_).toBe(expectedBaseUrl);
         });
 
         it('should remove the protocol if specified', () => {
           setHost('http://localhost');
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.baseUrl_, 'localhost');
+          expect(datastore.baseUrl_).toBe('localhost');
 
           setHost('https://localhost');
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.baseUrl_, 'localhost');
+          expect(datastore.baseUrl_).toBe('localhost');
         });
 
         it('should set Numberified port if one was found', () => {
           setHost('http://localhost:9090');
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.port_, 9090);
+          expect(datastore.port_).toBe(9090);
         });
 
         it('should not set customEndpoint_ when using default baseurl', () => {
           const datastore = new Datastore({projectId: PROJECT_ID});
           datastore.determineBaseUrl_();
-          assert.strictEqual(datastore.customEndpoint_, undefined);
+          expect(datastore.customEndpoint_).toBe(undefined);
         });
 
         it('should set customEndpoint_ when using custom API endpoint', () => {
           datastore.determineBaseUrl_('apiEndpoint');
-          assert.strictEqual(datastore.customEndpoint_, true);
+          expect(datastore.customEndpoint_).toBe(true);
         });
 
         it('should set baseUrl when using custom API endpoint', () => {
           datastore.determineBaseUrl_('apiEndpoint');
-          assert.strictEqual(datastore.baseUrl_, 'apiEndpoint');
+          expect(datastore.baseUrl_).toBe('apiEndpoint');
         });
 
         describe('with DATASTORE_EMULATOR_HOST environment variable', () => {
@@ -2316,19 +2251,19 @@ async.each(
             setHost(DATASTORE_EMULATOR_HOST);
           });
 
-          after(() => {
+          afterAll(() => {
             delete process.env.DATASTORE_EMULATOR_HOST;
           });
 
           it('should use the DATASTORE_EMULATOR_HOST env var', () => {
             datastore.determineBaseUrl_();
-            assert.strictEqual(datastore.baseUrl_, EXPECTED_BASE_URL);
-            assert.strictEqual(datastore.port_, EXPECTED_PORT);
+            expect(datastore.baseUrl_).toBe(EXPECTED_BASE_URL);
+            expect(datastore.port_).toBe(EXPECTED_PORT);
           });
 
           it('should set customEndpoint_', () => {
             datastore.determineBaseUrl_();
-            assert.strictEqual(datastore.customEndpoint_, true);
+            expect(datastore.customEndpoint_).toBe(true);
           });
         });
       });
@@ -2347,8 +2282,8 @@ async.each(
           datastore.keyToLegacyUrlSafe(
             key,
             (err: Error | null | undefined, urlSafeKey: string) => {
-              assert.ifError(err);
-              assert.strictEqual(urlSafeKey, base64EndocdedUrlSafeKey);
+              expect(err).toBeFalsy();
+              expect(urlSafeKey).toBe(base64EndocdedUrlSafeKey);
             },
           );
         });
@@ -2368,8 +2303,8 @@ async.each(
             key,
             locationPrefix,
             (err: Error | null | undefined, urlSafeKey: string) => {
-              assert.ifError(err);
-              assert.strictEqual(urlSafeKey, base64EndocdedUrlSafeKey);
+              expect(err).toBeFalsy();
+              expect(urlSafeKey).toBe(base64EndocdedUrlSafeKey);
             },
           );
         });
@@ -2383,8 +2318,8 @@ async.each(
           datastore.keyToLegacyUrlSafe(
             {} as entity.Key,
             (err: Error | null | undefined, urlSafeKey: string) => {
-              assert.strictEqual(err, error);
-              assert.strictEqual(urlSafeKey, undefined);
+              expect(err).toBe(error);
+              expect(urlSafeKey).toBe(undefined);
             },
           );
         });
@@ -2394,8 +2329,8 @@ async.each(
         it('should convert key to url safe base64 string', () => {
           const encodedKey = 'agpwcm9qZWN0LWlkcg4LEgRUYXNrIgRUZXN0DA';
           const key = datastore.keyFromLegacyUrlsafe(encodedKey);
-          assert.strictEqual(key.kind, 'Task');
-          assert.strictEqual(key.name, 'Test');
+          expect(key.kind).toBe('Task');
+          expect(key.name).toBe('Test');
         });
       });
 
@@ -2459,13 +2394,7 @@ async.each(
             },
           ];
 
-          async.each(
-            onSaveTests,
-            (onSaveTest: {
-              description: string;
-              properties: google.datastore.v1.IValue;
-              entitiesWithoutKey: Entities;
-            }) => {
+          for (const onSaveTest of onSaveTests) {
               it(`${onSaveTest.description}`, async () => {
                 const datastore = new OriginalDatastore({
                   namespace: `${Date.now()}`,
@@ -2498,7 +2427,7 @@ async.each(
                     callback: RequestCallback,
                   ) => {
                     try {
-                      assert.deepStrictEqual(config, expectedConfig);
+                      expect(config).toEqual(expectedConfig);
                       callback(null, 'some-data');
                     } catch (e: any) {
                       callback(e);
@@ -2513,11 +2442,10 @@ async.each(
                     onSaveTest.entitiesWithoutKey,
                   );
                   const results = await datastore.save(entities);
-                  assert.deepStrictEqual(results, ['some-data']);
+                  expect(results).toEqual(['some-data']);
                 }
               });
-            },
-          );
+          }
         });
       });
 
@@ -2527,10 +2455,7 @@ async.each(
             namespace: `${Date.now()}`,
             databaseId: SECOND_DATABASE_ID,
           });
-          assert.strictEqual(
-            otherDatastore.getDatabaseId(),
-            SECOND_DATABASE_ID,
-          );
+          expect(otherDatastore.getDatabaseId()).toBe(SECOND_DATABASE_ID);
         });
       });
 
@@ -2591,9 +2516,7 @@ async.each(
             documents_scanned: '8',
           },
         };
-        // mode string, mode enum type, explainMetrics, expectedInfo
-        async.each(
-          [
+        const profilingCases = [
             {
               modeName: 'ExplainAnalyze',
               options: {
@@ -2645,30 +2568,19 @@ async.each(
               explainMetrics: {},
               expectedExplainOptions: undefined,
             },
-          ],
-          (modeOptions: {
-            modeName: string;
-            options: {
-              explainOptions?: ExplainOptions;
-            };
-            explainMetrics: ExplainMetrics;
-            expectedInfo: RunQueryInfo;
-            expectedExplainOptions: ExplainOptions;
-          }) => {
-            const datastore = new ds.Datastore();
-            describe(`for the ${modeOptions.modeName} query mode`, () => {
+        ];
+        for (const modeOptions of profilingCases) {
+          const datastore = new ds.Datastore();
+          describe(`for the ${modeOptions.modeName} query mode`, () => {
               it('should provide correct request/response data for runQuery', async () => {
                 // Mock out the request function to compare config passed into it.
                 datastore.request_ = (
                   config: RequestConfig,
                   callback: RequestCallback,
                 ) => {
-                  assert.deepStrictEqual(config.client, 'DatastoreClient');
-                  assert.deepStrictEqual(config.method, 'runQuery');
-                  assert.deepStrictEqual(
-                    config.reqOpts?.explainOptions,
-                    modeOptions.expectedExplainOptions,
-                  );
+                  expect(config.client).toEqual('DatastoreClient');
+                  expect(config.method).toEqual('runQuery');
+                  expect(config.reqOpts?.explainOptions).toEqual(modeOptions.expectedExplainOptions);
                   callback(
                     null,
                     Object.assign(
@@ -2690,14 +2602,11 @@ async.each(
                   q,
                   modeOptions.options,
                 );
-                assert.deepStrictEqual(entities, []);
-                assert.deepStrictEqual(
-                  info,
-                  Object.assign(
+                expect(entities).toEqual([]);
+                expect(info).toEqual(Object.assign(
                     {moreResults: 'NO_MORE_RESULTS'},
                     modeOptions.expectedInfo,
-                  ),
-                );
+                  ));
               });
               it('should provide correct request/response data for runAggregationQuery', async () => {
                 // Mock out the request function to compare config passed into it.
@@ -2705,12 +2614,9 @@ async.each(
                   config: RequestConfig,
                   callback: RequestCallback,
                 ) => {
-                  assert.deepStrictEqual(config.client, 'DatastoreClient');
-                  assert.deepStrictEqual(config.method, 'runAggregationQuery');
-                  assert.deepStrictEqual(
-                    config.reqOpts?.explainOptions,
-                    modeOptions.expectedExplainOptions,
-                  );
+                  expect(config.client).toEqual('DatastoreClient');
+                  expect(config.method).toEqual('runAggregationQuery');
+                  expect(config.reqOpts?.explainOptions).toEqual(modeOptions.expectedExplainOptions);
                   callback(
                     null,
                     Object.assign(
@@ -2735,13 +2641,11 @@ async.each(
                   aggregate,
                   modeOptions.options,
                 );
-                assert.deepStrictEqual(entities, []);
-                assert.deepStrictEqual(info, modeOptions.expectedInfo);
+                expect(entities).toEqual([]);
+                expect(info).toEqual(modeOptions.expectedInfo);
               });
             });
-          },
-        );
+        }
       });
     });
-  },
-);
+}

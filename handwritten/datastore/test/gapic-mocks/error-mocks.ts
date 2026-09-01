@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as mocha from 'mocha';
-import * as assert from 'assert';
 import {Datastore} from '../../src';
 
 /**
@@ -21,22 +19,25 @@ import {Datastore} from '../../src';
  * message. This is used for testing all client library functions that accept
  * a callback in order to ensure the callback receives a particular error.
  *
- * @param {mocha.Done} done The mocha done function which is called when the
+ * @param {jest.DoneCallback} done The done function which is called when the
  * test finishes.
  * @param {string} message The expected error message in the test.
  *
  */
-export function getCallbackExpectingError(done: mocha.Done, message: string) {
+export function getCallbackExpectingError(
+  done: jest.DoneCallback,
+  message: string,
+) {
   return (error?: Error | null) => {
     try {
       if (error) {
-        assert.strictEqual(error.message, message);
+        expect(error.message).toBe(message);
         done();
         return;
       }
       done(new Error('The callback should have received an error'));
     } catch (err: unknown) {
-      done(err);
+      done(err as Error);
     }
   };
 }
@@ -50,13 +51,13 @@ export function getCallbackExpectingError(done: mocha.Done, message: string) {
  *
  * @param {Datastore} datastore The datastore client.
  * @param {string} clientName The datastore client.
- * @param {mocha.Done} done The mocha done function which is called when the
+ * @param {jest.DoneCallback} done The done function which is called when the
  * test finishes.
  */
 export function errorOnGapicCall(
   datastore: Datastore,
   clientName: string,
-  done: mocha.Done,
+  done: jest.DoneCallback,
 ) {
   const dataClient = datastore.clients_.get(clientName);
   if (dataClient) {

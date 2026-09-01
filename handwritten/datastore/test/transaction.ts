@@ -14,10 +14,6 @@
 
 import * as pfy from '@google-cloud/promisify';
 import arrify = require('arrify');
-import * as assert from 'assert';
-import {afterEach, beforeEach, before, describe, it} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import {getTransactionRequest} from '../src/request';
 
 import {
   Datastore,
@@ -28,9 +24,9 @@ import {
   Transaction,
   AggregateField,
 } from '../src';
+import {getTransactionRequest} from '../src/request';
 import {Entities, Entity, entity} from '../src/entity';
 import * as tsTypes from '../src/transaction';
-import * as sinon from 'sinon';
 import {Callback, CallOptions, ClientStub} from 'google-gax';
 import {
   CommitCallback,
@@ -39,44 +35,44 @@ import {
   RequestCallback,
   RequestConfig,
 } from '../src/request';
-import {SECOND_DATABASE_ID} from './index';
+const SECOND_DATABASE_ID = 'multidb-test';
 import {protos, google} from '../src/protos';
 import {RunCallback} from '../src/transaction';
 import {AggregateQuery} from '../src/aggregate';
 import {RunQueryCallback, RunQueryInfo, RunQueryOptions} from '../src/query';
-import * as mocha from 'mocha';
-const async = require('async');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 type Path = string | [string] | [string, number];
 
 let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll(klass: Function, options: pfy.PromisifyAllOptions) {
-    if (klass.name !== 'Transaction') {
-      return;
-    }
-    promisified = true;
-    assert.deepStrictEqual(options.exclude, [
-      'createAggregationQuery',
-      'createQuery',
-      'delete',
-      'insert',
-      '#runAsync',
-      'save',
-      'update',
-      'upsert',
-    ]);
-  },
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll(klass: Function, options: pfy.PromisifyAllOptions) {
+      if (klass.name !== 'Transaction') {
+        return;
+      }
+      promisified = true;
+      expect(options.exclude).toEqual([
+        'createAggregationQuery',
+        'createQuery',
+        'delete',
+        'insert',
+        '#runAsync',
+        'save',
+        'update',
+        'upsert',
+      ]);
+    },
+  };
 });
 
-async.each(
-  [{}, {databaseId: SECOND_DATABASE_ID}],
-  (clientOptions: DatastoreOptions) => {
-    describe('Transaction', () => {
-      let Transaction: typeof tsTypes.Transaction;
-      let transaction: tsTypes.Transaction;
+const clientTestCases = [{}, {databaseId: SECOND_DATABASE_ID}];
+for (const clientOptions of clientTestCases) {
+  describe('Transaction', () => {
+    let transaction: tsTypes.Transaction;
       const TRANSACTION_ID = 'transaction-id';
       const PROJECT_ID = 'project-id';
       const NAMESPACE = 'a-namespace';
@@ -93,11 +89,7 @@ async.each(
         return new entity.Key({path: arrify(path)});
       }
 
-      before(() => {
-        Transaction = proxyquire('../src/transaction.js', {
-          '@google-cloud/promisify': fakePfy,
-        }).Transaction;
-      });
+
 
       beforeEach(() => {
         transaction = new Transaction(DATASTORE);
@@ -105,15 +97,15 @@ async.each(
 
       describe('instantiation', () => {
         it('should promisify all the things', () => {
-          assert(promisified);
+          expect(promisified).toBeTruthy();
         });
 
         it('should localize the datastore instance', () => {
-          assert.strictEqual(transaction.datastore, DATASTORE);
+          expect(transaction.datastore).toBe(DATASTORE);
         });
 
         it('should localize the namespace', () => {
-          assert.strictEqual(transaction.namespace, NAMESPACE);
+          expect(transaction.namespace).toBe(NAMESPACE);
         });
 
         it('should localize the transaction ID', () => {
@@ -122,7 +114,7 @@ async.each(
           };
 
           const transaction = new Transaction(DATASTORE, options);
-          assert.strictEqual(transaction.id, options.id);
+          expect(transaction.id).toBe(options.id);
         });
 
         it('should localize readOnly', () => {
@@ -131,17 +123,17 @@ async.each(
           };
 
           const transaction = new Transaction(DATASTORE, options);
-          assert.strictEqual(transaction.readOnly, true);
+          expect(transaction.readOnly).toBe(true);
         });
 
         it('should localize request function', done => {
           const fakeDataset: Any = {
             request_: {
               bind(context: {}) {
-                assert.strictEqual(context, fakeDataset);
+                expect(context).toBe(fakeDataset);
 
                 setImmediate(() => {
-                  assert.strictEqual(transaction.request, fakeDataset.request);
+                  expect(transaction.request).toBe(fakeDataset.request);
                   done();
                 });
 
@@ -154,9 +146,9 @@ async.each(
         });
 
         it('should localize default properties', () => {
-          assert.deepStrictEqual(transaction.modifiedEntities_, []);
-          assert.deepStrictEqual(transaction.requestCallbacks_, []);
-          assert.deepStrictEqual(transaction.requests_, []);
+          expect(transaction.modifiedEntities_).toEqual([]);
+          expect(transaction.requestCallbacks_).toEqual([]);
+          expect(transaction.requests_).toEqual([]);
         });
       });
 
@@ -332,9 +324,9 @@ async.each(
           it('should send back the error when awaiting a promise', async () => {
             try {
               await transactionWrapper.transaction.commit();
-              assert.fail('The run call should have failed.');
+              throw new Error('The run call should have failed.');
             } catch (error: any) {
-              assert.strictEqual(error['message'], testErrorMessage);
+              expect(error['message']).toBe(testErrorMessage);
             }
           });
           it('should send back the error when using a callback', done => {
@@ -343,12 +335,12 @@ async.each(
               response?: google.datastore.v1.ICommitResponse,
             ) => {
               try {
-                assert(error);
-                assert.strictEqual(error.message, testErrorMessage);
-                assert.deepStrictEqual(response, undefined);
+                expect(error).toBeTruthy();
+                expect(error!.message).toBe(testErrorMessage);
+                expect(response).toEqual(undefined);
                 done();
               } catch (e) {
-                done(e);
+                done(e as Error);
               }
             };
             transactionWrapper.transaction.commit(commitCallback);
@@ -389,9 +381,9 @@ async.each(
               try {
                 await transactionWrapper.transaction.run();
                 await transactionWrapper.transaction.commit();
-                assert.fail('The run call should have failed.');
+                throw new Error('The run call should have failed.');
               } catch (error: any) {
-                assert.strictEqual(error['message'], testErrorMessage);
+                expect(error['message']).toBe(testErrorMessage);
               }
             });
             it('should send back the error when using a callback', done => {
@@ -400,12 +392,12 @@ async.each(
                 response?: google.datastore.v1.ICommitResponse,
               ) => {
                 try {
-                  assert(error);
-                  assert.strictEqual(error.message, testErrorMessage);
-                  assert.strictEqual(response, testCommitResp);
+                  expect(error).toBeTruthy();
+                  expect(error!.message).toBe(testErrorMessage);
+                  expect(response).toBe(testCommitResp);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transactionWrapper.transaction.run(() => {
@@ -425,7 +417,7 @@ async.each(
               await transactionWrapper.transaction.run();
               const [commitResults] =
                 await transactionWrapper.transaction.commit();
-              assert.strictEqual(commitResults, testCommitResp);
+              expect(commitResults).toBe(testCommitResp);
             });
             it('should send back the response when using a callback', done => {
               const commitCallback: CommitCallback = (
@@ -433,11 +425,11 @@ async.each(
                 response?: google.datastore.v1.ICommitResponse,
               ) => {
                 try {
-                  assert.strictEqual(error, null);
-                  assert.strictEqual(response, testCommitResp);
+                  expect(error).toBe(null);
+                  expect(response).toBe(testCommitResp);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transactionWrapper.transaction.run(() => {
@@ -496,9 +488,9 @@ async.each(
               try {
                 await transaction.run();
                 await transaction.runAggregationQuery(aggregate);
-                assert.fail('The run call should have failed.');
+                throw new Error('The run call should have failed.');
               } catch (error: any) {
-                assert.strictEqual(error['message'], testErrorMessage);
+                expect(error['message']).toBe(testErrorMessage);
               }
             });
             it('should send back the error when using a callback', done => {
@@ -507,12 +499,12 @@ async.each(
                 response?: unknown,
               ) => {
                 try {
-                  assert(error);
-                  assert.strictEqual(error.message, testErrorMessage);
-                  assert.deepStrictEqual(response, runAggregationQueryUserResp);
+                  expect(error).toBeTruthy();
+                  expect(error!.message).toBe(testErrorMessage);
+                  expect(response).toEqual(runAggregationQueryUserResp);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transaction.run(() => {
@@ -536,10 +528,7 @@ async.each(
               const allResults =
                 await transaction.runAggregationQuery(aggregate);
               const [runAggregateQueryResults] = allResults;
-              assert.deepStrictEqual(
-                runAggregateQueryResults,
-                runAggregationQueryUserResp,
-              );
+              expect(runAggregateQueryResults).toEqual(runAggregationQueryUserResp);
             });
             it('should send back the response when using a callback', done => {
               const runAggregateQueryCallback: CommitCallback = (
@@ -547,11 +536,11 @@ async.each(
                 response?: unknown,
               ) => {
                 try {
-                  assert.strictEqual(error, null);
-                  assert.deepStrictEqual(response, runAggregationQueryUserResp);
+                  expect(error).toBe(null);
+                  expect(response).toEqual(runAggregationQueryUserResp);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transaction.run(() => {
@@ -601,9 +590,9 @@ async.each(
               try {
                 await transaction.run();
                 await transaction.runQuery(q);
-                assert.fail('The run call should have failed.');
+                throw new Error('The run call should have failed.');
               } catch (error: any) {
-                assert.strictEqual(error['message'], testErrorMessage);
+                expect(error['message']).toBe(testErrorMessage);
               }
             });
             it('should send back the error when using a callback', done => {
@@ -613,13 +602,13 @@ async.each(
                 info?: RunQueryInfo,
               ) => {
                 try {
-                  assert(error);
-                  assert.strictEqual(error.message, testErrorMessage);
-                  assert.deepStrictEqual(entities, undefined);
-                  assert.deepStrictEqual(info, undefined);
+                  expect(error).toBeTruthy();
+                  expect(error!.message).toBe(testErrorMessage);
+                  expect(entities).toEqual(undefined);
+                  expect(info).toEqual(undefined);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transaction.run(() => {
@@ -638,8 +627,8 @@ async.each(
             it('should send back the response when awaiting a promise', async () => {
               await transaction.run();
               const [runQueryResults, info] = await transaction.runQuery(q);
-              assert.deepStrictEqual(runQueryResults, runQueryUserResp);
-              assert.deepStrictEqual(info, runQueryUserInfo);
+              expect(runQueryResults).toEqual(runQueryUserResp);
+              expect(info).toEqual(runQueryUserInfo);
             });
             it('should send back the response when using a callback', done => {
               const callback: RunQueryCallback = (
@@ -648,12 +637,12 @@ async.each(
                 info?: RunQueryInfo,
               ) => {
                 try {
-                  assert.strictEqual(error, null);
-                  assert.deepStrictEqual(entities, runQueryUserResp);
-                  assert.deepStrictEqual(info, runQueryUserInfo);
+                  expect(error).toBe(null);
+                  expect(entities).toEqual(runQueryUserResp);
+                  expect(info).toEqual(runQueryUserInfo);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transaction.run(() => {
@@ -718,9 +707,9 @@ async.each(
               try {
                 await transaction.run();
                 await transaction.get(key);
-                assert.fail('The run call should have failed.');
+                throw new Error('The run call should have failed.');
               } catch (error: any) {
-                assert.strictEqual(error['message'], testErrorMessage);
+                expect(error['message']).toBe(testErrorMessage);
               }
             });
             it('should send back the error when using a callback', done => {
@@ -729,12 +718,12 @@ async.each(
                 entity?: Entities,
               ) => {
                 try {
-                  assert(err);
-                  assert.strictEqual(err.message, testErrorMessage);
-                  assert.deepStrictEqual(entity, undefined);
+                  expect(err).toBeTruthy();
+                  expect(err!.message).toBe(testErrorMessage);
+                  expect(entity).toEqual(undefined);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transaction.run(() => {
@@ -754,7 +743,7 @@ async.each(
               await transaction.run();
               const [results] = await transaction.get(key);
               const result = results[transactionWrapper.datastore.KEY];
-              assert.deepStrictEqual(result.name, getUserResp);
+              expect(result.name).toEqual(getUserResp);
             });
             it('should send back the response when using a callback', done => {
               const callback: GetCallback = (
@@ -763,11 +752,11 @@ async.each(
               ) => {
                 try {
                   const result = entity[transactionWrapper.datastore.KEY];
-                  assert.strictEqual(err, null);
-                  assert.deepStrictEqual(result.name, getUserResp);
+                  expect(err).toBe(null);
+                  expect(result.name).toEqual(getUserResp);
                   done();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               transaction.run(() => {
@@ -892,7 +881,7 @@ async.each(
            * The events can include user code reached, gapic code reached and callbacks called.
            *
            * @param {MockedTransactionWrapper} [transactionWrapper] A TransactionWrapper instance.
-           * @param {mocha.Done} [done] A function for signalling the test is complete.
+           * @param {jest.DoneCallback} [done] A function for signalling the test is complete.
            * @param {TransactionEvent[]} [expectedOrder] The order events are expected to occur.
            * @param {MockedTransactionWrapper} [transactionWrapper] A TransactionWrapper instance.
            */
@@ -924,7 +913,7 @@ async.each(
             // A transaction wrapper object is used to contain the transaction and mocked Gapic functions.
             #transactionWrapper: MockedTransactionWrapper;
             // Stores the mocha done function so that it can be called from this object.
-            readonly #done: mocha.Done;
+            readonly #done: jest.DoneCallback;
 
             /**
              * Each time an event occurs this function is called to check to see if all
@@ -935,26 +924,20 @@ async.each(
             checkForCompletion() {
               if (this.eventOrder.length >= this.expectedEventOrder.length) {
                 try {
-                  assert.deepStrictEqual(
-                    this.eventOrder,
-                    this.expectedEventOrder,
-                  );
+                  expect(this.eventOrder).toEqual(this.expectedEventOrder);
                   if (this.expectedRequests) {
-                    assert.deepStrictEqual(
-                      this.requests,
-                      this.expectedRequests,
-                    );
+                    expect(this.requests).toEqual(this.expectedRequests);
                   }
                   this.#done();
                 } catch (e) {
-                  this.#done(e);
+                  this.#done(e as Error);
                 }
               }
             }
 
             constructor(
               transactionWrapper: MockedTransactionWrapper,
-              done: mocha.Done,
+              done: jest.DoneCallback,
               expectedOrder: TransactionEvent[],
               expectedRequests?: {
                 call: GapicFunctionName;
@@ -973,7 +956,7 @@ async.each(
                   this.eventOrder.push(call);
                   this.checkForCompletion();
                 } catch (e) {
-                  done(e);
+                  done(e as Error);
                 }
               };
               this.#transactionWrapper = transactionWrapper;
@@ -991,7 +974,7 @@ async.each(
                   this.eventOrder.push(event);
                   this.checkForCompletion();
                 } catch (e) {
-                  this.#done(e);
+                  this.#done(e as Error);
                 }
               };
             }
@@ -1422,13 +1405,13 @@ async.each(
                         request as protos.google.datastore.v1.ILookupRequest;
                       switch (lookupCallCount) {
                         case 0:
-                          assert.deepStrictEqual(lookupRequest.readOptions, {
+                          expect(lookupRequest.readOptions).toEqual({
                             newTransaction: {},
                             consistencyType: 'newTransaction',
                           });
                           break;
                         case 1:
-                          assert.deepStrictEqual(lookupRequest.readOptions, {
+                          expect(lookupRequest.readOptions).toEqual({
                             transaction: testRunResp.transaction,
                           });
                           break;
@@ -1441,14 +1424,8 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
                       done();
                       break;
                     }
@@ -1484,7 +1461,7 @@ async.each(
                 try {
                   switch (callbackReached) {
                     case GapicFunctionName.BEGIN_TRANSACTION:
-                      assert.deepStrictEqual(request, {
+                      expect(request).toEqual({
                         projectId: 'project-id',
                         transactionOptions: {},
                       });
@@ -1493,7 +1470,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1501,15 +1478,9 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
-                      assert.strictEqual(beginCount, 1);
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
+                      expect(beginCount).toBe(1);
                       done();
                       break;
                     }
@@ -1553,7 +1524,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1561,7 +1532,7 @@ async.each(
                     case GapicFunctionName.RUN_QUERY: {
                       const runQueryRequest =
                         request as protos.google.datastore.v1.IRunQueryRequest;
-                      assert.deepStrictEqual(runQueryRequest.readOptions, {
+                      expect(runQueryRequest.readOptions).toEqual({
                         newTransaction: {},
                         consistencyType: 'newTransaction',
                       });
@@ -1570,14 +1541,8 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
                       done();
                       break;
                     }
@@ -1615,7 +1580,7 @@ async.each(
                 try {
                   switch (callbackReached) {
                     case GapicFunctionName.BEGIN_TRANSACTION:
-                      assert.deepStrictEqual(request, {
+                      expect(request).toEqual({
                         projectId: 'project-id',
                         transactionOptions: {},
                       });
@@ -1624,7 +1589,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1632,7 +1597,7 @@ async.each(
                     case GapicFunctionName.RUN_QUERY: {
                       const runQueryRequest =
                         request as protos.google.datastore.v1.IRunQueryRequest;
-                      assert.deepStrictEqual(runQueryRequest.readOptions, {
+                      expect(runQueryRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1640,15 +1605,9 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
-                      assert.strictEqual(beginCount, 1);
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
+                      expect(beginCount).toBe(1);
                       done();
                       break;
                     }
@@ -1694,7 +1653,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1702,26 +1661,17 @@ async.each(
                     case GapicFunctionName.RUN_AGGREGATION_QUERY: {
                       const runAggregationQueryRequest =
                         request as protos.google.datastore.v1.IRunAggregationQueryRequest;
-                      assert.deepStrictEqual(
-                        runAggregationQueryRequest.readOptions,
-                        {
+                      expect(runAggregationQueryRequest.readOptions).toEqual({
                           newTransaction: {},
                           consistencyType: 'newTransaction',
-                        },
-                      );
+                        });
                       break;
                     }
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
                       done();
                       break;
                     }
@@ -1763,7 +1713,7 @@ async.each(
                   switch (callbackReached) {
                     case GapicFunctionName.BEGIN_TRANSACTION:
                       beginCount++;
-                      assert.deepStrictEqual(request, {
+                      expect(request).toEqual({
                         projectId: 'project-id',
                         transactionOptions: {},
                       });
@@ -1771,7 +1721,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1779,26 +1729,17 @@ async.each(
                     case GapicFunctionName.RUN_AGGREGATION_QUERY: {
                       const runAggregationQueryRequest =
                         request as protos.google.datastore.v1.IRunAggregationQueryRequest;
-                      assert.deepStrictEqual(
-                        runAggregationQueryRequest.readOptions,
-                        {
+                      expect(runAggregationQueryRequest.readOptions).toEqual({
                           transaction: testRunResp.transaction,
-                        },
-                      );
+                        });
                       break;
                     }
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
-                      assert.strictEqual(beginCount, 1);
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
+                      expect(beginCount).toBe(1);
                       done();
                       break;
                     }
@@ -1847,7 +1788,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         newTransaction: {},
                         consistencyType: 'newTransaction',
                       });
@@ -1856,14 +1797,8 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
                       done();
                       break;
                     }
@@ -1899,7 +1834,7 @@ async.each(
                 try {
                   switch (callbackReached) {
                     case GapicFunctionName.BEGIN_TRANSACTION:
-                      assert.deepStrictEqual(request, {
+                      expect(request).toEqual({
                         projectId: 'project-id',
                         transactionOptions: {},
                       });
@@ -1908,7 +1843,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -1916,15 +1851,9 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
-                      assert.strictEqual(beginCount, 1);
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
+                      expect(beginCount).toBe(1);
                       done();
                       break;
                     }
@@ -1963,7 +1892,7 @@ async.each(
                 try {
                   switch (callbackReached) {
                     case GapicFunctionName.BEGIN_TRANSACTION:
-                      assert.deepStrictEqual(request, {
+                      expect(request).toEqual({
                         projectId: 'project-id',
                         transactionOptions: {},
                       });
@@ -1972,15 +1901,9 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
-                      assert.strictEqual(beginCount, 1);
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
+                      expect(beginCount).toBe(1);
                       done();
                       break;
                     }
@@ -2014,7 +1937,7 @@ async.each(
                 try {
                   switch (callbackReached) {
                     case GapicFunctionName.BEGIN_TRANSACTION:
-                      assert.deepStrictEqual(request, {
+                      expect(request).toEqual({
                         projectId: 'project-id',
                         transactionOptions: {},
                       });
@@ -2023,7 +1946,7 @@ async.each(
                     case GapicFunctionName.LOOKUP: {
                       const lookupRequest =
                         request as protos.google.datastore.v1.ILookupRequest;
-                      assert.deepStrictEqual(lookupRequest.readOptions, {
+                      expect(lookupRequest.readOptions).toEqual({
                         transaction: testRunResp.transaction,
                       });
                       break;
@@ -2031,15 +1954,9 @@ async.each(
                     case GapicFunctionName.COMMIT: {
                       const commitRequest =
                         request as protos.google.datastore.v1.ICommitRequest;
-                      assert.deepStrictEqual(
-                        commitRequest.mode,
-                        'TRANSACTIONAL',
-                      );
-                      assert.deepStrictEqual(
-                        commitRequest.transaction,
-                        testRunResp.transaction,
-                      );
-                      assert.strictEqual(beginCount, 1);
+                      expect(commitRequest.mode).toEqual('TRANSACTIONAL');
+                      expect(commitRequest.transaction).toEqual(testRunResp.transaction);
+                      expect(beginCount).toBe(1);
                       done();
                       break;
                     }
@@ -2140,9 +2057,9 @@ async.each(
           it('should send back the error when awaiting a promise', async () => {
             try {
               await transactionWithoutMock.run();
-              assert.fail('The run call should have failed.');
+              throw new Error('The run call should have failed.');
             } catch (error: any) {
-              assert.strictEqual(error['message'], testErrorMessage);
+              expect(error['message']).toBe(testErrorMessage);
             }
           });
           it('should send back the error when using a callback', done => {
@@ -2152,13 +2069,13 @@ async.each(
               response?: google.datastore.v1.IBeginTransactionResponse,
             ) => {
               try {
-                assert(error);
-                assert.strictEqual(error.message, testErrorMessage);
-                assert.strictEqual(transaction, null);
-                assert.strictEqual(response, testRunResp);
+                expect(error).toBeTruthy();
+                expect(error!.message).toBe(testErrorMessage);
+                expect(transaction).toBe(null);
+                expect(response).toBe(testRunResp);
                 done();
               } catch (e) {
-                done(e);
+                done(e as Error);
               }
             };
             transactionWithoutMock.run({}, runCallback);
@@ -2172,8 +2089,8 @@ async.each(
           });
           it('should send back the response when awaiting a promise', async () => {
             const [transaction, resp] = await transactionWithoutMock.run();
-            assert.strictEqual(transaction, transactionWithoutMock);
-            assert.strictEqual(resp, testRunResp);
+            expect(transaction).toBe(transactionWithoutMock);
+            expect(resp).toBe(testRunResp);
           });
           it('should send back the response when using a callback', done => {
             const runCallback: RunCallback = (
@@ -2182,12 +2099,12 @@ async.each(
               response?: google.datastore.v1.IBeginTransactionResponse,
             ) => {
               try {
-                assert.strictEqual(error, null);
-                assert.deepStrictEqual(response, testRunResp);
-                assert.strictEqual(transaction, transactionWithoutMock);
+                expect(error).toBe(null);
+                expect(response).toEqual(testRunResp);
+                expect(transaction).toBe(transactionWithoutMock);
                 done();
               } catch (e) {
-                done(e);
+                done(e as Error);
               }
             };
             transactionWithoutMock.run({}, runCallback);
@@ -2211,14 +2128,14 @@ async.each(
         });
 
         afterEach(() => {
-          sinon.restore();
+          jest.restoreAllMocks();
         });
 
         it('should commit', done => {
           transaction.request_ = config => {
-            assert.strictEqual(config.client, 'DatastoreClient');
-            assert.strictEqual(config.method, 'commit');
-            assert.deepStrictEqual(config.gaxOpts, {});
+            expect(config.client).toBe('DatastoreClient');
+            expect(config.method).toBe('commit');
+            expect(config.gaxOpts).toEqual({});
             done();
           };
           void transaction.commit();
@@ -2228,7 +2145,7 @@ async.each(
           const gaxOptions = {};
 
           transaction.request_ = config => {
-            assert.deepStrictEqual(config.gaxOpts, {});
+            expect(config.gaxOpts).toEqual({});
             done();
           };
 
@@ -2263,8 +2180,8 @@ async.each(
 
           it('should pass the commit error to the callback', done => {
             transaction.commit((err, resp) => {
-              assert.strictEqual(err, error);
-              assert.strictEqual(resp, apiResponse);
+              expect(err).toBe(error);
+              expect(resp).toBe(apiResponse);
               done();
             });
           });
@@ -2276,8 +2193,8 @@ async.each(
             callback(null, resp);
           };
           transaction.commit((err, apiResponse) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(resp, apiResponse);
+            expect(err).toBeFalsy();
+            expect(resp).toEqual(apiResponse);
             done();
           });
         });
@@ -2297,14 +2214,12 @@ async.each(
 
           const args: Array<{}> = [];
 
-          const deleteStub = sinon
-            .stub(Datastore.prototype, 'delete')
-            .callsFake(a => {
+          const deleteStub = jest.spyOn(Datastore.prototype, 'delete')
+            .mockImplementation(a => {
               args.push(a);
             });
-          const saveStub = sinon
-            .stub(Datastore.prototype, 'save')
-            .callsFake(a => {
+          const saveStub = jest.spyOn(Datastore.prototype, 'save')
+            .mockImplementation(a => {
               args.push(a);
             });
 
@@ -2312,13 +2227,13 @@ async.each(
 
           void transaction.commit();
 
-          assert.strictEqual(deleteStub.calledOnce, true);
-          assert.strictEqual(saveStub.calledOnce, true);
+          expect(deleteStub).toHaveBeenCalledTimes(1);
+          expect(saveStub).toHaveBeenCalledTimes(1);
 
-          assert.strictEqual(args.length, 2);
+          expect(args.length).toBe(2);
 
           // Save arguments must come first.
-          assert.deepStrictEqual(args, [
+          expect(args).toEqual([
             [saveArg1, saveArg2],
             [deleteArg1, deleteArg2],
           ]);
@@ -2329,28 +2244,25 @@ async.each(
           transaction.delete(key(['Product', 123]));
           transaction.save({key: key(['Product', 123]), data: ''});
 
-          const deleteSpy = sinon
-            .stub(Datastore.prototype, 'delete')
-            .callsFake(() => {});
-          const saveStub = sinon
-            .stub(Datastore.prototype, 'save')
-            .callsFake(() => {});
+          const deleteSpy = jest.spyOn(Datastore.prototype, 'delete')
+            .mockImplementation(() => {});
+          const saveStub = jest.spyOn(Datastore.prototype, 'save')
+            .mockImplementation(() => {});
 
           transaction.request_ = () => {};
 
           void transaction.commit();
-          assert.strictEqual(deleteSpy.notCalled, true);
-          assert.strictEqual(saveStub.calledOnce, true);
+          expect(deleteSpy).not.toHaveBeenCalled();
+          expect(saveStub).toHaveBeenCalledTimes(1);
         });
 
         it('should not squash key-incomplete mutations', done => {
           transaction.save({key: key(['Product']), data: ''});
           transaction.save({key: key(['Product']), data: ''});
 
-          sinon
-            .stub(Datastore.prototype, 'save')
-            .callsFake((entities: Entity[]) => {
-              assert.strictEqual(entities.length, 2);
+          jest.spyOn(Datastore.prototype, 'save')
+            .mockImplementation((entities: Entity[]) => {
+              expect(entities.length).toBe(2);
               done();
             });
 
@@ -2370,7 +2282,7 @@ async.each(
           ];
 
           transaction.request_ = config => {
-            assert.deepStrictEqual(config.reqOpts, {
+            expect(config.reqOpts).toEqual({
               mutations: [{a: 'b'}, {c: 'd'}, {e: 'f'}, {g: 'h'}],
             });
             done();
@@ -2398,8 +2310,8 @@ async.each(
 
           void transaction.commit();
 
-          assert(cb1Called);
-          assert(cb2Called);
+          expect(cb1Called).toBeTruthy();
+          expect(cb2Called).toBeTruthy();
         });
       });
 
@@ -2409,14 +2321,14 @@ async.each(
           const createQueryReturnValue = {};
 
           transaction.datastore.createQuery = function (...ags: Any) {
-            assert.strictEqual(this, transaction);
-            assert.strictEqual(ags[0], args[0]);
-            assert.strictEqual(ags[1], args[1]);
+            expect(this).toBe(transaction);
+            expect(ags[0]).toBe(args[0]);
+            expect(ags[1]).toBe(args[1]);
             return createQueryReturnValue as Query;
           };
 
           const query = transaction.createQuery(args[0], args[1]); // verbose de-structure
-          assert.strictEqual(query, createQueryReturnValue);
+          expect(query).toBe(createQueryReturnValue);
         });
       });
 
@@ -2430,12 +2342,12 @@ async.each(
 
           transaction.delete(keys);
 
-          assert.strictEqual(transaction.modifiedEntities_.length, keys.length);
+          expect(transaction.modifiedEntities_.length).toBe(keys.length);
 
           transaction.modifiedEntities_.forEach((queuedEntity: Entity) => {
-            assert.strictEqual(queuedEntity.method, 'delete');
-            assert(keys.indexOf(queuedEntity.entity.key) > -1);
-            assert.deepStrictEqual(queuedEntity.args, [
+            expect(queuedEntity.method).toBe('delete');
+            expect(keys.indexOf(queuedEntity.entity.key) > -1).toBeTruthy();
+            expect(queuedEntity.args).toEqual([
               queuedEntity.entity.key,
             ]);
           });
@@ -2444,7 +2356,7 @@ async.each(
 
       describe('insert', () => {
         afterEach(() => {
-          sinon.restore();
+          jest.restoreAllMocks();
         });
 
         it('should prepare entity objects', done => {
@@ -2454,15 +2366,14 @@ async.each(
             method: 'insert',
           });
 
-          sinon
-            .stub(DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               return preparedEntityObject as {};
             });
 
           transaction.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(entities[0], expectedEntityObject);
+            expect(entities[0]).toEqual(expectedEntityObject);
             done();
           };
 
@@ -2471,7 +2382,7 @@ async.each(
 
         it('should pass the correct arguments to save', done => {
           transaction.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(JSON.parse(JSON.stringify(entities)), [
+            expect(JSON.parse(JSON.stringify(entities))).toEqual([
               {
                 key: {
                   namespace: 'ns',
@@ -2506,9 +2417,9 @@ async.each(
 
         it('should rollback', done => {
           transaction.request_ = config => {
-            assert.strictEqual(config.client, 'DatastoreClient');
-            assert.strictEqual(config.method, 'rollback');
-            assert.deepStrictEqual(config.gaxOpts, {});
+            expect(config.client).toBe('DatastoreClient');
+            expect(config.method).toBe('rollback');
+            expect(config.gaxOpts).toEqual({});
             done();
           };
           void transaction.rollback();
@@ -2518,7 +2429,7 @@ async.each(
           const gaxOptions = {};
 
           transaction.request_ = config => {
-            assert.strictEqual(config.gaxOpts, gaxOptions);
+            expect(config.gaxOpts).toBe(gaxOptions);
             done();
           };
 
@@ -2531,7 +2442,7 @@ async.each(
             callback(error);
           };
           transaction.rollback(err => {
-            assert.deepStrictEqual(err, error);
+            expect(err).toEqual(error);
             done();
           });
         });
@@ -2542,8 +2453,8 @@ async.each(
             callback(null, resp);
           };
           transaction.rollback((err, apiResponse) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(resp, apiResponse);
+            expect(err).toBeFalsy();
+            expect(resp).toEqual(apiResponse);
             done();
           });
         });
@@ -2553,7 +2464,7 @@ async.each(
             callback();
           };
           transaction.rollback(() => {
-            assert.strictEqual(transaction.skipCommit, true);
+            expect(transaction.skipCommit).toBe(true);
             done();
           });
         });
@@ -2563,7 +2474,7 @@ async.each(
             callback(new Error('Error.'));
           };
           transaction.rollback(() => {
-            assert.strictEqual(transaction.skipCommit, true);
+            expect(transaction.skipCommit).toBe(true);
             done();
           });
         });
@@ -2572,21 +2483,21 @@ async.each(
       describe('run', () => {
         it('should make the correct API request', done => {
           transaction.request_ = config => {
-            assert.strictEqual(config.client, 'DatastoreClient');
-            assert.strictEqual(config.method, 'beginTransaction');
-            assert.deepStrictEqual(config.reqOpts, {transactionOptions: {}});
-            assert.strictEqual(config.gaxOpts, undefined);
+            expect(config.client).toBe('DatastoreClient');
+            expect(config.method).toBe('beginTransaction');
+            expect(config.reqOpts).toEqual({transactionOptions: {}});
+            expect(config.gaxOpts).toBe(undefined);
             done();
           };
 
-          transaction.run(assert.ifError);
+          transaction.run(() => {});
         });
 
         it('should allow setting gaxOptions', done => {
           const gaxOptions = {};
 
           transaction.request_ = config => {
-            assert.strictEqual(config.gaxOpts, gaxOptions);
+            expect(config.gaxOpts).toBe(gaxOptions);
             done();
           };
 
@@ -2600,28 +2511,22 @@ async.each(
             };
 
             transaction.request_ = (config: Any) => {
-              assert.deepStrictEqual(
-                config.reqOpts.transactionOptions.readOnly,
-                {},
-              );
+              expect(config.reqOpts.transactionOptions.readOnly).toEqual({});
               done();
             };
 
-            transaction.run(options, assert.ifError);
+            transaction.run(options, () => {});
           });
 
           it('should respect the global readOnly option', done => {
             transaction.readOnly = true;
 
             transaction.request_ = config => {
-              assert.deepStrictEqual(
-                config.reqOpts!.transactionOptions!.readOnly,
-                {},
-              );
+              expect(config.reqOpts!.transactionOptions!.readOnly).toEqual({});
               done();
             };
 
-            transaction.run(assert.ifError);
+            transaction.run(() => {});
           });
         });
 
@@ -2632,32 +2537,26 @@ async.each(
             };
 
             transaction.request_ = config => {
-              assert.deepStrictEqual(
-                config.reqOpts!.transactionOptions!.readWrite,
-                {
+              expect(config.reqOpts!.transactionOptions!.readWrite).toEqual({
                   previousTransaction: options.transactionId,
-                },
-              );
+                });
               done();
             };
 
-            transaction.run(options, assert.ifError);
+            transaction.run(options, () => {});
           });
 
           it('should respect the global transactionId option', done => {
             transaction.id = 'transaction-id';
 
             transaction.request_ = config => {
-              assert.deepStrictEqual(
-                config.reqOpts!.transactionOptions!.readWrite,
-                {
+              expect(config.reqOpts!.transactionOptions!.readWrite).toEqual({
                   previousTransaction: transaction.id,
-                },
-              );
+                });
               done();
             };
 
-            transaction.run(assert.ifError);
+            transaction.run(() => {});
           });
         });
 
@@ -2679,11 +2578,11 @@ async.each(
             };
 
             transaction.request_ = (config: RequestConfig) => {
-              assert.deepStrictEqual(config.reqOpts, options);
+              expect(config.reqOpts).toEqual(options);
               done();
             };
 
-            transaction.run(inputOptions, assert.ifError);
+            transaction.run(inputOptions, () => {});
           });
         });
 
@@ -2699,9 +2598,9 @@ async.each(
 
           it('should pass error & API response to callback', done => {
             transaction.run((err, transaction, apiResponse_) => {
-              assert.strictEqual(err, error);
-              assert.strictEqual(transaction, null);
-              assert.strictEqual(apiResponse_, apiResponse);
+              expect(err).toBe(error);
+              expect(transaction).toBe(null);
+              expect(apiResponse_).toBe(apiResponse);
               done();
             });
           });
@@ -2721,17 +2620,17 @@ async.each(
           it('should set transaction id', done => {
             delete transaction.id;
             transaction.run((err: Error | null) => {
-              assert.ifError(err);
-              assert.strictEqual(transaction.id, TRANSACTION_ID);
+              expect(err).toBeFalsy();
+              expect(transaction.id).toBe(TRANSACTION_ID);
               done();
             });
           });
 
           it('should exec callback with Transaction & apiResponse', done => {
             transaction.run((err, transaction_, apiResponse_) => {
-              assert.ifError(err);
-              assert.strictEqual(transaction_, transaction);
-              assert.deepStrictEqual(apiResponse_, apiResponse);
+              expect(err).toBeFalsy();
+              expect(transaction_).toBe(transaction);
+              expect(apiResponse_).toEqual(apiResponse);
               done();
             });
           });
@@ -2746,23 +2645,20 @@ async.each(
             {key: key('Product345'), data: 345},
           ];
           transaction.save(entities);
-          assert.strictEqual(
-            transaction.modifiedEntities_.length,
-            entities.length,
-          );
+          expect(transaction.modifiedEntities_.length).toBe(entities.length);
           transaction.modifiedEntities_.forEach((queuedEntity: Entity) => {
-            assert.strictEqual(queuedEntity.method, 'save');
+            expect(queuedEntity.method).toBe('save');
             const match = entities.filter(ent => {
               return ent.key === queuedEntity.entity.key;
             })[0];
-            assert.deepStrictEqual(queuedEntity.args, [match]);
+            expect(queuedEntity.args).toEqual([match]);
           });
         });
       });
 
       describe('update', () => {
         afterEach(() => {
-          sinon.restore();
+          jest.restoreAllMocks();
         });
 
         it('should prepare entity objects', done => {
@@ -2772,15 +2668,14 @@ async.each(
             method: 'update',
           });
 
-          sinon
-            .stub(DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               return preparedEntityObject as {};
             });
 
           transaction.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(entities[0], expectedEntityObject);
+            expect(entities[0]).toEqual(expectedEntityObject);
             done();
           };
 
@@ -2789,7 +2684,7 @@ async.each(
 
         it('should pass the correct arguments to save', done => {
           transaction.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(JSON.parse(JSON.stringify(entities)), [
+            expect(JSON.parse(JSON.stringify(entities))).toEqual([
               {
                 key: {
                   namespace: 'ns',
@@ -2809,7 +2704,7 @@ async.each(
 
       describe('upsert', () => {
         afterEach(() => {
-          sinon.restore();
+          jest.restoreAllMocks();
         });
 
         it('should prepare entity objects', done => {
@@ -2819,15 +2714,14 @@ async.each(
             method: 'upsert',
           });
 
-          sinon
-            .stub(DatastoreRequest, 'prepareEntityObject_')
-            .callsFake(obj => {
-              assert.strictEqual(obj, entityObject);
+          jest.spyOn(DatastoreRequest, 'prepareEntityObject_')
+            .mockImplementation(obj => {
+              expect(obj).toBe(entityObject);
               return preparedEntityObject as {};
             });
 
           transaction.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(entities[0], expectedEntityObject);
+            expect(entities[0]).toEqual(expectedEntityObject);
             done();
           };
 
@@ -2836,7 +2730,7 @@ async.each(
 
         it('should pass the correct arguments to save', done => {
           transaction.save = (entities: Entity[]) => {
-            assert.deepStrictEqual(JSON.parse(JSON.stringify(entities)), [
+            expect(JSON.parse(JSON.stringify(entities))).toEqual([
               {
                 key: {
                   namespace: 'ns',
@@ -2854,8 +2748,7 @@ async.each(
         });
       });
     });
-  },
-);
+}
 
 describe('getTransactionRequest', () => {
   const datastore = new Datastore();
@@ -2864,21 +2757,21 @@ describe('getTransactionRequest', () => {
     const transaction = new Transaction(datastore);
     const options = {};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {});
+    expect(result).toEqual({});
   });
 
   it('should return a readOnly object if readOnly is true', () => {
     const transaction = new Transaction(datastore);
     const options = {readOnly: true};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {readOnly: {}});
+    expect(result).toEqual({readOnly: {}});
   });
 
   it('should return a readWrite object with previousTransaction if transactionId is provided', () => {
     const transaction = new Transaction(datastore);
     const options = {transactionId: 'transaction-id'};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {
+    expect(result).toEqual({
       readWrite: {previousTransaction: 'transaction-id'},
     });
   });
@@ -2887,7 +2780,7 @@ describe('getTransactionRequest', () => {
     const transaction = new Transaction(datastore, {id: 'transaction-id'});
     const options = {};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {
+    expect(result).toEqual({
       readWrite: {previousTransaction: 'transaction-id'},
     });
   });
@@ -2896,14 +2789,14 @@ describe('getTransactionRequest', () => {
     const transaction = new Transaction(datastore);
     const options = {transactionOptions: {readOnly: true}};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {readOnly: {}});
+    expect(result).toEqual({readOnly: {}});
   });
 
   it('should return a readWrite object with previousTransaction if transactionOptions.id is provided', () => {
     const transaction = new Transaction(datastore);
     const options = {transactionOptions: {id: 'transaction-id'}};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {
+    expect(result).toEqual({
       readWrite: {previousTransaction: 'transaction-id'},
     });
   });
@@ -2919,7 +2812,7 @@ describe('getTransactionRequest', () => {
       },
     };
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {
+    expect(result).toEqual({
       readOnly: {},
     });
   });
@@ -2928,14 +2821,14 @@ describe('getTransactionRequest', () => {
     const transaction = new Transaction(datastore, {readOnly: true});
     const options = {};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {readOnly: {}});
+    expect(result).toEqual({readOnly: {}});
   });
 
   it('should return a readWrite object with previousTransaction if transaction is constructed with id', () => {
     const transaction = new Transaction(datastore, {id: 'transaction-id'});
     const options = {};
     const result = getTransactionRequest(transaction, options);
-    assert.deepStrictEqual(result, {
+    expect(result).toEqual({
       readWrite: {previousTransaction: 'transaction-id'},
     });
   });

@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe} from 'mocha';
 import {protos, google} from '../../src/protos';
 import {getInitializedDatastoreClient} from './get-initialized-datastore-client';
 import type {CallOptions} from 'google-gax';
 import {Entities} from '../../src/entity';
 import IValue = google.datastore.v1.IValue;
 import {complexCaseEntities} from '../fixtures/complexCaseLargeStrings';
-
-const async = require('async');
 
 describe('Commit', () => {
   const longString = Buffer.alloc(1501, '.').toString();
@@ -171,8 +167,14 @@ describe('Commit', () => {
   };
 
   describe('save should pass the right properties to the gapic layer', () => {
-    async.each(
-      [
+    const testCases: {
+      name: string;
+      skipped: boolean;
+      entities: Entities;
+      excludeFromIndexes: string[];
+      excludeLargeProperties?: boolean;
+      expectedMutations: google.datastore.v1.IMutation[];
+    }[] = [
         {
           name: 'should pass the right properties for a simple name/value pair',
           skipped: false,
@@ -506,78 +508,68 @@ describe('Commit', () => {
             },
           ],
         },
-      ],
-      (test: {
-        name: string;
-        skipped: boolean;
-        entities: Entities;
-        excludeFromIndexes: string[];
-        excludeLargeProperties: boolean;
-        expectedMutations: google.datastore.v1.IMutation[];
-      }) => {
-        it(test.name, async function () {
-          if (test.skipped) {
-            this.skip();
+      ];
+
+    for (const test of testCases) {
+      (test.skipped ? it.skip : it)(test.name, async () => {
+        /**
+         * Replaces long strings in an object with <longString> so that they can
+         * be used in an assert comparison as assert has a character limit on the
+         * data that it can accept
+         *
+         * @param {google.datastore.v1.IMutation[] | null} input The input object
+         * containing the long strings that should be replaced.
+         * @returns {google.datastore.v1.IMutation[]} The input object with the long
+         * strings replaced.
+         */
+        function replaceLongStrings(
+          input?: google.datastore.v1.IMutation[] | null,
+        ) {
+          const stringifiedInput = JSON.stringify(input);
+          const replacedInput = stringifiedInput
+            .split(longString)
+            .join('<longString>');
+          return JSON.parse(replacedInput) as google.datastore.v1.IMutation[];
+        }
+        {
+          // This code block is indented so the reader knows the rest of the test doesn't depend its definitions.
+          /*
+          Sets up the gapic client so that when it receives mutations it ensures that
+          the mutations match the expectedMutations and throw an assertion error if
+          they don't.
+          */
+          const dataClient = datastore.clients_.get(clientName);
+          if (dataClient) {
+            dataClient.commit = (
+              request: protos.google.datastore.v1.ICommitRequest,
+              options: CallOptions,
+              callback: (
+                err?: unknown,
+                res?: protos.google.datastore.v1.ICommitResponse,
+              ) => void,
+            ) => {
+              try {
+                const actual = replaceLongStrings(request.mutations);
+                const expected = replaceLongStrings(test.expectedMutations);
+                expect(actual).toEqual(expected);
+              } catch (e) {
+                callback(e);
+              }
+              callback(null, {
+                mutationResults: [],
+              });
+            };
           }
-          /**
-           * Replaces long strings in an object with <longString> so that they can
-           * be used in an assert comparison as assert has a character limit on the
-           * data that it can accept
-           *
-           * @param {google.datastore.v1.IMutation[] | null} input The input object
-           * containing the long strings that should be replaced.
-           * @returns {google.datastore.v1.IMutation[]} The input object with the long
-           * strings replaced.
-           */
-          function replaceLongStrings(
-            input?: google.datastore.v1.IMutation[] | null,
-          ) {
-            const stringifiedInput = JSON.stringify(input);
-            const replacedInput = stringifiedInput
-              .split(longString)
-              .join('<longString>');
-            return JSON.parse(replacedInput) as google.datastore.v1.IMutation[];
-          }
-          {
-            // This code block is indented so the reader knows the rest of the test doesn't depend its definitions.
-            /*
-            Sets up the gapic client so that when it receives mutations it ensures that
-            the mutations match the expectedMutations and throw an assertion error if
-            they don't.
-            */
-            const dataClient = datastore.clients_.get(clientName);
-            if (dataClient) {
-              dataClient.commit = (
-                request: protos.google.datastore.v1.ICommitRequest,
-                options: CallOptions,
-                callback: (
-                  err?: unknown,
-                  res?: protos.google.datastore.v1.ICommitResponse,
-                ) => void,
-              ) => {
-                try {
-                  const actual = replaceLongStrings(request.mutations);
-                  const expected = replaceLongStrings(test.expectedMutations);
-                  assert.deepStrictEqual(actual, expected);
-                } catch (e) {
-                  callback(e);
-                }
-                callback(null, {
-                  mutationResults: [],
-                });
-              };
-            }
-          }
-          // Calls save and ensures that the right mutations are passed to the Gapic layer.
-          const postKey = datastore.key(['Post', 'post2']);
-          await datastore.save({
-            key: postKey,
-            data: test.entities,
-            excludeFromIndexes: test.excludeFromIndexes,
-            excludeLargeProperties: test.excludeLargeProperties,
-          });
+        }
+        // Calls save and ensures that the right mutations are passed to the Gapic layer.
+        const postKey = datastore.key(['Post', 'post2']);
+        await datastore.save({
+          key: postKey,
+          data: test.entities,
+          excludeFromIndexes: test.excludeFromIndexes,
+          excludeLargeProperties: test.excludeLargeProperties || false,
         });
-      },
-    );
+      });
+    }
   });
 });

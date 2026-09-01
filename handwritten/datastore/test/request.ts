@@ -13,20 +13,34 @@
 // limitations under the License.
 
 import * as pfy from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {after, afterEach, before, beforeEach, describe, it} from 'mocha';
 import * as extend from 'extend';
 import * as gax from 'google-gax';
 import * as is from 'is';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import {PassThrough, Transform} from 'stream';
 
 import {google} from '../src/protos';
 import * as ds from '../src';
-import {entity, Entity, KeyProto} from '../src/entity.js';
-import {IntegerTypeCastOptions, Query, QueryProto} from '../src/query.js';
-import {outOfBoundsError} from './entity';
+import {entity, Entity, KeyProto} from '../src/entity';
+import {IntegerTypeCastOptions, Query, QueryProto} from '../src/query';
+
+function outOfBoundsError(opts: {
+  propertyName?: string;
+  integerValue: string | number;
+}) {
+  return new Error(
+    'We attempted to return all of the numeric values, but ' +
+      (opts.propertyName ? opts.propertyName + ' ' : '') +
+      'value ' +
+      opts.integerValue +
+      " is out of bounds of 'Number.MAX_SAFE_INTEGER'.\n" +
+      "To prevent this error, please consider passing 'options.wrapNumbers=true' or\n" +
+      "'options.wrapNumbers' as\n" +
+      '{\n' +
+      '  integerTypeCastFunction: provide <your_custom_function>\n' +
+      '  properties: optionally specify property name(s) to be custom casted\n' +
+      '}\n',
+  );
+}
 import {
   AllocateIdsResponse,
   RequestConfig,
@@ -40,60 +54,58 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
-let promisified = false;
-const fakePfy = Object.assign({}, pfy, {
-  promisifyAll(klass: Function) {
-    if (klass.name === 'DatastoreRequest') {
-      promisified = true;
-    }
-  },
+import {DatastoreRequest} from '../src/request';
+import {Transaction} from '../src/transaction';
+
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll(klass: Function) {
+      if (klass.name === 'DatastoreRequest') {
+        (global as any).__mockPromisified = true;
+      }
+    },
+  };
 });
 
-let v1FakeClientOverride: Function | null;
-const fakeV1 = {
-  FakeClient: class {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(...args: any[]) {
-      return (v1FakeClientOverride || (() => {}))(...args);
-    }
-  },
-};
-
-class FakeQuery extends Query {}
+// eslint-disable-next-line no-var
+var mockV1FakeClientOverride: Function | null;
+jest.mock('../src/v1', () => {
+  const actual = jest.requireActual('../src/v1');
+  return {
+    ...actual,
+    FakeClient: class {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      constructor(...args: any[]) {
+        return (mockV1FakeClientOverride || (() => {}))(...args);
+      }
+    },
+  };
+});
 
 describe('Request', () => {
-  let Request: typeof ds.DatastoreRequest;
+  const Request = DatastoreRequest;
   let request: Any;
   let key: entity.Key;
-  const sandbox = sinon.createSandbox();
-
-  before(() => {
-    Request = proxyquire('../src/request', {
-      '@google-cloud/promisify': fakePfy,
-      './entity': {entity},
-      './query': {Query: FakeQuery},
-      './v1': fakeV1,
-    }).DatastoreRequest;
-  });
-
-  after(() => {
-    v1FakeClientOverride = null;
-  });
 
   beforeEach(() => {
     key = new entity.Key({
       namespace: 'namespace',
       path: ['Company', 123],
     });
-    v1FakeClientOverride = null;
+    mockV1FakeClientOverride = null;
     request = new Request();
   });
 
-  afterEach(() => sandbox.restore());
+  afterEach(() => {
+    mockV1FakeClientOverride = null;
+    jest.restoreAllMocks();
+  });
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect((global as any).__mockPromisified).toBeTruthy();
     });
   });
 
@@ -109,12 +121,9 @@ describe('Request', () => {
       };
       const expectedPreparedEntityObject = extend(true, {}, obj);
       const preparedEntityObject = Request.prepareEntityObject_(obj) as Any;
-      assert.notStrictEqual(preparedEntityObject, obj);
-      assert.notStrictEqual(preparedEntityObject.data.nested, obj.data.nested);
-      assert.deepStrictEqual(
-        preparedEntityObject,
-        expectedPreparedEntityObject,
-      );
+      expect(preparedEntityObject).not.toBe(obj);
+      expect(preparedEntityObject.data.nested).not.toBe(obj.data.nested);
+      expect(preparedEntityObject).toEqual(expectedPreparedEntityObject);
     });
 
     it('should format an entity', () => {
@@ -125,8 +134,8 @@ describe('Request', () => {
       const preparedEntityObject = Request.prepareEntityObject_(
         entityObject,
       ) as Any;
-      assert.strictEqual(preparedEntityObject.key, key);
-      assert.strictEqual(preparedEntityObject.data.data, entityObject.data);
+      expect(preparedEntityObject.key).toBe(key);
+      expect(preparedEntityObject.data.data).toBe(entityObject.data);
     });
   });
 
@@ -136,65 +145,70 @@ describe('Request', () => {
     const OPTIONS = {
       allocations: ALLOCATIONS,
     };
+    const keyProto = {} as KeyProto;
+
+    beforeEach(() => {
+      jest.spyOn(entity, 'isKeyComplete').mockReturnValue(false);
+      jest.spyOn(entity, 'keyToKeyProto').mockReturnValue(keyProto);
+    });
 
     it('should throw if the key is complete', () => {
-      sandbox.stub(entity, 'keyToKeyProto');
-      sandbox.stub(entity, 'isKeyComplete').callsFake(key => {
-        assert.strictEqual(key, INCOMPLETE_KEY);
+      jest.spyOn(entity, 'isKeyComplete').mockImplementation(key => {
+        expect(key).toBe(INCOMPLETE_KEY);
         return true;
       });
 
-      assert.throws(() => {
-        request.allocateIds(INCOMPLETE_KEY, OPTIONS, assert.ifError);
-      }, new RegExp('An incomplete key should be provided.'));
+      expect(() => {
+        request.allocateIds(INCOMPLETE_KEY, OPTIONS, () => {});
+      }).toThrow(new RegExp('An incomplete key should be provided.'));
     });
 
     it('should make the correct request', done => {
       const keyProto = {} as KeyProto;
-      sandbox.stub(entity, 'isKeyComplete');
-      sandbox.stub(entity, 'keyToKeyProto').callsFake(key => {
-        assert.strictEqual(key, INCOMPLETE_KEY);
+      jest.spyOn(entity, 'isKeyComplete');
+      jest.spyOn(entity, 'keyToKeyProto').mockImplementation(key => {
+        expect(key).toBe(INCOMPLETE_KEY);
         return keyProto;
       });
 
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.client, 'DatastoreClient');
-        assert.strictEqual(config.method, 'allocateIds');
+        expect(config.client).toBe('DatastoreClient');
+        expect(config.method).toBe('allocateIds');
 
         const expectedKeys: Array<{}> = [];
         expectedKeys.length = ALLOCATIONS;
         expectedKeys.fill(keyProto);
-        assert.deepStrictEqual(config.reqOpts!.keys, expectedKeys);
-        assert.strictEqual(config.gaxOpts, undefined);
+        expect(config.reqOpts!.keys).toEqual(expectedKeys);
+        expect(config.gaxOpts).toBe(undefined);
         done();
       };
 
-      request.allocateIds(INCOMPLETE_KEY, OPTIONS, assert.ifError);
+      request.allocateIds(INCOMPLETE_KEY, OPTIONS, () => {});
     });
 
     it('should allow a numeric shorthand for allocations', done => {
-      sandbox.stub(entity, 'isKeyComplete');
-      sandbox.stub(entity, 'keyToKeyProto');
+      jest.spyOn(entity, 'isKeyComplete');
+      jest.spyOn(entity, 'keyToKeyProto');
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.reqOpts!.keys.length, ALLOCATIONS);
+        expect(config.reqOpts!.keys.length).toBe(ALLOCATIONS);
         done();
       };
-      request.allocateIds(INCOMPLETE_KEY, ALLOCATIONS, assert.ifError);
+      request.allocateIds(INCOMPLETE_KEY, ALLOCATIONS, () => {});
     });
 
     it('should allow customization of GAX options', done => {
-      sandbox.stub(entity, 'isKeyComplete');
-      sandbox.stub(entity, 'keyToKeyProto');
+      jest.spyOn(entity, 'isKeyComplete');
+      jest.spyOn(entity, 'keyToKeyProto');
       const options = Object.assign({}, OPTIONS, {
         gaxOptions: {},
       });
 
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, options.gaxOptions);
+        expect(config.gaxOpts).toBe(options.gaxOptions);
         done();
       };
 
-      request.allocateIds(INCOMPLETE_KEY, options, assert.ifError);
+      request.allocateIds(INCOMPLETE_KEY, options, () => {});
     });
 
     describe('error', () => {
@@ -208,15 +222,15 @@ describe('Request', () => {
       });
 
       it('should exec callback with error & API response', done => {
-        sandbox.stub(entity, 'isKeyComplete');
-        sandbox.stub(entity, 'keyToKeyProto');
+        jest.spyOn(entity, 'isKeyComplete');
+        jest.spyOn(entity, 'keyToKeyProto');
         request.allocateIds(
           INCOMPLETE_KEY,
           OPTIONS,
           (err: Error, keys: null, resp: {}) => {
-            assert.strictEqual(err, ERROR);
-            assert.strictEqual(keys, null);
-            assert.strictEqual(resp, API_RESPONSE);
+            expect(err).toBe(ERROR);
+            expect(keys).toBe(null);
+            expect(resp).toBe(API_RESPONSE);
             done();
           },
         );
@@ -237,19 +251,19 @@ describe('Request', () => {
 
       it('should create and return Keys & API response', done => {
         const key = {} as entity.Key;
-        sandbox.stub(entity, 'isKeyComplete');
-        sandbox.stub(entity, 'keyToKeyProto');
-        sandbox.stub(entity, 'keyFromKeyProto').callsFake(keyProto => {
-          assert.strictEqual(keyProto, API_RESPONSE.keys[0]);
+        jest.spyOn(entity, 'isKeyComplete');
+        jest.spyOn(entity, 'keyToKeyProto');
+        jest.spyOn(entity, 'keyFromKeyProto').mockImplementation(keyProto => {
+          expect(keyProto).toBe(API_RESPONSE.keys[0]);
           return key;
         });
         request.allocateIds(
           INCOMPLETE_KEY,
           OPTIONS,
           (err: Error, keys: entity.Key[], resp: AllocateIdsResponse) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(keys, [key]);
-            assert.strictEqual(resp, API_RESPONSE);
+            expect(err).toBeFalsy();
+            expect(keys).toEqual([key]);
+            expect(resp).toBe(API_RESPONSE);
             done();
           },
         );
@@ -263,14 +277,14 @@ describe('Request', () => {
     });
 
     it('should throw if no keys are provided', () => {
-      assert.throws(() => {
+      expect(() => {
         request.createReadStream(null!);
-      }, /At least one Key object is required/);
+      }).toThrow(/At least one Key object is required/);
     });
 
     it('should convert key to key proto', done => {
-      sandbox.stub(entity, 'keyToKeyProto').callsFake(key_ => {
-        assert.strictEqual(key_, key);
+      jest.spyOn(entity, 'keyToKeyProto').mockImplementation(key_ => {
+        expect(key_).toBe(key);
         done();
         return {} as KeyProto;
       });
@@ -280,12 +294,9 @@ describe('Request', () => {
 
     it('should make correct request when stream is ready', done => {
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.client, 'DatastoreClient');
-        assert.strictEqual(config.method, 'lookup');
-        assert.deepStrictEqual(
-          config.reqOpts!.keys[0],
-          entity.keyToKeyProto(key),
-        );
+        expect(config.client).toBe('DatastoreClient');
+        expect(config.method).toBe('lookup');
+        expect(config.reqOpts!.keys[0]).toEqual(entity.keyToKeyProto(key));
         done();
       };
       const stream = request.createReadStream(key);
@@ -298,7 +309,7 @@ describe('Request', () => {
       };
 
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, options.gaxOptions);
+        expect(config.gaxOpts).toBe(options.gaxOptions);
         done();
       };
 
@@ -307,7 +318,7 @@ describe('Request', () => {
 
     it('should allow setting strong read consistency', done => {
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.reqOpts!.readOptions!.readConsistency, 1);
+        expect(config.reqOpts!.readOptions!.readConsistency).toBe(1);
         done();
       };
 
@@ -319,7 +330,7 @@ describe('Request', () => {
 
     it('should allow setting strong eventual consistency', done => {
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.reqOpts!.readOptions!.readConsistency, 2);
+        expect(config.reqOpts!.readOptions!.readConsistency).toBe(2);
         done();
       };
 
@@ -346,7 +357,7 @@ describe('Request', () => {
           .createReadStream(key)
           .on('data', () => {})
           .on('error', (err: Error) => {
-            assert.strictEqual(err, error);
+            expect(err).toBe(error);
             done();
           });
       });
@@ -357,7 +368,7 @@ describe('Request', () => {
           .on('data', () => {})
           .on('error', () => {
             setImmediate(() => {
-              assert.strictEqual(stream.destroyed, true);
+              expect(stream.destroyed).toBe(true);
               done();
             });
           });
@@ -388,12 +399,9 @@ describe('Request', () => {
         stream
           .on('data', () => {})
           .on('error', (err: Error) => {
-            assert.deepStrictEqual(
-              err,
-              outOfBoundsError({integerValue: largeInt, propertyName}),
-            );
+            expect(err).toEqual(outOfBoundsError({integerValue: largeInt, propertyName}));
             setImmediate(() => {
-              assert.strictEqual(stream.destroyed, true);
+              expect(stream.destroyed).toBe(true);
               done();
             });
           });
@@ -468,8 +476,8 @@ describe('Request', () => {
       });
 
       it('should format the results', done => {
-        sandbox.stub(entity, 'formatArray').callsFake(arr => {
-          assert.strictEqual(arr, apiResponse.found);
+        jest.spyOn(entity, 'formatArray').mockImplementation(arr => {
+          expect(arr).toBe(apiResponse.found);
           setImmediate(done);
           return arr;
         });
@@ -482,24 +490,23 @@ describe('Request', () => {
         let formtArrayStub: Any;
 
         beforeEach(() => {
-          formtArrayStub = sandbox
-            .stub(entity, 'formatArray')
-            .callsFake(arr => {
-              assert.strictEqual(arr, apiResponse.found);
+          formtArrayStub = jest.spyOn(entity, 'formatArray')
+            .mockImplementation(arr => {
+              expect(arr).toBe(apiResponse.found);
               return arr;
             });
         });
 
         afterEach(() => {
-          formtArrayStub.restore();
+          formtArrayStub.mockRestore();
         });
 
         it('should pass `wrapNumbers` to formatArray as undefined by default', done => {
           request.createReadStream(key).on('error', done).resume();
 
           setImmediate(() => {
-            wrapNumbersOpts = formtArrayStub.getCall(0).args[1];
-            assert.strictEqual(wrapNumbersOpts, undefined);
+            wrapNumbersOpts = formtArrayStub.mock.calls[0][1];
+            expect(wrapNumbersOpts).toBe(undefined);
             done();
           });
         });
@@ -511,8 +518,8 @@ describe('Request', () => {
             .resume();
 
           setImmediate(() => {
-            wrapNumbersOpts = formtArrayStub.getCall(0).args[1];
-            assert.strictEqual(typeof wrapNumbersOpts, 'boolean');
+            wrapNumbersOpts = formtArrayStub.mock.calls[0][1];
+            expect(typeof wrapNumbersOpts).toBe('boolean');
             done();
           });
         });
@@ -529,9 +536,9 @@ describe('Request', () => {
             .resume();
 
           setImmediate(() => {
-            wrapNumbersOpts = formtArrayStub.getCall(0).args[1];
-            assert.strictEqual(wrapNumbersOpts, integerTypeCastOptions);
-            assert.deepStrictEqual(wrapNumbersOpts, integerTypeCastOptions);
+            wrapNumbersOpts = formtArrayStub.mock.calls[0][1];
+            expect(wrapNumbersOpts).toBe(integerTypeCastOptions);
+            expect(wrapNumbersOpts).toEqual(integerTypeCastOptions);
             done();
           });
         });
@@ -552,7 +559,7 @@ describe('Request', () => {
             .map(entity.keyFromKeyProto)
             .map(entity.keyToKeyProto);
 
-          assert.deepStrictEqual(config.reqOpts!.keys, expectedKeys);
+          expect(config.reqOpts!.keys).toEqual(expectedKeys);
           done();
         };
 
@@ -564,7 +571,7 @@ describe('Request', () => {
           .createReadStream(key)
           .on('error', done)
           .on('data', (entity: Entity) => {
-            assert.deepStrictEqual(entity, expectedResult);
+            expect(entity).toEqual(expectedResult);
           })
           .on('end', done)
           .emit('reading');
@@ -586,7 +593,7 @@ describe('Request', () => {
             stream.end();
           })
           .on('end', () => {
-            assert.strictEqual(entitiesEmitted, 1);
+            expect(entitiesEmitted).toBe(1);
             done();
           })
           .emit('reading');
@@ -607,7 +614,7 @@ describe('Request', () => {
           .on('error', done)
           .on('data', () => stream.end())
           .on('end', () => {
-            assert.strictEqual(lookupCount, 1);
+            expect(lookupCount).toBe(1);
             done();
           })
           .emit('reading');
@@ -618,9 +625,9 @@ describe('Request', () => {
   describe('delete', () => {
     it('should delete by key', done => {
       request.request_ = (config: RequestConfig, callback: Function) => {
-        assert.strictEqual(config.client, 'DatastoreClient');
-        assert.strictEqual(config.method, 'commit');
-        assert(is.object((config.reqOpts as Any).mutations[0].delete));
+        expect(config.client).toBe('DatastoreClient');
+        expect(config.method).toBe('commit');
+        expect(is.object((config.reqOpts as Any).mutations[0].delete)).toBeTruthy();
         callback(null!);
       };
       request.delete(key, done);
@@ -634,8 +641,8 @@ describe('Request', () => {
       request.delete(
         key,
         (err: Error, apiResponse: [google.datastore.v1.CommitResponse]) => {
-          assert.ifError(err);
-          assert.deepStrictEqual(resp, apiResponse);
+          expect(err).toBeFalsy();
+          expect(resp).toEqual(apiResponse);
           done();
         },
       );
@@ -643,7 +650,7 @@ describe('Request', () => {
 
     it('should multi delete by keys', done => {
       request.request_ = (config: RequestConfig, callback: Function) => {
-        assert.strictEqual(config.reqOpts!.mutations!.length, 2);
+        expect(config.reqOpts!.mutations!.length).toBe(2);
         callback(null!);
       };
       request.delete([key, key], done);
@@ -652,10 +659,10 @@ describe('Request', () => {
     it('should allow customization of GAX options', done => {
       const gaxOptions = {};
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
+        expect(config.gaxOpts).toBe(gaxOptions);
         done();
       };
-      request.delete(key, gaxOptions, assert.ifError);
+      request.delete(key, gaxOptions, () => {});
     });
 
     describe('transactions', () => {
@@ -667,7 +674,7 @@ describe('Request', () => {
 
       it('should queue request', () => {
         request.delete(key);
-        assert(is.object(request.requests_[0].mutations[0].delete));
+        expect(is.object(request.requests_[0].mutations[0].delete)).toBeTruthy();
       });
     });
   });
@@ -676,7 +683,7 @@ describe('Request', () => {
     it('should pass along readTime for reading snapshots', done => {
       const savedTime = Date.now();
       request.request_ = (config: RequestConfig, callback: RequestCallback) => {
-        assert.deepStrictEqual(config, {
+        expect(config).toEqual({
           client: 'DatastoreClient',
           method: 'lookup',
           gaxOpts: undefined,
@@ -719,7 +726,7 @@ describe('Request', () => {
       const fakeEntities = [{a: 'a'}, {b: 'b'}];
 
       beforeEach(() => {
-        request.createReadStream = sandbox.spy(() => {
+        request.createReadStream = jest.fn(() => {
           const stream = new Transform({objectMode: true});
           setImmediate(() => {
             fakeEntities.forEach(entity => stream.push(entity));
@@ -733,35 +740,35 @@ describe('Request', () => {
         const options = {};
 
         request.get(keys, options, (err: Error, entities: Entity[]) => {
-          assert.ifError(err);
-          assert.deepStrictEqual(entities, fakeEntities);
-          const spy = (request.createReadStream as Any).getCall(0);
-          assert.strictEqual(spy.args[0], keys);
-          assert.strictEqual(spy.args[1], options);
+          expect(err).toBeFalsy();
+          expect(entities).toEqual(fakeEntities);
+          const spy = (request.createReadStream as Any).mock.calls[0];
+          expect(spy[0]).toBe(keys);
+          expect(spy[1]).toBe(options);
           done();
         });
       });
 
       it('should return a single entity', done => {
         request.get(key, (err: Error, entity: Entity) => {
-          assert.ifError(err);
-          assert.strictEqual(entity, fakeEntities[0]);
+          expect(err).toBeFalsy();
+          expect(entity).toBe(fakeEntities[0]);
           done();
         });
       });
 
       it('should allow options to be omitted', done => {
         request.get(keys, (err: Error) => {
-          assert.ifError(err);
+          expect(err).toBeFalsy();
           done();
         });
       });
 
       it('should default options to an object', done => {
         request.get(keys, null!, (err: Error) => {
-          assert.ifError(err);
-          const spy = (request.createReadStream as Any).getCall(0);
-          assert.deepStrictEqual(spy.args[1], {});
+          expect(err).toBeFalsy();
+          const spy = (request.createReadStream as Any).mock.calls[0];
+          expect(spy[1]).toEqual({});
           done();
         });
       });
@@ -769,25 +776,22 @@ describe('Request', () => {
       describe('should pass `wrapNumbers` to createReadStream', () => {
         it('should pass `wrapNumbers` to createReadStream as undefined by default', done => {
           request.get(keys, (err: Error) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
 
             const createReadStreamOptions =
-              request.createReadStream.getCall(0).args[1];
-            assert.strictEqual(createReadStreamOptions.wrapNumbers, undefined);
+              request.createReadStream.mock.calls[0][1];
+            expect(createReadStreamOptions.wrapNumbers).toBe(undefined);
             done();
           });
         });
 
         it('should pass `wrapNumbers` to createReadStream as boolean', done => {
           request.get(keys, {wrapNumbers: true}, (err: Error) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
 
             const createReadStreamOptions =
-              request.createReadStream.getCall(0).args[1];
-            assert.strictEqual(
-              typeof createReadStreamOptions.wrapNumbers,
-              'boolean',
-            );
+              request.createReadStream.mock.calls[0][1];
+            expect(typeof createReadStreamOptions.wrapNumbers).toBe('boolean');
             done();
           });
         });
@@ -802,18 +806,12 @@ describe('Request', () => {
             keys,
             {wrapNumbers: integerTypeCastOptions},
             (err: Error) => {
-              assert.ifError(err);
+              expect(err).toBeFalsy();
 
               const createReadStreamOptions =
-                request.createReadStream.getCall(0).args[1];
-              assert.strictEqual(
-                createReadStreamOptions.wrapNumbers,
-                integerTypeCastOptions,
-              );
-              assert.deepStrictEqual(
-                createReadStreamOptions.wrapNumbers,
-                integerTypeCastOptions,
-              );
+                request.createReadStream.mock.calls[0][1];
+              expect(createReadStreamOptions.wrapNumbers).toBe(integerTypeCastOptions);
+              expect(createReadStreamOptions.wrapNumbers).toEqual(integerTypeCastOptions);
               done();
             },
           );
@@ -825,7 +823,7 @@ describe('Request', () => {
       const error = new Error('err');
 
       beforeEach(() => {
-        request.createReadStream = sandbox.spy(() => {
+        request.createReadStream = jest.fn(() => {
           const stream = new Transform({objectMode: true});
           setImmediate(() => {
             stream.emit('error', error);
@@ -836,7 +834,7 @@ describe('Request', () => {
 
       it('send an error to the callback', done => {
         request.get(key, (err: Error) => {
-          assert.strictEqual(err, error);
+          expect(err).toBe(error);
           done();
         });
       });
@@ -846,16 +844,17 @@ describe('Request', () => {
   describe('runQueryStream', () => {
     beforeEach(() => {
       request.request_ = () => {};
+      jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
     });
 
     it('should clone the query', done => {
-      let query = new FakeQuery();
+      let query = new Query(request.datastore);
       query.namespace = 'namespace';
-      query = extend(true, new FakeQuery(), query);
+      query = extend(true, new Query(request.datastore), query);
 
-      sandbox.stub(entity, 'queryToQueryProto').callsFake(query_ => {
-        assert.notStrictEqual(query_, query);
-        assert.deepStrictEqual(query_, query);
+      jest.spyOn(entity, 'queryToQueryProto').mockImplementation(query_ => {
+        expect(query_).not.toBe(query);
+        expect(query_).toEqual(query);
         done();
         return {} as QueryProto;
       });
@@ -867,18 +866,15 @@ describe('Request', () => {
       const query = {namespace: 'namespace'};
       const queryProto = {} as QueryProto;
 
-      sandbox.stub(entity, 'queryToQueryProto').returns(queryProto);
+      jest.spyOn(entity, 'queryToQueryProto').mockReturnValue(queryProto);
 
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.client, 'DatastoreClient');
-        assert.strictEqual(config.method, 'runQuery');
-        assert(is.empty(config.reqOpts!.readOptions));
-        assert.strictEqual(config.reqOpts!.query, queryProto);
-        assert.strictEqual(
-          config.reqOpts!.partitionId!.namespaceId,
-          query.namespace,
-        );
-        assert.strictEqual(config.gaxOpts, undefined);
+        expect(config.client).toBe('DatastoreClient');
+        expect(config.method).toBe('runQuery');
+        expect(is.empty(config.reqOpts!.readOptions)).toBeTruthy();
+        expect(config.reqOpts!.query).toBe(queryProto);
+        expect(config.reqOpts!.partitionId!.namespaceId).toBe(query.namespace);
+        expect(config.gaxOpts).toBe(undefined);
 
         done();
       };
@@ -887,13 +883,13 @@ describe('Request', () => {
     });
 
     it('should allow customization of GAX options', done => {
-      sandbox.stub(entity, 'queryToQueryProto');
+      jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
       const options = {
         gaxOptions: {},
       };
 
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, options.gaxOptions);
+        expect(config.gaxOpts).toBe(options.gaxOptions);
         done();
       };
 
@@ -901,9 +897,9 @@ describe('Request', () => {
     });
 
     it('should allow setting strong read consistency', done => {
-      sandbox.stub(entity, 'queryToQueryProto');
+      jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.reqOpts!.readOptions!.readConsistency, 1);
+        expect(config.reqOpts!.readOptions!.readConsistency).toBe(1);
         done();
       };
 
@@ -914,9 +910,9 @@ describe('Request', () => {
     });
 
     it('should allow setting strong eventual consistency', done => {
-      sandbox.stub(entity, 'queryToQueryProto');
+      jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
       request.request_ = (config: RequestConfig) => {
-        assert.strictEqual(config.reqOpts!.readOptions!.readConsistency, 2);
+        expect(config.reqOpts!.readOptions!.readConsistency).toBe(2);
         done();
       };
 
@@ -936,11 +932,11 @@ describe('Request', () => {
       });
 
       it('should emit error on a stream', done => {
-        sandbox.stub(entity, 'queryToQueryProto');
+        jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
         request
           .runQueryStream({})
           .on('error', (err: Error) => {
-            assert.strictEqual(err, error);
+            expect(err).toBe(error);
             done();
           })
           .emit('reading');
@@ -948,11 +944,13 @@ describe('Request', () => {
 
       it('should emit an error when encoding fails', done => {
         const error = new Error('Encoding error.');
-        sandbox.stub(entity, 'queryToQueryProto').throws(error);
+        jest.spyOn(entity, 'queryToQueryProto').mockImplementation(() => {
+          throw error;
+        });
         request
           .runQueryStream({})
           .on('error', (err: Error) => {
-            assert.strictEqual(err, error);
+            expect(err).toBe(error);
             done();
           })
           .emit('reading');
@@ -961,7 +959,7 @@ describe('Request', () => {
       it('should emit an error from results decoding', done => {
         const largeInt = '922337203685477850';
         const propertyName = 'points';
-        sandbox.stub(entity, 'queryToQueryProto');
+        jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
 
         request.request_ = (config: RequestConfig, callback: Function) => {
           callback(null, {
@@ -986,12 +984,9 @@ describe('Request', () => {
 
         stream
           .on('error', (err: Error) => {
-            assert.deepStrictEqual(
-              err,
-              outOfBoundsError({integerValue: largeInt, propertyName}),
-            );
+            expect(err).toEqual(outOfBoundsError({integerValue: largeInt, propertyName}));
             setImmediate(() => {
-              assert.strictEqual(stream.destroyed, true);
+              expect(stream.destroyed).toBe(true);
               done();
             });
           })
@@ -1020,18 +1015,17 @@ describe('Request', () => {
           callback(null, apiResponse);
         };
 
-        formatArrayStub = sandbox
-          .stub(entity, 'formatArray')
-          .callsFake(array => {
+        formatArrayStub = jest.spyOn(entity, 'formatArray')
+          .mockImplementation(array => {
             return array;
           });
       });
 
       it('should format results', done => {
-        sandbox.stub(entity, 'queryToQueryProto');
-        formatArrayStub.restore();
-        sandbox.stub(entity, 'formatArray').callsFake(array => {
-          assert.strictEqual(array, apiResponse.batch.entityResults);
+        jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
+        formatArrayStub.mockRestore();
+        jest.spyOn(entity, 'formatArray').mockImplementation(array => {
+          expect(array).toBe(apiResponse.batch.entityResults);
           return array;
         });
 
@@ -1042,7 +1036,7 @@ describe('Request', () => {
           .on('error', done)
           .on('data', (entity: Entity) => entities.push(entity))
           .on('end', () => {
-            assert.deepStrictEqual(entities, apiResponse.batch.entityResults);
+            expect(entities).toEqual(apiResponse.batch.entityResults);
             done();
           });
       });
@@ -1051,21 +1045,20 @@ describe('Request', () => {
         let wrapNumbersOpts: boolean | IntegerTypeCastOptions | undefined;
 
         beforeEach(() => {
-          sandbox.stub(entity, 'queryToQueryProto');
-          formatArrayStub.restore();
-          formatArrayStub = sandbox
-            .stub(entity, 'formatArray')
-            .callsFake(array => {
+          jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
+          formatArrayStub.mockRestore();
+          formatArrayStub = jest.spyOn(entity, 'formatArray')
+            .mockImplementation(array => {
               return array;
             });
         });
 
         it('should pass `wrapNumbers` to formatArray as undefined by default', done => {
-          request.runQueryStream({}).on('error', assert.ifError).resume();
+          request.runQueryStream({}).on('error', () => {}).resume();
 
           setImmediate(() => {
-            wrapNumbersOpts = formatArrayStub.getCall(0).args[1];
-            assert.strictEqual(wrapNumbersOpts, undefined);
+            wrapNumbersOpts = formatArrayStub.mock.calls[0][1];
+            expect(wrapNumbersOpts).toBe(undefined);
             done();
           });
         });
@@ -1073,12 +1066,12 @@ describe('Request', () => {
         it('should pass `wrapNumbers` to formatArray as boolean', done => {
           request
             .runQueryStream({}, {wrapNumbers: true})
-            .on('error', assert.ifError)
+            .on('error', () => {})
             .resume();
 
           setImmediate(() => {
-            wrapNumbersOpts = formatArrayStub.getCall(0).args[1];
-            assert.strictEqual(typeof wrapNumbersOpts, 'boolean');
+            wrapNumbersOpts = formatArrayStub.mock.calls[0][1];
+            expect(typeof wrapNumbersOpts).toBe('boolean');
             done();
           });
         });
@@ -1091,13 +1084,13 @@ describe('Request', () => {
 
           request
             .runQueryStream({}, {wrapNumbers: integerTypeCastOptions})
-            .on('error', assert.ifError)
+            .on('error', () => {})
             .resume();
 
           setImmediate(() => {
-            wrapNumbersOpts = formatArrayStub.getCall(0).args[1];
-            assert.strictEqual(wrapNumbersOpts, integerTypeCastOptions);
-            assert.deepStrictEqual(wrapNumbersOpts, integerTypeCastOptions);
+            wrapNumbersOpts = formatArrayStub.mock.calls[0][1];
+            expect(wrapNumbersOpts).toBe(integerTypeCastOptions);
+            expect(wrapNumbersOpts).toEqual(integerTypeCastOptions);
             done();
           });
         });
@@ -1118,12 +1111,9 @@ describe('Request', () => {
         let startCalled = false;
         let offsetCalled = false;
 
-        formatArrayStub.restore();
-        sandbox.stub(entity, 'formatArray').callsFake(array => {
-          assert.strictEqual(
-            array,
-            entityResultsPerApiCall[timesRequestCalled],
-          );
+        formatArrayStub.mockRestore();
+        jest.spyOn(entity, 'formatArray').mockImplementation(array => {
+          expect(array).toBe(entityResultsPerApiCall[timesRequestCalled]);
           return entityResultsPerApiCall[timesRequestCalled];
         });
 
@@ -1135,51 +1125,45 @@ describe('Request', () => {
             entityResultsPerApiCall[timesRequestCalled];
 
           if (timesRequestCalled === 1) {
-            assert.strictEqual(config.client, 'DatastoreClient');
-            assert.strictEqual(config.method, 'runQuery');
+            expect(config.client).toBe('DatastoreClient');
+            expect(config.method).toBe('runQuery');
             resp.batch.moreResults = 'NOT_FINISHED';
             callback(null, resp);
           } else {
-            assert.strictEqual(startCalled, true);
-            assert.strictEqual(offsetCalled, true);
-            assert.strictEqual(config.reqOpts!.query, queryProto);
+            expect(startCalled).toBe(true);
+            expect(offsetCalled).toBe(true);
+            expect(config.reqOpts!.query).toBe(queryProto);
             resp.batch.moreResults = 'MORE_RESULTS_AFTER_LIMIT';
             callback(null, resp);
           }
         };
 
-        FakeQuery.prototype.start = function (endCursor) {
-          assert.strictEqual(
-            endCursor,
-            apiResponse.batch.endCursor.toString('base64'),
-          );
+        jest.spyOn(Query.prototype, 'start').mockImplementation(function (this: any, endCursor: any) {
+          expect(endCursor).toBe(apiResponse.batch.endCursor.toString('base64'));
           startCalled = true;
           return this;
-        };
-
-        sandbox.stub(FakeQuery.prototype, 'offset').callsFake(offset_ => {
-          const offset = query.offsetVal - apiResponse.batch.skippedResults;
-          assert.strictEqual(offset_, offset);
-          offsetCalled = true;
-          return {} as FakeQuery;
         });
 
-        sandbox.stub(FakeQuery.prototype, 'limit').callsFake(limit_ => {
+        jest.spyOn(Query.prototype, 'offset').mockImplementation((offset_: any) => {
+          const offset = query.offsetVal - apiResponse.batch.skippedResults;
+          expect(offset_).toBe(offset);
+          offsetCalled = true;
+          return {} as Query;
+        });
+
+        jest.spyOn(Query.prototype, 'limit').mockImplementation((limit_: any) => {
           if (timesRequestCalled === 1) {
-            assert.strictEqual(
-              limit_,
-              entityResultsPerApiCall[1].length - query.limitVal,
-            );
+            expect(limit_).toBe(entityResultsPerApiCall[1].length - query.limitVal);
           } else {
             // Should restore the original limit.
-            assert.strictEqual(limit_, query.limitVal);
+            expect(limit_).toBe(query.limitVal);
           }
-          return {} as FakeQuery;
+          return {} as Query;
         });
 
-        sandbox.stub(entity, 'queryToQueryProto').callsFake(query_ => {
+        jest.spyOn(entity, 'queryToQueryProto').mockImplementation(query_ => {
           if (timesRequestCalled > 1) {
-            assert.strictEqual(query_, query);
+            expect(query_).toBe(query);
           }
           return queryProto;
         });
@@ -1201,9 +1185,9 @@ describe('Request', () => {
               .call(entityResultsPerApiCall[1])
               .concat(entityResultsPerApiCall[2]);
 
-            assert.deepStrictEqual(entities, allResults);
+            expect(entities).toEqual(allResults);
 
-            assert.deepStrictEqual(info, {
+            expect(info).toEqual({
               endCursor: apiResponse.batch.endCursor.toString('base64'),
               moreResults: apiResponse.batch.moreResults,
             });
@@ -1232,16 +1216,16 @@ describe('Request', () => {
           callback(null, {batch});
         };
 
-        sandbox.stub(entity, 'queryToQueryProto').returns({} as QueryProto);
-        const limitStub = sandbox.stub(FakeQuery.prototype, 'limit');
+        jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as QueryProto);
+        const limitStub = jest.spyOn(Query.prototype, 'limit');
 
         request
           .runQueryStream(query)
           .on('error', done)
           .on('data', () => {})
           .on('end', () => {
-            assert.strictEqual(timesRequestCalled, 2);
-            assert.strictEqual(limitStub.called, false);
+            expect(timesRequestCalled).toBe(2);
+            expect(limitStub).not.toHaveBeenCalled();
             done();
           });
       });
@@ -1250,7 +1234,7 @@ describe('Request', () => {
         let timesRequestCalled = 0;
         let entitiesEmitted = 0;
 
-        sandbox.stub(entity, 'queryToQueryProto');
+        jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
 
         request.request_ = (config: RequestConfig, callback: Function) => {
           timesRequestCalled++;
@@ -1275,14 +1259,14 @@ describe('Request', () => {
             stream.end();
           })
           .on('end', () => {
-            assert.strictEqual(entitiesEmitted, 1);
+            expect(entitiesEmitted).toBe(1);
             done();
           });
       });
 
       it('should not get more results if stream was ended', done => {
         let timesRequestCalled = 0;
-        sandbox.stub(entity, 'queryToQueryProto');
+        jest.spyOn(entity, 'queryToQueryProto').mockReturnValue({} as any);
         request.request_ = (config: RequestConfig, callback: Function) => {
           timesRequestCalled++;
           callback(null!, apiResponse);
@@ -1293,7 +1277,7 @@ describe('Request', () => {
           .on('error', done)
           .on('data', () => stream.end())
           .on('end', () => {
-            assert.strictEqual(timesRequestCalled, 1);
+            expect(timesRequestCalled).toBe(1);
             done();
           });
       });
@@ -1308,7 +1292,7 @@ describe('Request', () => {
       const fakeEntities = [{a: 'a'}, {b: 'b'}];
 
       beforeEach(() => {
-        request.runQueryStream = sandbox.spy(() => {
+        request.runQueryStream = jest.fn(() => {
           const stream = new Transform({objectMode: true});
 
           setImmediate(() => {
@@ -1332,13 +1316,13 @@ describe('Request', () => {
           query,
           options,
           (err: Error | null, entities: Entity[], info: {}) => {
-            assert.ifError(err);
-            assert.deepStrictEqual(entities, fakeEntities);
-            assert.strictEqual(info, fakeInfo);
+            expect(err).toBeFalsy();
+            expect(entities).toEqual(fakeEntities);
+            expect(info).toBe(fakeInfo);
 
-            const spy = request.runQueryStream.getCall(0);
-            assert.strictEqual(spy.args[0], query);
-            assert.strictEqual(spy.args[1], options);
+            const spy = (request.runQueryStream as Any).mock.calls[0];
+            expect(spy[0]).toBe(query);
+            expect(spy[1]).toBe(options);
             done();
           },
         );
@@ -1347,20 +1331,20 @@ describe('Request', () => {
       describe('should pass `wrapNumbers` to runQueryStream', () => {
         it('should pass `wrapNumbers` to runQueryStream as undefined by default', done => {
           request.runQuery(query, (err: Error) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
 
-            const runQueryOptions = request.runQueryStream.getCall(0).args[1];
-            assert.strictEqual(runQueryOptions.wrapNumbers, undefined);
+            const runQueryOptions = request.runQueryStream.mock.calls[0][1];
+            expect(runQueryOptions.wrapNumbers).toBe(undefined);
             done();
           });
         });
 
         it('should pass `wrapNumbers` to runQueryStream boolean', done => {
           request.runQuery(query, {wrapNumbers: true}, (err: Error) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
 
-            const runQueryOptions = request.runQueryStream.getCall(0).args[1];
-            assert.strictEqual(typeof runQueryOptions.wrapNumbers, 'boolean');
+            const runQueryOptions = request.runQueryStream.mock.calls[0][1];
+            expect(typeof runQueryOptions.wrapNumbers).toBe('boolean');
             done();
           });
         });
@@ -1375,17 +1359,11 @@ describe('Request', () => {
             query,
             {wrapNumbers: integerTypeCastOptions},
             (err: Error) => {
-              assert.ifError(err);
+              expect(err).toBeFalsy();
 
-              const runQueryOptions = request.runQueryStream.getCall(0).args[1];
-              assert.strictEqual(
-                runQueryOptions.wrapNumbers,
-                integerTypeCastOptions,
-              );
-              assert.deepStrictEqual(
-                runQueryOptions.wrapNumbers,
-                integerTypeCastOptions,
-              );
+              const runQueryOptions = request.runQueryStream.mock.calls[0][1];
+              expect(runQueryOptions.wrapNumbers).toBe(integerTypeCastOptions);
+              expect(runQueryOptions.wrapNumbers).toEqual(integerTypeCastOptions);
               done();
             },
           );
@@ -1394,17 +1372,17 @@ describe('Request', () => {
 
       it('should allow options to be omitted', done => {
         request.runQuery(query, (err: Error) => {
-          assert.ifError(err);
+          expect(err).toBeFalsy();
           done();
         });
       });
 
       it('should default options to an object', done => {
         request.runQuery(query, null, (err: Error) => {
-          assert.ifError(err);
+          expect(err).toBeFalsy();
 
-          const spy = request.runQueryStream.getCall(0);
-          assert.deepStrictEqual(spy.args[0], {});
+          const spy = (request.runQueryStream as Any).mock.calls[0];
+          expect(spy[0]).toEqual({});
           done();
         });
       });
@@ -1414,7 +1392,7 @@ describe('Request', () => {
       const error = new Error('err');
 
       beforeEach(() => {
-        request.runQueryStream = sandbox.spy(() => {
+        request.runQueryStream = jest.fn(() => {
           const stream = new Transform({objectMode: true});
 
           setImmediate(() => {
@@ -1427,7 +1405,7 @@ describe('Request', () => {
 
       it('send an error to the callback', done => {
         request.runQuery(query, (err: Error) => {
-          assert.strictEqual(err, error);
+          expect(err).toBe(error);
           done();
         });
       });
@@ -1435,8 +1413,8 @@ describe('Request', () => {
   });
 
   describe('merge', () => {
-    let Transaction: typeof ds.Transaction;
-    let transaction: ds.Transaction;
+    const Transaction = ds.Transaction;
+    let transaction: any;
     const PROJECT_ID = 'project-id';
     const NAMESPACE = 'a-namespace';
 
@@ -1452,12 +1430,6 @@ describe('Request', () => {
       path: ['Company', null],
     };
     const entityObject = {};
-
-    before(() => {
-      Transaction = proxyquire('../src/transaction.js', {
-        '@google-cloud/promisify': fakePfy,
-      }).Transaction;
-    });
 
     beforeEach(() => {
       transaction = new Transaction(DATASTORE);
@@ -1484,7 +1456,7 @@ describe('Request', () => {
       };
     });
 
-    afterEach(() => sandbox.restore());
+    afterEach(() => jest.restoreAllMocks());
 
     it('should return merge object for entity', done => {
       const updatedEntityObject = {
@@ -1492,10 +1464,7 @@ describe('Request', () => {
       };
 
       transaction.save = (modifiedData: PrepareEntityObjectResponse) => {
-        assert.deepStrictEqual(
-          modifiedData.data,
-          Object.assign({}, entityObject, updatedEntityObject),
-        );
+        expect(modifiedData.data).toEqual(Object.assign({}, entityObject, updatedEntityObject));
       };
 
       request.merge({key, data: updatedEntityObject}, done);
@@ -1514,11 +1483,8 @@ describe('Request', () => {
       ];
 
       transaction.commit = async () => {
-        transaction.modifiedEntities_.forEach((entity, index) => {
-          assert.deepStrictEqual(
-            entity.args[0].data,
-            Object.assign({}, entityObject, updatedEntityObject[index]),
-          );
+        transaction.modifiedEntities_.forEach((entity: any, index: number) => {
+          expect(entity.args[0].data).toEqual(Object.assign({}, entityObject, updatedEntityObject[index]));
         });
         return [{}] as CommitResponse;
       };
@@ -1533,65 +1499,61 @@ describe('Request', () => {
     });
 
     it('transaction should rollback if error on transaction run!', done => {
-      sandbox
-        .stub(transaction, 'run')
-        .callsFake((gaxOption, callback?: Function) => {
+      (jest.spyOn(transaction, 'run') as any)
+        .mockImplementation((gaxOption: any, callback?: Function) => {
           callback = typeof gaxOption === 'function' ? gaxOption : callback!;
-          callback(new Error('Error'));
+          callback!(new Error('Error'));
         });
 
       request.merge({key, data: null}, (err: Error) => {
-        assert.strictEqual(err.message, 'Error');
+        expect(err.message).toBe('Error');
         done();
       });
     });
 
     it('transaction should rollback if error for for transaction get!', done => {
-      sandbox.stub(transaction, 'get').rejects(new Error('Error'));
+      (jest.spyOn(transaction, 'get') as any).mockRejectedValue(new Error('Error'));
 
       request.merge({key, data: null}, (err: Error) => {
-        assert.strictEqual(err.message, 'Error');
+        expect(err.message).toBe('Error');
         done();
       });
     });
 
     it('transaction should rollback if error for for transaction commit!', done => {
-      sandbox.stub(transaction, 'commit').rejects(new Error('Error'));
+      (jest.spyOn(transaction, 'commit') as any).mockRejectedValue(new Error('Error'));
 
       request.merge({key, data: null}, (err: Error) => {
-        assert.strictEqual(err.message, 'Error');
+        expect(err.message).toBe('Error');
         done();
       });
     });
 
     it('should avoid the rollback exception in transaction.run', done => {
-      sandbox
-        .stub(transaction, 'run')
-        .callsFake((gaxOption, callback?: Function) => {
+      (jest.spyOn(transaction, 'run') as any)
+        .mockImplementation((gaxOption: any, callback?: Function) => {
           callback = typeof gaxOption === 'function' ? gaxOption : callback!;
-          callback(new Error('Error.'));
+          callback!(new Error('Error.'));
         });
 
-      sandbox
-        .stub(transaction, 'rollback')
-        .rejects(new Error('Rollback Error.'));
+      (jest.spyOn(transaction, 'rollback') as any)
+        .mockRejectedValue(new Error('Rollback Error.'));
 
       request.merge({key, data: null}, (err: Error) => {
-        assert.strictEqual(err.message, 'Error.');
+        expect(err.message).toBe('Error.');
         done();
       });
     });
 
     it('should avoid the rollback exception in transaction.get/commit', done => {
-      sandbox.restore();
-      sandbox.stub(transaction, 'get').rejects(new Error('Error.'));
+      jest.restoreAllMocks();
+      (jest.spyOn(transaction, 'get') as any).mockRejectedValue(new Error('Error.'));
 
-      sandbox
-        .stub(transaction, 'rollback')
-        .rejects(new Error('Rollback Error.'));
+      (jest.spyOn(transaction, 'rollback') as any)
+        .mockRejectedValue(new Error('Rollback Error.'));
 
       request.merge({key, data: null}, (err: Error) => {
-        assert.strictEqual(err.message, 'Error.');
+        expect(err.message).toBe('Error.');
         done();
       });
     });
@@ -1632,7 +1594,7 @@ describe('Request', () => {
       request.datastore.auth.getProjectId = () => {
         done();
       };
-      request.prepareGaxRequest_(CONFIG, assert.ifError);
+      request.prepareGaxRequest_(CONFIG, () => {});
     });
 
     it('should return error if getting project ID failed', done => {
@@ -1642,7 +1604,7 @@ describe('Request', () => {
         callback(error);
       };
       request.prepareGaxRequest_(CONFIG, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -1651,23 +1613,23 @@ describe('Request', () => {
       const fakeClient = {
         [CONFIG.method]() {},
       };
-      v1FakeClientOverride = (options: object) => {
-        assert.deepStrictEqual(options, request.datastore.options);
+      mockV1FakeClientOverride = (options: object) => {
+        expect(options).toEqual(request.datastore.options);
         return fakeClient;
       };
       request.datastore.clients_ = new Map();
-      request.prepareGaxRequest_(CONFIG, assert.ifError);
+      request.prepareGaxRequest_(CONFIG, () => {});
       const client = request.datastore.clients_.get(CONFIG.client);
-      assert.strictEqual(client, fakeClient);
+      expect(client).toBe(fakeClient);
     });
 
     it('should return the cached client', done => {
-      v1FakeClientOverride = () => {
+      mockV1FakeClientOverride = () => {
         done(new Error('Should not re-instantiate a GAX client.'));
       };
 
       request.prepareGaxRequest_(CONFIG, (err: Error, requestFn: Function) => {
-        assert.ifError(err);
+        expect(err).toBeFalsy();
         requestFn();
         done();
       });
@@ -1679,13 +1641,13 @@ describe('Request', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         [CONFIG.method](_: object, gaxO: any) {
           delete gaxO.headers;
-          assert.deepStrictEqual(gaxO, CONFIG.gaxOpts);
+          expect(gaxO).toEqual(CONFIG.gaxOpts);
           done();
         },
       });
 
       request.prepareGaxRequest_(CONFIG, (err: Error, requestFn: Function) => {
-        assert.ifError(err);
+        expect(err).toBeFalsy();
         requestFn();
       });
     });
@@ -1695,7 +1657,7 @@ describe('Request', () => {
       request.datastore.clients_.set(CONFIG.client, {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         [CONFIG.method](_: object, gaxO: any) {
-          assert.deepStrictEqual(gaxO.headers, {
+          expect(gaxO.headers).toEqual({
             'google-cloud-resource-prefix': 'projects/' + PROJECT_ID,
           });
           done();
@@ -1703,7 +1665,7 @@ describe('Request', () => {
       });
 
       request.prepareGaxRequest_(CONFIG, (err: Error, requestFn: Function) => {
-        assert.ifError(err);
+        expect(err).toBeFalsy();
         requestFn();
       });
     });
@@ -1713,7 +1675,7 @@ describe('Request', () => {
         request.datastore.clients_ = new Map();
         request.datastore.clients_.set(CONFIG.client, {
           commit(reqOpts: RequestOptions) {
-            assert.strictEqual(reqOpts.mode, 'NON_TRANSACTIONAL');
+            expect(reqOpts.mode).toBe('NON_TRANSACTIONAL');
             done();
           },
         });
@@ -1723,7 +1685,7 @@ describe('Request', () => {
         request.prepareGaxRequest_(
           config,
           (err: Error, requestFn: Function) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
             requestFn();
           },
         );
@@ -1741,8 +1703,8 @@ describe('Request', () => {
         request.datastore.clients_ = new Map();
         request.datastore.clients_.set(CONFIG.client, {
           commit(reqOpts: RequestOptions) {
-            assert.strictEqual(reqOpts.mode, 'TRANSACTIONAL');
-            assert.strictEqual(reqOpts.transaction, TRANSACTION_ID);
+            expect(reqOpts.mode).toBe('TRANSACTIONAL');
+            expect(reqOpts.transaction).toBe(TRANSACTION_ID);
             done();
           },
         });
@@ -1753,7 +1715,7 @@ describe('Request', () => {
         request.prepareGaxRequest_(
           config,
           (err: Error, requestFn: Function) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
             requestFn();
           },
         );
@@ -1763,7 +1725,7 @@ describe('Request', () => {
         request.datastore.clients_ = new Map();
         request.datastore.clients_.set(CONFIG.client, {
           rollback(reqOpts: RequestOptions) {
-            assert.strictEqual(reqOpts.transaction, TRANSACTION_ID);
+            expect(reqOpts.transaction).toBe(TRANSACTION_ID);
             done();
           },
         });
@@ -1774,7 +1736,7 @@ describe('Request', () => {
         request.prepareGaxRequest_(
           config,
           (err: Error, requestFn: Function) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
             requestFn();
           },
         );
@@ -1788,10 +1750,7 @@ describe('Request', () => {
         request.datastore.clients_ = new Map();
         request.datastore.clients_.set(CONFIG.client, {
           lookup(reqOpts: RequestOptions) {
-            assert.strictEqual(
-              reqOpts.readOptions!.transaction,
-              TRANSACTION_ID,
-            );
+            expect(reqOpts.readOptions!.transaction).toBe(TRANSACTION_ID);
             done();
           },
         });
@@ -1799,7 +1758,7 @@ describe('Request', () => {
         request.prepareGaxRequest_(
           config,
           (err: Error, requestFn: Function) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
             requestFn();
           },
         );
@@ -1813,10 +1772,7 @@ describe('Request', () => {
         request.datastore.clients_ = new Map();
         request.datastore.clients_.set(CONFIG.client, {
           runQuery(reqOpts: RequestOptions) {
-            assert.strictEqual(
-              reqOpts.readOptions!.transaction,
-              TRANSACTION_ID,
-            );
+            expect(reqOpts.readOptions!.transaction).toBe(TRANSACTION_ID);
             done();
           },
         });
@@ -1824,7 +1780,7 @@ describe('Request', () => {
         request.prepareGaxRequest_(
           config,
           (err: Error, requestFn: Function) => {
-            assert.ifError(err);
+            expect(err).toBeFalsy();
             requestFn();
           },
         );
@@ -1840,9 +1796,9 @@ describe('Request', () => {
           },
         });
 
-        assert.throws(() => {
-          request.prepareGaxRequest_(config, assert.ifError);
-        }, /Read consistency cannot be specified in a transaction\./);
+        expect(() => {
+          request.prepareGaxRequest_(config, () => {});
+        }).toThrow(/Read consistency cannot be specified in a transaction\./);
       });
     });
   });
@@ -1852,11 +1808,11 @@ describe('Request', () => {
 
     it('should pass config to prepare function', done => {
       request.prepareGaxRequest_ = (config: {}) => {
-        assert.strictEqual(config, CONFIG);
+        expect(config).toBe(CONFIG);
         done();
       };
 
-      request.request_(CONFIG, assert.ifError);
+      request.request_(CONFIG, () => {});
     });
 
     it('should execute callback with error from prepare function', done => {
@@ -1867,7 +1823,7 @@ describe('Request', () => {
       };
 
       request.request_(CONFIG, (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -1907,7 +1863,7 @@ describe('Request', () => {
 
     it('should prepare the request once reading', done => {
       request.prepareGaxRequest_ = (config: {}) => {
-        assert.strictEqual(config, CONFIG);
+        expect(config).toBe(CONFIG);
         done();
       };
 
@@ -1923,7 +1879,7 @@ describe('Request', () => {
       const requestStream = request.requestStream_(CONFIG);
       requestStream.emit('reading');
       requestStream.on('error', (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -1934,7 +1890,7 @@ describe('Request', () => {
       requestStream.emit('reading');
       GAX_STREAM.emit('error', error);
       requestStream.on('error', (err: Error) => {
-        assert.strictEqual(err, error);
+        expect(err).toBe(error);
         done();
       });
     });
@@ -1944,7 +1900,7 @@ describe('Request', () => {
       const requestStream = request.requestStream_(CONFIG);
       requestStream.emit('reading');
       requestStream.on('response', (resp: {}) => {
-        assert.strictEqual(resp, response);
+        expect(resp).toBe(response);
         done();
       });
       GAX_STREAM.emit('response', response);

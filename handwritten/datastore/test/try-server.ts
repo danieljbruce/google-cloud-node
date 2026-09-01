@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
 import {Datastore} from '../src';
 
 import {startServer} from '../mock-server/datastore-server';

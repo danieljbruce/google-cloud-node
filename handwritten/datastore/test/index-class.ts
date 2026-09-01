@@ -12,35 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as promisify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {before, beforeEach, describe, it} from 'mocha';
-import * as proxyquire from 'proxyquire';
+let promisified = false;
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    promisifyAll(klass: Function) {
+      if (klass.name === 'Index') {
+        promisified = true;
+      }
+    },
+  };
+});
 
 import * as ds from '../src';
-
-let promisified = false;
-const fakePromisify = Object.assign({}, promisify, {
-  promisifyAll(klass: Function) {
-    if (klass.name === 'Index') {
-      promisified = true;
-    }
-  },
-});
+import {Index} from '../src/index-class';
 
 describe('Index', () => {
   const INDEX_ID = 'my-index';
   let DATASTORE: ds.Datastore;
 
-  let Index: typeof ds.Index;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let index: any;
-
-  before(() => {
-    Index = proxyquire('../src/index-class.js', {
-      '@google-cloud/promisify': fakePromisify,
-    }).Index;
-  });
 
   beforeEach(() => {
     DATASTORE = {} as ds.Datastore;
@@ -49,21 +42,21 @@ describe('Index', () => {
 
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(promisified);
+      expect(promisified).toBe(true);
     });
 
     it('should localize datastore instance', () => {
-      assert.strictEqual(index.datastore, DATASTORE);
+      expect(index.datastore).toBe(DATASTORE);
     });
 
     it('should localize id from name', () => {
       const name = 'long/formatted/name';
       const index = new Index(DATASTORE, name);
-      assert.strictEqual(index.id, name.split('/').pop());
+      expect(index.id).toBe(name.split('/').pop());
     });
 
     it('should localize id from id', () => {
-      assert.strictEqual(index.id, INDEX_ID);
+      expect(index.id).toBe(INDEX_ID);
     });
   });
 
@@ -71,18 +64,26 @@ describe('Index', () => {
     it('should call getMetadata', done => {
       const gaxOptions = {};
       index.getMetadata = (options: {}) => {
-        assert.strictEqual(options, gaxOptions);
-        done();
+        try {
+          expect(options).toBe(gaxOptions);
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       };
-      index.get(gaxOptions, assert.ifError);
+      index.get(gaxOptions, () => {});
     });
 
     it('should not require an options object', done => {
       index.getMetadata = (options: {}) => {
-        assert.deepStrictEqual(options, {});
-        done();
+        try {
+          expect(options).toEqual({});
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       };
-      index.get(assert.ifError);
+      index.get(() => {});
     });
 
     it('should return an error from getMetadata', done => {
@@ -91,8 +92,12 @@ describe('Index', () => {
         callback(error);
       };
       index.get((err: Error | null) => {
-        assert.strictEqual(err, error);
-        done();
+        try {
+          expect(err).toBe(error);
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       });
     });
 
@@ -102,10 +107,14 @@ describe('Index', () => {
         callback(null, apiResponse);
       };
       index.get((err: Error | null, _index: {}, _apiResponse: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(_index, index);
-        assert.strictEqual(_apiResponse, apiResponse);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(_index).toBe(index);
+          expect(_apiResponse).toBe(apiResponse);
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       });
     });
   });
@@ -114,27 +123,35 @@ describe('Index', () => {
     it('should make the correct request', done => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       index.datastore.request_ = (config: any) => {
-        assert.strictEqual(config.client, 'DatastoreAdminClient');
-        assert.strictEqual(config.method, 'getIndex');
-        assert.deepStrictEqual(config.reqOpts, {
-          indexId: index.id,
-        });
-        assert.deepStrictEqual(config.gaxOpts, {});
-        done();
+        try {
+          expect(config.client).toBe('DatastoreAdminClient');
+          expect(config.method).toBe('getIndex');
+          expect(config.reqOpts).toEqual({
+            indexId: index.id,
+          });
+          expect(config.gaxOpts).toEqual({});
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       };
 
-      index.getMetadata(assert.ifError);
+      index.getMetadata(() => {});
     });
 
     it('should accept gaxOptions', done => {
       const gaxOptions = {};
 
       index.datastore.request_ = (config: {gaxOpts: {}}) => {
-        assert.strictEqual(config.gaxOpts, gaxOptions);
-        done();
+        try {
+          expect(config.gaxOpts).toBe(gaxOptions);
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       };
 
-      index.getMetadata(gaxOptions, assert.ifError);
+      index.getMetadata(gaxOptions, () => {});
     });
 
     it('should update the metadata', done => {
@@ -143,10 +160,14 @@ describe('Index', () => {
         callback(null, response);
       };
       index.getMetadata((err: Error | null, metadata: {}) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, response);
-        assert.strictEqual(index.metadata, response);
-        done();
+        try {
+          expect(err).toBeFalsy();
+          expect(metadata).toBe(response);
+          expect(index.metadata).toBe(response);
+          done();
+        } catch (e) {
+          done(e as Error);
+        }
       });
     });
   });
