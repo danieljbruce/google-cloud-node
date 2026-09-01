@@ -10,7 +10,8 @@
   "main": "build/src/index.js",
   "types": "build/src/index.d.ts",
   "scripts": {
-    "test": "c8 mocha 'build/test/test-*.js'",
+    "test": "jest --coverage",
+    "pretest": "npm run compile",
     "system-test": "echo 'skipping tests for time being'",
     "samples-test": "echo 'no sample tests'",
     "clean": "gts clean",
@@ -20,7 +21,6 @@
     "docs": "jsdoc -c .jsdoc.js",
     "prelint": "cd samples; npm link ../; npm install",
     "prepare": "npm run compile",
-    "pretest": "npm run compile && node-gyp rebuild --directory node_modules/pprof",
     "license-check": "jsgl --local .",
     "precompile": "gts clean"
   },
@@ -47,40 +47,31 @@
   },
   "devDependencies": {
     "@types/extend": "^3.0.0",
+    "@types/jest": "^29.5.12",
     "@types/long": "^5.0.0",
-    "@types/mocha": "^9.0.0",
     "@types/ms": "^2.1.0",
     "@types/nock": "^11.0.0",
     "@types/node": "^20.0.0",
     "@types/pretty-ms": "^5.0.0",
-    "@types/sinon": "^17.0.0",
     "@types/tmp": "0.2.6",
-    "c8": "^10.1.3",
-    "codecov": "^3.0.0",
     "gts": "^5.0.0",
+    "jest": "^29.7.0",
     "js-green-licenses": "^4.0.0",
     "jsdoc": "^4.0.0",
     "jsdoc-fresh": "^6.0.0",
     "jsdoc-region-tag": "^5.0.0",
     "long": "^5.3.2",
-    "mocha": "^11.8.0",
     "nock": "^13.0.0",
     "node-gyp": "^11.5.0",
-    "sinon": "^18.0.0",
     "source-map": "^0.7.0",
     "tmp": "0.2.6",
+    "ts-jest": "^29.4.10",
     "typescript": "5.1.6"
   },
   "files": [
     "build/src",
     "build/third_party/cloud-debug-nodejs"
   ],
-  "nyc": {
-    "exclude": [
-      "build/test",
-      "build/system-test"
-    ]
-  },
   "engines": {
     "node": ">=22"
   },

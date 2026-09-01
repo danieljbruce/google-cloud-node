@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach, after} from 'mocha';
 import * as gcpMetadata from 'gcp-metadata';
 import {heap as heapProfiler} from 'pprof';
-import * as sinon from 'sinon';
 
 import {createProfiler, nodeVersionOkay} from '../src/index';
 import {Profiler} from '../src/profiler';
@@ -25,35 +22,28 @@ const packageJson = require('../../package.json');
 describe('nodeVersionOkay', () => {
   const version = parseInt(packageJson.engines.node.replace('>=', ''));
   it('should accept alpha versions', () => {
-    assert.strictEqual(true, nodeVersionOkay(`v${version}.0.0-alpha.1`));
+    expect(nodeVersionOkay(`v${version}.0.0-alpha.1`)).toBe(true);
   });
   it('should accept beta versions', () => {
-    assert.strictEqual(true, nodeVersionOkay(`v${version}.9.10-beta.2`));
+    expect(nodeVersionOkay(`v${version}.9.10-beta.2`)).toBe(true);
   });
   it('should accept nightly versions', () => {
-    assert.strictEqual(
-      true,
-      nodeVersionOkay(`v${version}.0.0-nightly2018000000`)
-    );
+    expect(nodeVersionOkay(`v${version}.0.0-nightly2018000000`)).toBe(true);
   });
   it('should accept pre-release versions', () => {
-    assert.strictEqual(true, nodeVersionOkay(`v${version}.0.0-pre`));
+    expect(nodeVersionOkay(`v${version}.0.0-pre`)).toBe(true);
   });
   it('should accept v12.4.1', () => {
-    assert.strictEqual(true, nodeVersionOkay(`v${version}.4.1`));
+    expect(nodeVersionOkay(`v${version}.4.1`)).toBe(true);
   });
   it('should not accept v11.4.0', () => {
-    assert.strictEqual(false, nodeVersionOkay(`v${version - 1}.4.0`));
+    expect(nodeVersionOkay(`v${version - 1}.4.0`)).toBe(false);
   });
 });
 
 describe('createProfiler', () => {
   let savedEnv: NodeJS.ProcessEnv;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let instanceMetadataStub: sinon.SinonStub<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let projectMetadataStub: sinon.SinonStub<any>;
-  let startStub: sinon.SinonStub<[number, number], void>;
+  let startSpy: jest.SpyInstance;
 
   const internalConfigParams = {
     timeIntervalMicros: 1000,
@@ -75,38 +65,33 @@ describe('createProfiler', () => {
   };
   let defaultConfig: {};
 
-  before(() => {
+  beforeAll(() => {
+    savedEnv = process.env;
     process.env = {};
     defaultConfig = internalConfigParams || {};
-    startStub = sinon.stub(heapProfiler, 'start');
-    savedEnv = process.env;
   });
 
   beforeEach(() => {
     process.env = {};
+    startSpy = jest.spyOn(heapProfiler, 'start').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    if (instanceMetadataStub) {
-      instanceMetadataStub.restore();
-    }
-    if (projectMetadataStub) {
-      projectMetadataStub.restore();
-    }
     heapProfiler.stop();
-    startStub.reset();
+    jest.restoreAllMocks();
   });
 
-  after(() => {
+  afterAll(() => {
     process.env = savedEnv;
-    startStub.restore();
   });
 
   it('should not modify specified fields when not on GCE', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
 
     const config = Object.assign(
       {
@@ -123,18 +108,23 @@ describe('createProfiler', () => {
 
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, defaultConfig, config);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should not modify specified fields when on metadata', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub
-      .withArgs('name')
-      .resolves('gce-instance')
-      .withArgs('zone')
-      .resolves('projects/123456789012/zones/gce-zone');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.withArgs('project-id').resolves('gce-project');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'name') return 'gce-instance';
+        if (field === 'zone') return 'projects/123456789012/zones/gce-zone';
+        throw new Error('cannot access metadata');
+      }) as any);
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'project-id') return 'gce-project';
+        throw new Error('cannot access metadata');
+      }) as any);
 
     const config = Object.assign(
       {
@@ -150,18 +140,23 @@ describe('createProfiler', () => {
     );
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, defaultConfig, config);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should get project ID, zone and instance from metadata', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub
-      .withArgs('name')
-      .resolves('gce-instance')
-      .withArgs('zone')
-      .resolves('projects/123456789012/zones/gce-zone');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.withArgs('project-id').resolves('gce-project');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'name') return 'gce-instance';
+        if (field === 'zone') return 'projects/123456789012/zones/gce-zone';
+        throw new Error('cannot access metadata');
+      }) as any);
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'project-id') return 'gce-project';
+        throw new Error('cannot access metadata');
+      }) as any);
     const config = Object.assign(
       {
         logLevel: 2,
@@ -187,14 +182,16 @@ describe('createProfiler', () => {
       disableSourceMapParams,
       expConfigParams
     );
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should not reject when not on GCE and no zone and instance found', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = Object.assign(
       {
         projectId: 'fake-projectId',
@@ -216,14 +213,16 @@ describe('createProfiler', () => {
       disableSourceMapParams,
       expConfigParams
     );
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should reject when no service specified', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = Object.assign(
       {
         logLevel: 2,
@@ -233,45 +232,36 @@ describe('createProfiler', () => {
       },
       disableSourceMapParams
     );
-    await createProfiler(config)
-      .then(() => {
-        assert.fail('expected error because no service in config');
-      })
-      .catch((e: Error) => {
-        assert.strictEqual(
-          e.message,
-          'Service must be specified in the configuration'
-        );
-      });
+    await expect(createProfiler(config)).rejects.toThrow(
+      'Service must be specified in the configuration'
+    );
   });
 
   it('should reject when no service does not match service regular expression', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = {
       logLevel: 2,
       serviceContext: {service: 'serviceName', version: ''},
       disableHeap: true,
       disableTime: true,
     };
-    try {
-      await createProfiler(config);
-      assert.fail('expected an error because invalid service was specified');
-    } catch (e) {
-      assert.strictEqual(
-        (e as Error).message,
-        'Service serviceName does not match regular expression "/^[a-z0-9]([-a-z0-9_.]{0,253}[a-z0-9])?$/"'
-      );
-    }
+    await expect(createProfiler(config)).rejects.toThrow(
+      'Service serviceName does not match regular expression "/^[a-z0-9]([-a-z0-9_.]{0,253}[a-z0-9])?$/"'
+    );
   });
 
   it('should reject when no projectId given', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = Object.assign(
       {
         logLevel: 2,
@@ -283,22 +273,18 @@ describe('createProfiler', () => {
       },
       disableSourceMapParams
     );
-    try {
-      await createProfiler(config);
-      assert.fail('expected an error because invalid service was specified');
-    } catch (e) {
-      assert.strictEqual(
-        (e as Error).message,
-        'Project ID must be specified in the configuration'
-      );
-    }
+    await expect(createProfiler(config)).rejects.toThrow(
+      'Project ID must be specified in the configuration'
+    );
   });
 
   it('should set sourceMapSearchPaths when specified in the config', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = Object.assign(
       {
         projectId: 'project',
@@ -319,14 +305,16 @@ describe('createProfiler', () => {
       disableSourceMapParams,
       defaultConfig
     );
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should reject when sourceMapSearchPaths is empty array and source map support is enabled', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = {
       serviceContext: {version: '', service: 'fake-service'},
       instance: 'instance',
@@ -335,23 +323,19 @@ describe('createProfiler', () => {
       disableSourceMaps: false,
     };
 
-    try {
-      await createProfiler(config);
-      assert.fail('expected an error because invalid service was specified');
-    } catch (e) {
-      assert.strictEqual(
-        (e as Error).message,
-        'serviceMapSearchPath is an empty array. Use disableSourceMaps ' +
-          'to disable source map support instead.'
-      );
-    }
+    await expect(createProfiler(config)).rejects.toThrow(
+      'serviceMapSearchPath is an empty array. Use disableSourceMaps ' +
+        'to disable source map support instead.'
+    );
   });
 
   it('should set apiEndpoint to non-default value', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
 
     const config = Object.assign(
       {
@@ -376,7 +360,7 @@ describe('createProfiler', () => {
       expConfigParams
     );
     const profiler: Profiler = await createProfiler(config);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should get values from environment variable when not specified in config or environment variables', async () => {
@@ -385,14 +369,19 @@ describe('createProfiler', () => {
     process.env.GAE_SERVICE = 'process-service';
     process.env.GAE_VERSION = 'process-version';
     process.env.GCLOUD_PROFILER_CONFIG = './test/fixtures/test-config.json';
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub
-      .withArgs('name')
-      .resolves('gce-instance')
-      .withArgs('zone')
-      .resolves('projects/123456789012/zones/gce-zone');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.withArgs('project-id').resolves('gce-project');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'name') return 'gce-instance';
+        if (field === 'zone') return 'projects/123456789012/zones/gce-zone';
+        throw new Error('cannot access metadata');
+      }) as any);
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'project-id') return 'gce-project';
+        throw new Error('cannot access metadata');
+      }) as any);
 
     const config = disableSourceMapParams;
     const expConfigParams = {
@@ -409,16 +398,18 @@ describe('createProfiler', () => {
     };
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should get values from Knative environment variables when values not specified in config or other environment variables', async () => {
     process.env.K_SERVICE = 'k-service';
     process.env.K_REVISION = 'k-version';
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = Object.assign(
       {projectId: 'project'},
       disableSourceMapParams
@@ -431,7 +422,7 @@ describe('createProfiler', () => {
     };
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should get values from GAE environment variables when both GAE and Knative environment variables are specified', async () => {
@@ -439,10 +430,12 @@ describe('createProfiler', () => {
     process.env.GAE_VERSION = 'process-version';
     process.env.K_SERVICE = 'k-service';
     process.env.K_REVISION = 'k-version';
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
     const config = Object.assign(
       {projectId: 'project'},
       disableSourceMapParams
@@ -458,7 +451,7 @@ describe('createProfiler', () => {
     };
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should not get values from from environment variable when values specified in config', async () => {
@@ -467,14 +460,19 @@ describe('createProfiler', () => {
     process.env.GAE_SERVICE = 'process-service';
     process.env.GAE_VERSION = 'process-version';
     process.env.GCLOUD_PROFILER_CONFIG = './test/fixtures/test-config.json';
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub
-      .withArgs('name')
-      .resolves('gce-instance')
-      .withArgs('zone')
-      .resolves('projects/123456789012/zones/gce-zone');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.withArgs('project-id').resolves('gce-project');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'name') return 'gce-instance';
+        if (field === 'zone') return 'projects/123456789012/zones/gce-zone';
+        throw new Error('cannot access metadata');
+      }) as any);
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockImplementation((async (field?: any) => {
+        if (field === 'project-id') return 'gce-project';
+        throw new Error('cannot access metadata');
+      }) as any);
 
     const config = Object.assign(
       {
@@ -493,14 +491,16 @@ describe('createProfiler', () => {
     );
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, config, defaultConfig);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
 
   it('should get values from from environment config when not specified in config or other environment variables', async () => {
-    instanceMetadataStub = sinon.stub(gcpMetadata, 'instance');
-    instanceMetadataStub.throwsException('cannot access metadata');
-    projectMetadataStub = sinon.stub(gcpMetadata, 'project');
-    projectMetadataStub.throwsException('cannot access metadata');
+    jest
+      .spyOn(gcpMetadata, 'instance')
+      .mockRejectedValue(new Error('cannot access metadata'));
+    jest
+      .spyOn(gcpMetadata, 'project')
+      .mockRejectedValue(new Error('cannot access metadata'));
 
     process.env.GCLOUD_PROFILER_CONFIG = './test/fixtures/test-config.json';
 
@@ -520,8 +520,9 @@ describe('createProfiler', () => {
     const config = disableSourceMapParams;
     const profiler: Profiler = await createProfiler(config);
     const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
-    assert.deepStrictEqual(profiler.config, expConfig);
+    expect(profiler.config).toEqual(expConfig);
   });
+
   it('should start heap profiler when disableHeap is not set', async () => {
     const config = Object.assign(
       {
@@ -533,11 +534,9 @@ describe('createProfiler', () => {
       disableSourceMapParams
     );
     await createProfiler(config);
-    assert.ok(
-      startStub.calledWith(1024 * 512, 64),
-      'expected heap profiler to be started'
-    );
+    expect(startSpy).toHaveBeenCalledWith(1024 * 512, 64);
   });
+
   it('should start not heap profiler when disableHeap is true', async () => {
     const config = Object.assign(
       {
@@ -550,6 +549,6 @@ describe('createProfiler', () => {
       disableSourceMapParams
     );
     await createProfiler(config);
-    assert.ok(!startStub.called, 'expected heap profiler to not be started');
+    expect(startSpy).not.toHaveBeenCalled();
   });
 });
