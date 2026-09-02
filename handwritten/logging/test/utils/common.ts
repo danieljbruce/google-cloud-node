@@ -17,8 +17,7 @@ import {
   ObjectToStructConverterConfig,
   zuluToDateObj,
 } from '../../src/utils/common';
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
+
 const OPTIONS = {
   maxRetries: 3,
 } as ObjectToStructConverterConfig;
@@ -32,14 +31,14 @@ describe('ObjectToStructConverter', () => {
 
   describe('instantiation', () => {
     it('should not require an options object', () => {
-      assert.doesNotThrow(() => {
+      expect(() => {
         new ObjectToStructConverter();
-      });
+      }).not.toThrow();
     });
 
     it('should localize an empty Set for seenObjects', () => {
-      assert(objectToStructConverter.seenObjects instanceof Set);
-      assert.strictEqual(objectToStructConverter.seenObjects.size, 0);
+      expect(objectToStructConverter.seenObjects).toBeInstanceOf(Set);
+      expect(objectToStructConverter.seenObjects.size).toBe(0);
     });
 
     it('should localize options', () => {
@@ -48,13 +47,13 @@ describe('ObjectToStructConverter', () => {
         stringify: true,
       });
 
-      assert.strictEqual(objectToStructConverter.removeCircular, true);
-      assert.strictEqual(objectToStructConverter.stringify, true);
+      expect(objectToStructConverter.removeCircular).toBe(true);
+      expect(objectToStructConverter.stringify).toBe(true);
     });
 
     it('should set correct defaults', () => {
-      assert.strictEqual(objectToStructConverter.removeCircular, false);
-      assert.strictEqual(objectToStructConverter.stringify, false);
+      expect(objectToStructConverter.removeCircular).toBe(false);
+      expect(objectToStructConverter.stringify).toBe(false);
     });
   });
 
@@ -64,8 +63,8 @@ describe('ObjectToStructConverter', () => {
       const convertedValue = {};
 
       objectToStructConverter.encodeValue_ = value => {
-        assert.strictEqual(value, inputValue);
-        return convertedValue;
+        expect(value).toBe(inputValue);
+        return convertedValue as any;
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,31 +72,37 @@ describe('ObjectToStructConverter', () => {
         a: inputValue,
       });
 
-      assert.strictEqual(struct.fields.a, convertedValue);
+      expect(struct.fields.a).toBe(convertedValue);
     });
 
     it('should support host objects', () => {
       const hostObject = {hasOwnProperty: null};
 
-      objectToStructConverter.encodeValue_ = () => {};
+      objectToStructConverter.encodeValue_ = () => {
+        return {} as any;
+      };
 
-      assert.doesNotThrow(() => {
+      expect(() => {
         objectToStructConverter.convert(hostObject);
-      });
+      }).not.toThrow();
     });
 
     it('should not include undefined values', done => {
       objectToStructConverter.encodeValue_ = () => {
         done(new Error('Should not be called'));
+        return {} as any;
       };
 
-      const struct = objectToStructConverter.convert({
-        a: undefined,
-      });
+      try {
+        const struct = objectToStructConverter.convert({
+          a: undefined,
+        });
 
-      assert.deepStrictEqual(struct.fields, {});
-
-      done();
+        expect(struct.fields).toEqual({});
+        done();
+      } catch (e) {
+        done(e);
+      }
     });
 
     it('should add seen objects to set then empty set', done => {
@@ -110,9 +115,13 @@ describe('ObjectToStructConverter', () => {
           objectAdded = obj;
         },
         delete(obj_: {}) {
-          assert.strictEqual(obj_, obj);
-          assert.strictEqual(objectAdded, obj);
-          done();
+          try {
+            expect(obj_).toBe(obj);
+            expect(objectAdded).toBe(obj);
+            done();
+          } catch (e) {
+            done(e);
+          }
         },
       };
 
@@ -124,32 +133,31 @@ describe('ObjectToStructConverter', () => {
     it('should convert primitive values correctly', () => {
       const buffer = Buffer.from('Value');
 
-      assert.deepStrictEqual(objectToStructConverter.encodeValue_(null), {
+      expect(objectToStructConverter.encodeValue_(null)).toEqual({
         nullValue: 0,
       });
 
-      assert.deepStrictEqual(objectToStructConverter.encodeValue_(1), {
+      expect(objectToStructConverter.encodeValue_(1)).toEqual({
         numberValue: 1,
       });
 
-      assert.deepStrictEqual(objectToStructConverter.encodeValue_('Hi'), {
+      expect(objectToStructConverter.encodeValue_('Hi')).toEqual({
         stringValue: 'Hi',
       });
 
-      assert.deepStrictEqual(objectToStructConverter.encodeValue_(true), {
+      expect(objectToStructConverter.encodeValue_(true)).toEqual({
         boolValue: true,
       });
 
-      assert.strictEqual(
-        objectToStructConverter.encodeValue_(buffer).blobValue.toString(),
-        'Value',
-      );
+      expect(
+        (objectToStructConverter.encodeValue_(buffer) as any).blobValue.toString(),
+      ).toBe('Value');
     });
 
     it('should convert arrays', () => {
       const convertedValue = objectToStructConverter.encodeValue_([1, 2, 3]);
 
-      assert.deepStrictEqual(convertedValue.listValue, {
+      expect((convertedValue as any).listValue).toEqual({
         values: [
           objectToStructConverter.encodeValue_(1),
           objectToStructConverter.encodeValue_(2),
@@ -159,10 +167,10 @@ describe('ObjectToStructConverter', () => {
     });
 
     it('should throw if a type is not recognized', () => {
-      assert.throws(() => {
+      expect(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (objectToStructConverter as any).encodeValue_();
-      }, /Value of type undefined not recognized./);
+      }).toThrow(/Value of type undefined not recognized./);
     });
 
     describe('objects', () => {
@@ -172,12 +180,12 @@ describe('ObjectToStructConverter', () => {
       it('should convert objects', () => {
         const convertedValue = {};
         objectToStructConverter.convert = value => {
-          assert.strictEqual(value, VALUE);
+          expect(value).toBe(VALUE);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return convertedValue as any;
         };
 
-        assert.deepStrictEqual(objectToStructConverter.encodeValue_(VALUE), {
+        expect(objectToStructConverter.encodeValue_(VALUE)).toEqual({
           structValue: convertedValue,
         });
       });
@@ -191,9 +199,9 @@ describe('ObjectToStructConverter', () => {
 
           objectToStructConverter.seenObjects.add(VALUE);
 
-          assert.throws(() => {
+          expect(() => {
             objectToStructConverter.encodeValue_(VALUE);
-          }, new RegExp(errorMessage));
+          }).toThrow(new RegExp(errorMessage));
         });
 
         describe('options.removeCircular', () => {
@@ -208,10 +216,9 @@ describe('ObjectToStructConverter', () => {
           });
 
           it('should replace circular reference with [Circular]', () => {
-            assert.deepStrictEqual(
-              objectToStructConverter.encodeValue_(VALUE),
-              {stringValue: '[Circular]'},
-            );
+            expect(objectToStructConverter.encodeValue_(VALUE)).toEqual({
+              stringValue: '[Circular]',
+            });
           });
         });
       });
@@ -228,7 +235,7 @@ describe('ObjectToStructConverter', () => {
 
       it('should return a string if the value is not recognized', () => {
         const date = new Date();
-        assert.deepStrictEqual(objectToStructConverter.encodeValue_(date), {
+        expect(objectToStructConverter.encodeValue_(date)).toEqual({
           stringValue: String(date),
         });
       });
@@ -264,7 +271,7 @@ describe('zuluToDateObj', () => {
     for (const test of tests) {
       const dateString = test.inputTime;
       const dateObj = zuluToDateObj(dateString);
-      assert.deepStrictEqual(dateObj, {
+      expect(dateObj).toEqual({
         seconds: test.expectedSeconds,
         nanos: test.expectedNanos,
       });

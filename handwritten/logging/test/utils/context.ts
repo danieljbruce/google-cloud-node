@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as http from 'http';
 import {
   getOrInjectContext,
@@ -26,7 +24,6 @@ import {
 import {InMemorySpanExporter} from '@opentelemetry/sdk-trace-base';
 import {trace} from '@opentelemetry/api';
 import {Resource} from '@opentelemetry/resources';
-//const {Resource} = require('@opentelemetry/resources');
 import {SEMRESATTRS_SERVICE_NAME} from '@opentelemetry/semantic-conventions';
 import {NodeSDK} from '@opentelemetry/sdk-node';
 
@@ -38,14 +35,14 @@ describe('context', () => {
     it('should correctly get request headers', () => {
       const req = {headers: {[HEADER_NAME]: HEADER_VALUE}};
       const wrapper = makeHeaderWrapper(req as unknown as http.IncomingMessage);
-      assert.strictEqual(wrapper!.getHeader(HEADER_NAME), HEADER_VALUE);
+      expect(wrapper!.getHeader(HEADER_NAME)).toBe(HEADER_VALUE);
     });
 
     it('should correctly set request headers', () => {
       const req = {headers: {} as http.IncomingHttpHeaders};
       const wrapper = makeHeaderWrapper(req as unknown as http.IncomingMessage);
       wrapper!.setHeader(HEADER_NAME, HEADER_VALUE);
-      assert.strictEqual(req.headers[HEADER_NAME], HEADER_VALUE);
+      expect(req.headers[HEADER_NAME]).toBe(HEADER_VALUE);
     });
 
     it('should return null if header property is not in http request', () => {
@@ -53,7 +50,7 @@ describe('context', () => {
         method: 'GET',
       } as http.IncomingMessage;
       const wrapper = makeHeaderWrapper(req as unknown as http.IncomingMessage);
-      assert.strictEqual(wrapper, null);
+      expect(wrapper).toBeNull();
     });
   });
 
@@ -63,9 +60,9 @@ describe('context', () => {
         method: 'GET',
       } as http.IncomingMessage;
       const context = getOrInjectContext(req, 'myProj');
-      assert.strictEqual(context.trace, '');
-      assert.strictEqual(context.spanId, undefined);
-      assert.strictEqual(context.traceSampled, undefined);
+      expect(context.trace).toBe('');
+      expect(context.spanId).toBeUndefined();
+      expect(context.traceSampled).toBeUndefined();
     });
 
     it('should return a formatted W3C trace context first', () => {
@@ -76,9 +73,11 @@ describe('context', () => {
         },
       } as unknown as http.IncomingMessage;
       const context = getOrInjectContext(req, 'myProj');
-      assert(context.trace, '0af7651916cd43dd8448eb211c80319c');
-      assert(context.spanId, 'b7ad6b7169203331');
-      assert.strictEqual(context.traceSampled, true);
+      expect(context.trace).toBe(
+        'projects/myProj/traces/0af7651916cd43dd8448eb211c80319c',
+      );
+      expect(context.spanId).toBe('b7ad6b7169203331');
+      expect(context.traceSampled).toBe(true);
     });
 
     it('should return a formatted Google trace context next', () => {
@@ -87,9 +86,9 @@ describe('context', () => {
       } as unknown as http.IncomingMessage;
       const projectId = 'myProj';
       const context = getOrInjectContext(req, projectId);
-      assert.strictEqual(context.trace, `projects/${projectId}/traces/1`);
-      assert.strictEqual(context.spanId, '2');
-      assert.strictEqual(context.traceSampled, true);
+      expect(context.trace).toBe(`projects/${projectId}/traces/1`);
+      expect(context.spanId).toBe('2');
+      expect(context.traceSampled).toBe(true);
     });
 
     it('should intentionally inject a Google trace context', () => {
@@ -97,14 +96,14 @@ describe('context', () => {
       const projectId = 'myProj';
       // This should generate a span and trace if not available.
       const context = getOrInjectContext(req, projectId, true);
-      assert(context.trace.includes(`projects/${projectId}/traces/`));
-      assert(context.spanId!.length > 0);
-      assert.strictEqual(context.traceSampled, false);
+      expect(context.trace).toContain(`projects/${projectId}/traces/`);
+      expect(context.spanId!.length).toBeGreaterThan(0);
+      expect(context.traceSampled).toBe(false);
     });
 
     describe('getOrInjectContextWithOtel', () => {
       let sdk: NodeSDK;
-      before(() => {
+      beforeAll(() => {
         sdk = new NodeSDK({
           resource: new Resource({
             [SEMRESATTRS_SERVICE_NAME]: 'nodejs-logging-context-test',
@@ -115,8 +114,8 @@ describe('context', () => {
         sdk.start();
       });
 
-      after(() => {
-        sdk.shutdown();
+      afterAll(async () => {
+        await sdk.shutdown();
       });
 
       it('should ignore a default trace context when open telemetry context detected', () => {
@@ -132,12 +131,11 @@ describe('context', () => {
             const spanId = parentSpan.spanContext().spanId;
             const traceSampled =
               (parentSpan.spanContext().traceFlags & 1) !== 0;
-            assert.strictEqual(
-              context.trace,
+            expect(context.trace).toBe(
               `projects/${projectId}/traces/${traceId}`,
             );
-            assert.strictEqual(context.spanId, spanId);
-            assert.strictEqual(context.traceSampled, traceSampled);
+            expect(context.spanId).toBe(spanId);
+            expect(context.traceSampled).toBe(traceSampled);
           });
       });
 
@@ -152,12 +150,11 @@ describe('context', () => {
             const spanId = parentSpan.spanContext().spanId;
             const traceSampled =
               (parentSpan.spanContext().traceFlags & 1) !== 0;
-            assert.strictEqual(
-              context.trace,
+            expect(context.trace).toBe(
               `projects/${projectId}/traces/${traceId}`,
             );
-            assert.strictEqual(context.spanId, spanId);
-            assert.strictEqual(context.traceSampled, traceSampled);
+            expect(context.spanId).toBe(spanId);
+            expect(context.traceSampled).toBe(traceSampled);
           });
       });
 
@@ -177,12 +174,11 @@ describe('context', () => {
             const spanId = parentSpan.spanContext().spanId;
             const traceSampled =
               (parentSpan.spanContext().traceFlags & 1) !== 0;
-            assert.strictEqual(
-              context.trace,
+            expect(context.trace).toBe(
               `projects/${projectId}/traces/${traceId}`,
             );
-            assert.strictEqual(context.spanId, spanId);
-            assert.strictEqual(context.traceSampled, traceSampled);
+            expect(context.spanId).toBe(spanId);
+            expect(context.traceSampled).toBe(traceSampled);
           });
       });
 
@@ -199,12 +195,11 @@ describe('context', () => {
             const spanId = parentSpan.spanContext().spanId;
             const traceSampled =
               (parentSpan.spanContext().traceFlags & 1) !== 0;
-            assert.strictEqual(
-              context.trace,
+            expect(context.trace).toBe(
               `projects/${projectId}/traces/${traceId}`,
             );
-            assert.strictEqual(context.spanId, spanId);
-            assert.strictEqual(context.traceSampled, traceSampled);
+            expect(context.spanId).toBe(spanId);
+            expect(context.traceSampled).toBe(traceSampled);
           });
       });
 
@@ -219,12 +214,11 @@ describe('context', () => {
             const spanId = parentSpan.spanContext().spanId;
             const traceSampled =
               (parentSpan.spanContext().traceFlags & 1) !== 0;
-            assert.strictEqual(
-              context.trace,
+            expect(context.trace).toBe(
               `projects/${projectId}/traces/${traceId}`,
             );
-            assert.strictEqual(context.spanId, spanId);
-            assert.strictEqual(context.traceSampled, traceSampled);
+            expect(context.spanId).toBe(spanId);
+            expect(context.traceSampled).toBe(traceSampled);
           });
       });
     });
@@ -297,23 +291,11 @@ describe('context', () => {
           const wrapper = makeHeaderWrapper(req);
           const context = parseXCloudTraceHeader(wrapper!);
           if (context) {
-            assert.strictEqual(
-              context.trace,
-              test.expected.trace,
-              `From ${test.header}; Expected trace: ${test.expected.trace}; Got: ${context.trace}`,
-            );
-            assert.strictEqual(
-              context.spanId,
-              test.expected.spanId,
-              `From ${test.header}; Expected spanId: ${test.expected.spanId}; Got: ${context.spanId}`,
-            );
-            assert.strictEqual(
-              context.traceSampled,
-              test.expected.traceSampled,
-              `From ${test.header}; Expected traceSampled: ${test.expected.traceSampled}; Got: ${context.traceSampled}`,
-            );
+            expect(context.trace).toBe(test.expected.trace);
+            expect(context.spanId).toBe(test.expected.spanId);
+            expect(context.traceSampled).toBe(test.expected.traceSampled);
           } else {
-            assert.fail();
+            expect(context).toBeNull();
           }
         }
       });
@@ -321,7 +303,7 @@ describe('context', () => {
 
     describe('parseOtelContext', () => {
       let sdk: NodeSDK;
-      before(() => {
+      beforeAll(() => {
         sdk = new NodeSDK({
           resource: new Resource({
             [SEMRESATTRS_SERVICE_NAME]: 'nodejs-context-test',
@@ -332,8 +314,8 @@ describe('context', () => {
         sdk.start();
       });
 
-      after(() => {
-        sdk.shutdown();
+      afterAll(async () => {
+        await sdk.shutdown();
       });
 
       it('should extract trace context from open telemetry context', () => {
@@ -347,12 +329,11 @@ describe('context', () => {
             const spanId = parentSpan.spanContext().spanId;
             const traceSampled =
               (parentSpan.spanContext().traceFlags & 1) !== 0;
-            assert.strictEqual(
-              context.trace,
+            expect(context.trace).toBe(
               `projects/${projectId}/traces/${traceId}`,
             );
-            assert.strictEqual(context.spanId, spanId);
-            assert.strictEqual(context.traceSampled, traceSampled);
+            expect(context.spanId).toBe(spanId);
+            expect(context.traceSampled).toBe(traceSampled);
           });
       });
     });
@@ -398,24 +379,12 @@ describe('context', () => {
           const wrapper = makeHeaderWrapper(req);
           const context = parseTraceParentHeader(wrapper!);
           if (context) {
-            assert.strictEqual(
-              context.trace,
-              test.expected.trace,
-              `From ${test.header}; Expected trace: ${test.expected.trace}; Got: ${context.trace}`,
-            );
-            assert.strictEqual(
-              context.spanId,
-              test.expected.spanId,
-              `From ${test.header}; Expected spanId: ${test.expected.spanId}; Got: ${context.spanId}`,
-            );
-            assert.strictEqual(
-              context.traceSampled,
-              test.expected.traceSampled,
-              `From ${test.header}; Expected traceSampled: ${test.expected.traceSampled}; Got: ${context.traceSampled}`,
-            );
+            expect(context.trace).toBe(test.expected.trace);
+            expect(context.spanId).toBe(test.expected.spanId);
+            expect(context.traceSampled).toBe(test.expected.traceSampled);
           } else {
             // This is the header: '' test case;
-            assert.strictEqual(test.header, '');
+            expect(test.header).toBe('');
           }
         }
       });

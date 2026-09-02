@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as http from 'http';
 type ServerResponse = http.ServerResponse;
 import {
@@ -34,9 +32,9 @@ describe('http-request', () => {
         originalUrl: 'http://google.com/',
       } as ServerRequest;
       const cloudReq = makeHttpRequestData(req);
-      assert.strictEqual(cloudReq.protocol, 'http:');
-      assert.strictEqual(cloudReq.requestUrl, 'http://google.com/');
-      assert.strictEqual(cloudReq.requestMethod, 'GET');
+      expect(cloudReq.protocol).toBe('http:');
+      expect(cloudReq.requestUrl).toBe('http://google.com/');
+      expect(cloudReq.requestMethod).toBe('GET');
     });
     it('should not panic on invalid URL', () => {
       const req = {
@@ -44,9 +42,9 @@ describe('http-request', () => {
         originalUrl: 'invalid/url/',
       } as ServerRequest;
       const cloudReq = makeHttpRequestData(req);
-      assert.strictEqual(cloudReq.protocol, undefined);
-      assert.strictEqual(cloudReq.requestUrl, 'invalid/url/');
-      assert.strictEqual(cloudReq.requestMethod, 'GET');
+      expect(cloudReq.protocol).toBe(undefined);
+      expect(cloudReq.requestUrl).toBe('invalid/url/');
+      expect(cloudReq.requestMethod).toBe('GET');
     });
     it('should infer as many request values as possible', () => {
       const req = {
@@ -58,12 +56,12 @@ describe('http-request', () => {
         },
       } as http.IncomingMessage;
       const cloudReq = makeHttpRequestData(req);
-      assert.strictEqual(cloudReq.protocol, 'http:');
-      assert.strictEqual(cloudReq.requestUrl, 'http://google.com/');
-      assert.strictEqual(cloudReq.requestMethod, 'GET');
-      assert.strictEqual(cloudReq.userAgent, 'some-agent');
-      assert.strictEqual(cloudReq.referer, 'some-referer');
-      assert.strictEqual(cloudReq.status, undefined);
+      expect(cloudReq.protocol).toBe('http:');
+      expect(cloudReq.requestUrl).toBe('http://google.com/');
+      expect(cloudReq.requestMethod).toBe('GET');
+      expect(cloudReq.userAgent).toBe('some-agent');
+      expect(cloudReq.referer).toBe('some-referer');
+      expect(cloudReq.status).toBe(undefined);
     });
     it('should infer header values with caution', () => {
       const req = {
@@ -75,12 +73,12 @@ describe('http-request', () => {
         },
       } as http.IncomingMessage;
       const cloudReq = makeHttpRequestData(req);
-      assert.strictEqual(cloudReq.protocol, 'http:');
-      assert.strictEqual(cloudReq.requestUrl, 'http://google.com/');
-      assert.strictEqual(cloudReq.requestMethod, 'GET');
-      assert.strictEqual(cloudReq.userAgent, undefined);
-      assert.strictEqual(cloudReq.referer, undefined);
-      assert.strictEqual(cloudReq.status, undefined);
+      expect(cloudReq.protocol).toBe('http:');
+      expect(cloudReq.requestUrl).toBe('http://google.com/');
+      expect(cloudReq.requestMethod).toBe('GET');
+      expect(cloudReq.userAgent).toBe(undefined);
+      expect(cloudReq.referer).toBe(undefined);
+      expect(cloudReq.status).toBe(undefined);
     });
     it('should infer as many response values as possible', () => {
       const RESPONSE_SIZE = 2048;
@@ -95,8 +93,8 @@ describe('http-request', () => {
         return 2048;
       };
       const cloudReq = makeHttpRequestData(req, res);
-      assert.strictEqual(cloudReq.status, 200);
-      assert.strictEqual(cloudReq.responseSize, RESPONSE_SIZE);
+      expect(cloudReq.status).toBe(200);
+      expect(cloudReq.responseSize).toBe(RESPONSE_SIZE);
     });
     it('should convert latency to proto Duration', () => {
       const fakeRequest = {headers: {}};
@@ -107,14 +105,14 @@ describe('http-request', () => {
         fakeResponse as ServerResponse,
         1003,
       );
-      assert.deepStrictEqual(h1.latency, {seconds: 1, nanos: 3e6});
+      expect(h1.latency).toEqual({seconds: 1, nanos: 3e6});
 
       const h2 = makeHttpRequestData(
         fakeRequest as ServerRequest,
         fakeResponse as ServerResponse,
         9003.1,
       );
-      assert.deepStrictEqual(h2.latency, {seconds: 9, nanos: 3.1e6});
+      expect(h2.latency).toEqual({seconds: 9, nanos: 3.1e6});
 
       // Make sure we nanos is uint32.
       const h3 = makeHttpRequestData(
@@ -122,7 +120,7 @@ describe('http-request', () => {
         fakeResponse as ServerResponse,
         1.0000000001,
       );
-      assert.deepStrictEqual(h3.latency, {seconds: 0, nanos: 1e6});
+      expect(h3.latency).toEqual({seconds: 0, nanos: 1e6});
     });
   });
 
@@ -130,15 +128,15 @@ describe('http-request', () => {
     it('should be true on valid objects', () => {
       const svRequest = {} as ServerRequest;
       svRequest.method = 'GET';
-      assert(isRawHttpRequest(svRequest));
+      expect(isRawHttpRequest(svRequest)).toBe(true);
     });
 
     it('should be false on invalid objects', () => {
-      assert(
-        !isRawHttpRequest({requestMethod: 'POST'} as CloudLoggingHttpRequest),
-      );
-      assert(!isRawHttpRequest({}));
-      assert(!isRawHttpRequest(null));
+      expect(
+        isRawHttpRequest({requestMethod: 'POST'} as CloudLoggingHttpRequest),
+      ).toBe(false);
+      expect(isRawHttpRequest({})).toBe(false);
+      expect(isRawHttpRequest(null)).toBe(false);
     });
   });
 });

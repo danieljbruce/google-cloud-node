@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
 import {Entry} from '../src';
 import * as instrumentation from '../src/utils/instrumentation';
 import {protos} from '@google-cloud/logging-api';
@@ -40,18 +39,16 @@ describe('instrumentation_info', () => {
       undefined,
       undefined,
     ) as Entry;
-    assert.equal(
+    expect(
       entry.data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
-    assert.equal(
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
+    expect(
       entry.data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[VERSION],
-      instrumentation.getNodejsLibraryVersion(),
-    );
+    ).toBe(instrumentation.getNodejsLibraryVersion());
   });
 
   it('should set library version to NODEJS_DEFAULT_LIBRARY_VERSION', () => {
@@ -61,119 +58,107 @@ describe('instrumentation_info', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data as any,
     ) as Entry;
-    assert.equal(
+    expect(
       entry.data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
-    assert.equal(
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
+    expect(
       entry.data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[VERSION],
-      instrumentation.NODEJS_DEFAULT_LIBRARY_VERSION,
-    );
+    ).toBe(instrumentation.NODEJS_DEFAULT_LIBRARY_VERSION);
   });
 
   it('should add instrumentation log entry to the list', () => {
     const dummyEntry = createEntry(undefined, undefined);
     const entries = instrumentation.populateInstrumentationInfo(dummyEntry);
-    assert.equal(entries[0].length, 2);
-    assert.deepEqual(dummyEntry, entries[0][0]);
-    assert.equal(true, entries[1]);
-    assert.equal(
+    expect(entries[0].length).toBe(2);
+    expect(entries[0][0]).toEqual(dummyEntry);
+    expect(entries[1]).toBe(true);
+    expect(
       entries[0][1].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
   });
 
   it('should add instrumentation info to existing list in right order', () => {
     const dummyEntry = createEntry(NODEJS_TEST, VERSION_TEST);
     const entries = instrumentation.populateInstrumentationInfo(dummyEntry);
-    assert.equal(entries[0].length, 1);
-    assert.equal(true, entries[1]);
-    assert.equal(
+    expect(entries[0].length).toBe(1);
+    expect(entries[1]).toBe(true);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.length,
-      2,
-    );
-    assert.equal(
+    ).toBe(2);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[1]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
-    assert.equal(
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      NODEJS_TEST,
-    );
-    assert.equal(
+    ).toBe(NODEJS_TEST);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[VERSION],
-      VERSION_TEST,
-    );
+    ).toBe(VERSION_TEST);
   });
 
   it('should replace instrumentation log entry in the list', () => {
     const dummyEntry = createEntry('nodejs-test', undefined);
     const entries = instrumentation.populateInstrumentationInfo(dummyEntry);
-    assert.equal(entries[0].length, 1);
-    assert.equal(true, entries[1]);
-    assert.equal(
+    expect(entries[0].length).toBe(1);
+    expect(entries[1]).toBe(true);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.length,
-      1,
-    );
-    assert.equal(
+    ).toBe(1);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
   });
 
   it('should truncate instrumentation info in log entry', () => {
     const entries = instrumentation.populateInstrumentationInfo(
       createEntry(LONG_NODEJS_TEST, LONG_VERSION_TEST),
     );
-    assert.equal(entries[0].length, 1);
-    assert.equal(true, entries[1]);
-    assert.equal(
+    expect(entries[0].length).toBe(1);
+    expect(entries[1]).toBe(true);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      NODEJS_TEST + '-oo*',
-    );
-    assert.equal(
+    ).toBe(NODEJS_TEST + '-oo*');
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[VERSION],
-      VERSION_TEST + '.0.0.0.0.*',
-    );
+    ).toBe(VERSION_TEST + '.0.0.0.0.*');
   });
 
   it('should add instrumentation log entry only once', () => {
     const dummyEntry = createEntry(undefined, undefined);
     let entries = instrumentation.populateInstrumentationInfo(dummyEntry);
-    assert.equal(entries[0].length, 2);
-    assert.deepEqual(dummyEntry, entries[0][0]);
-    assert.equal(true, entries[1]);
-    assert.equal(
+    expect(entries[0].length).toBe(2);
+    expect(entries[0][0]).toEqual(dummyEntry);
+    expect(entries[1]).toBe(true);
+    expect(
       entries[0][1].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
     entries = instrumentation.populateInstrumentationInfo(dummyEntry);
-    assert.equal(entries[0].length, 1);
-    assert.deepEqual(dummyEntry, entries[0][0]);
+    expect(entries[0].length).toBe(1);
+    expect(entries[0][0]).toEqual(dummyEntry);
   });
 
   it('should discard extra instrumentation records', () => {
@@ -202,32 +187,28 @@ describe('instrumentation_info', () => {
       version: LONG_VERSION_TEST,
     });
     const entries = instrumentation.populateInstrumentationInfo(dummy);
-    assert.equal(entries[0].length, 1);
-    assert.equal(
+    expect(entries[0].length).toBe(1);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.length,
-      3,
-    );
-    assert.equal(true, entries[1]);
-    assert.equal(
+    ).toBe(3);
+    expect(entries[1]).toBe(true);
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[0]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX + '-one',
-    );
-    assert.equal(
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX + '-one');
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[1]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX + '-two',
-    );
-    assert.equal(
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX + '-two');
+    expect(
       entries[0][0].data?.[instrumentation.DIAGNOSTIC_INFO_KEY]?.[
         instrumentation.INSTRUMENTATION_SOURCE_KEY
       ]?.[2]?.[NAME],
-      instrumentation.NODEJS_LIBRARY_NAME_PREFIX,
-    );
+    ).toBe(instrumentation.NODEJS_LIBRARY_NAME_PREFIX);
   });
 });
 

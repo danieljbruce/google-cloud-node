@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
 import * as entryTypes from '../src/entry';
 import * as common from '../src/utils/common';
 import * as http from 'http';
@@ -25,24 +22,34 @@ import {Resource} from '@opentelemetry/resources';
 import {SEMRESATTRS_SERVICE_NAME} from '@opentelemetry/semantic-conventions';
 import {NodeSDK} from '@opentelemetry/sdk-node';
 
-let fakeEventIdNewOverride: Function | null;
+let fakeEventIdNewOverride: Function | null = null;
+jest.mock('../src/utils/event-id', () => {
+  return {
+    EventId: class FakeEventId {
+      new(...args: any[]) {
+        const func = fakeEventIdNewOverride || (() => {});
+        return func(null, args);
+      }
+    },
+  };
+});
 
-class FakeEventId {
-  new() {
-    const func = fakeEventIdNewOverride || (() => {});
-    // eslint-disable-next-line prefer-rest-params
-    return func(null, arguments);
-  }
-}
+let fakeObjToStruct: Function | null = null;
+let fakeStructToObj: Function | null = null;
+jest.mock('../src/utils/common', () => {
+  const actual = jest.requireActual('../src/utils/common');
+  return {
+    ...actual,
+    objToStruct: (obj: {}, opts: {}) => {
+      return (fakeObjToStruct || actual.objToStruct)(obj, opts);
+    },
+    structToObj: (struct: {}) => {
+      return (fakeStructToObj || actual.structToObj)(struct);
+    },
+  };
+});
 
-let fakeObjToStruct: Function | null;
-let fakeStructToObj: Function | null;
-const objToStruct = (obj: {}, opts: {}) => {
-  return (fakeObjToStruct || common.objToStruct)(obj, opts);
-};
-const structToObj = (struct: {}) => {
-  return (fakeStructToObj || common.structToObj)(struct);
-};
+import {Entry} from '../src/entry';
 
 // Allows for a 1000ms margin of error when comparing timestamps
 function withinExpectedTimeBoundaries(result?: Date): boolean {
@@ -70,22 +77,10 @@ function nanosAndSecondsToDate(timestamp: entryTypes.Timestamp) {
 }
 
 describe('Entry', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let Entry: typeof entryTypes.Entry;
   let entry: entryTypes.Entry;
 
   const METADATA = {};
   const DATA = {};
-
-  before(() => {
-    Entry = proxyquire('../src/entry.js', {
-      './utils/common': {
-        objToStruct,
-        structToObj,
-      },
-      './utils/event-id': {EventId: FakeEventId},
-    }).Entry;
-  });
 
   beforeEach(() => {
     fakeEventIdNewOverride = null;
@@ -99,20 +94,20 @@ describe('Entry', () => {
 
   describe('instantiation', () => {
     it('should assign timestamp to metadata', () => {
-      assert(withinExpectedTimeBoundaries(entry.metadata.timestamp! as Date));
+      expect(withinExpectedTimeBoundaries(entry.metadata.timestamp! as Date)).toBe(true);
     });
 
     it('should not assign timestamp if one is already set', () => {
       const timestamp = new Date('2012') as entryTypes.Timestamp;
       const entry = new Entry({timestamp});
-      assert.strictEqual(entry.metadata.timestamp, timestamp);
+      expect(entry.metadata.timestamp).toBe(timestamp);
     });
 
     it('should assign insertId to metadata', () => {
       const eventId = 'event-id';
       fakeEventIdNewOverride = () => eventId;
       const entry = new Entry();
-      assert.strictEqual(entry.metadata.insertId, eventId);
+      expect(entry.metadata.insertId).toBe(eventId);
     });
 
     it('should not assign insertId if one is already set', () => {
@@ -122,11 +117,11 @@ describe('Entry', () => {
       const entry = new Entry({
         insertId: userDefinedInsertId,
       });
-      assert.strictEqual(entry.metadata.insertId, userDefinedInsertId);
+      expect(entry.metadata.insertId).toBe(userDefinedInsertId);
     });
 
     it('should localize data', () => {
-      assert.strictEqual(entry.data, DATA);
+      expect(entry.data).toBe(DATA);
     });
   });
 
@@ -153,12 +148,12 @@ describe('Entry', () => {
     });
 
     it('should create an Entry', () => {
-      assert(entry instanceof Entry);
-      assert.strictEqual(entry.metadata.resource, RESOURCE);
-      assert.strictEqual(entry.data, DATA);
+      expect(entry).toBeInstanceOf(Entry);
+      expect(entry.metadata.resource).toBe(RESOURCE);
+      expect(entry.data).toBe(DATA);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      assert.strictEqual((entry.metadata as any).extraProperty, true);
-      assert.deepStrictEqual(entry.metadata.timestamp, date);
+      expect((entry.metadata as any).extraProperty).toBe(true);
+      expect(entry.metadata.timestamp).toEqual(date);
     });
 
     it('should extend the entry with proto data', () => {
@@ -169,11 +164,11 @@ describe('Entry', () => {
         extraProperty: true,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      assert.strictEqual(entry.data, DATA);
+      expect(entry.data).toBe(DATA);
     });
 
     it('should extend the entry with json data', () => {
-      assert.strictEqual(entry.data, DATA);
+      expect(entry.data).toBe(DATA);
     });
 
     it('should extend the entry with text data', () => {
@@ -185,7 +180,7 @@ describe('Entry', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
 
-      assert.strictEqual(entry.data, DATA);
+      expect(entry.data).toBe(DATA);
     });
   });
 
@@ -198,7 +193,7 @@ describe('Entry', () => {
       const entryBefore = extend(true, {}, entry);
       entry.toJSON();
       const entryAfter = extend(true, {}, entry);
-      assert.deepStrictEqual(entryBefore, entryAfter);
+      expect(entryBefore).toEqual(entryAfter);
     });
 
     it('should convert data as a struct and assign to jsonPayload', () => {
@@ -206,8 +201,8 @@ describe('Entry', () => {
       const converted = {};
 
       fakeObjToStruct = (obj: {}, options: {}) => {
-        assert.strictEqual(obj, input);
-        assert.deepStrictEqual(options, {
+        expect(obj).toBe(input);
+        expect(options).toEqual({
           removeCircular: false,
           stringify: true,
         });
@@ -216,7 +211,7 @@ describe('Entry', () => {
 
       entry.data = input;
       const json = entry.toJSON();
-      assert.strictEqual(json.jsonPayload, converted);
+      expect(json.jsonPayload).toBe(converted);
     });
 
     it('should pass removeCircular to objToStruct_', done => {
@@ -224,8 +219,12 @@ describe('Entry', () => {
         obj: {},
         options: common.ObjectToStructConverterConfig,
       ) => {
-        assert.strictEqual(options.removeCircular, true);
-        done();
+        try {
+          expect(options.removeCircular).toBe(true);
+          done();
+        } catch (e) {
+          done(e);
+        }
       };
       entry.data = {};
       entry.toJSON({removeCircular: true});
@@ -234,7 +233,7 @@ describe('Entry', () => {
     it('should assign string data as textPayload', () => {
       entry.data = 'string';
       const json = entry.toJSON();
-      assert.strictEqual(json.textPayload, entry.data);
+      expect(json.textPayload).toBe(entry.data);
     });
 
     it('should convert a date timestamp', () => {
@@ -243,7 +242,7 @@ describe('Entry', () => {
       const json = entry.toJSON();
       const seconds = date.getTime() / 1000;
       const secondsRounded = Math.floor(seconds);
-      assert.deepStrictEqual(json.timestamp, {
+      expect(json.timestamp).toEqual({
         seconds: secondsRounded,
         nanos: Math.floor((seconds - secondsRounded) * 1e9),
       });
@@ -257,7 +256,7 @@ describe('Entry', () => {
       };
       entry.metadata.timestamp = test.inputTime;
       const json = entry.toJSON();
-      assert.deepStrictEqual(json.timestamp, {
+      expect(json.timestamp).toEqual({
         seconds: test.expectedSeconds,
         nanos: test.expectedNanos,
       });
@@ -270,7 +269,7 @@ describe('Entry', () => {
       req.headers = {};
       entry.metadata.httpRequest = req;
       const json = entry.toJSON();
-      assert.strictEqual(json.httpRequest?.requestMethod, 'GET');
+      expect(json.httpRequest?.requestMethod).toBe('GET');
     });
 
     it('should detect trace and span if headers present', () => {
@@ -283,9 +282,9 @@ describe('Entry', () => {
       };
       entry.metadata.httpRequest = req;
       const json = entry.toJSON();
-      assert.strictEqual(json.trace, 'projects//traces/0000');
-      assert.strictEqual(json.spanId, '1111');
-      assert.strictEqual(json.traceSampled, true);
+      expect(json.trace).toBe('projects//traces/0000');
+      expect(json.spanId).toBe('1111');
+      expect(json.traceSampled).toBe(true);
     });
 
     it('should not overwrite user defined trace and span with detected', () => {
@@ -306,14 +305,14 @@ describe('Entry', () => {
       };
       entry.metadata.httpRequest = req;
       const json = entry.toJSON();
-      assert.strictEqual(json.trace, expected.trace);
-      assert.strictEqual(json.spanId, expected.spanId);
-      assert.strictEqual(json.traceSampled, expected.traceSampled);
+      expect(json.trace).toBe(expected.trace);
+      expect(json.spanId).toBe(expected.spanId);
+      expect(json.traceSampled).toBe(expected.traceSampled);
     });
 
     describe('toJSONWithOtel', () => {
       let sdk: NodeSDK;
-      before(() => {
+      beforeAll(() => {
         sdk = new NodeSDK({
           resource: new Resource({
             [SEMRESATTRS_SERVICE_NAME]: 'nodejs-logging-entry-test',
@@ -324,8 +323,8 @@ describe('Entry', () => {
         sdk.start();
       });
 
-      after(() => {
-        sdk.shutdown();
+      afterAll(async () => {
+        await sdk.shutdown();
       });
 
       it('should detect open telemetry trace and span if open telemetry context present', () => {
@@ -333,13 +332,11 @@ describe('Entry', () => {
           .getTracer('nodejs-logging-context-test')
           .startActiveSpan('foo', span => {
             const json = entry.toJSON();
-            assert.strictEqual(
-              json.trace,
+            expect(json.trace).toBe(
               `projects//traces/${span.spanContext().traceId}`,
             );
-            assert.strictEqual(json.spanId, span.spanContext().spanId);
-            assert.strictEqual(
-              json.traceSampled,
+            expect(json.spanId).toBe(span.spanContext().spanId);
+            expect(json.traceSampled).toBe(
               (span.spanContext().traceFlags & 1) !== 0,
             );
           });
@@ -358,13 +355,11 @@ describe('Entry', () => {
             };
             entry.metadata.httpRequest = req;
             const json = entry.toJSON();
-            assert.strictEqual(
-              json.trace,
+            expect(json.trace).toBe(
               `projects//traces/${span.spanContext().traceId}`,
             );
-            assert.strictEqual(json.spanId, span.spanContext().spanId);
-            assert.strictEqual(
-              json.traceSampled,
+            expect(json.spanId).toBe(span.spanContext().spanId);
+            expect(json.traceSampled).toBe(
               (span.spanContext().traceFlags & 1) !== 0,
             );
           });
@@ -384,9 +379,9 @@ describe('Entry', () => {
             };
 
             const json = entry.toJSON();
-            assert.strictEqual(json.trace, expected.trace);
-            assert.strictEqual(json.spanId, expected.spanId);
-            assert.strictEqual(json.traceSampled, expected.traceSampled);
+            expect(json.trace).toBe(expected.trace);
+            expect(json.spanId).toBe(expected.spanId);
+            expect(json.traceSampled).toBe(expected.traceSampled);
           });
       });
     });
@@ -397,7 +392,7 @@ describe('Entry', () => {
       const entryBefore = extend(true, {}, entry);
       entry.toStructuredJSON();
       const entryAfter = extend(true, {}, entry);
-      assert.deepStrictEqual(entryBefore, entryAfter);
+      expect(entryBefore).toEqual(entryAfter);
     });
 
     it('should include properties not in StructuredJson', () => {
@@ -412,9 +407,9 @@ describe('Entry', () => {
       entry.metadata.traceSampled = false;
       entry.data = 'this is a log';
       const json = entry.toStructuredJSON();
-      assert(
+      expect(
         withinExpectedTimeBoundaries(nanosAndSecondsToDate(json.timestamp!)),
-      );
+      ).toBe(true);
       delete json.timestamp;
       const expectedJSON = {
         [entryTypes.INSERT_ID_KEY]: '👀',
@@ -424,25 +419,25 @@ describe('Entry', () => {
         [entryTypes.LABELS_KEY]: {foo: '⌛️'},
         message: 'this is a log',
       };
-      assert.deepStrictEqual(json, expectedJSON);
+      expect(json).toEqual(expectedJSON);
     });
 
     it('should assign payloads to message in priority', () => {
       entry = new Entry(METADATA);
       entry.metadata.textPayload = 'test log';
       let json = entry.toStructuredJSON();
-      assert.strictEqual(json.message, 'test log');
+      expect(json.message).toBe('test log');
       entry.data = 'new test log';
       json = entry.toStructuredJSON();
-      assert.strictEqual(json.message, 'new test log');
+      expect(json.message).toBe('new test log');
     });
 
     it('should convert a string timestamp', () => {
       entry.metadata.timestamp = new Date();
       const json = entry.toStructuredJSON();
-      assert(
+      expect(
         withinExpectedTimeBoundaries(nanosAndSecondsToDate(json.timestamp!)),
-      );
+      ).toBe(true);
     });
 
     it('should convert a raw http to httprequest', () => {
@@ -451,7 +446,7 @@ describe('Entry', () => {
       } as http.IncomingMessage;
       const json = entry.toStructuredJSON();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      assert.strictEqual((json.httpRequest as any).requestMethod, 'POST');
+      expect((json.httpRequest as any).requestMethod).toBe('POST');
     });
 
     it('should extract trace and span from headers', () => {
@@ -461,37 +456,37 @@ describe('Entry', () => {
         },
       } as unknown as http.IncomingMessage;
       const json = entry.toStructuredJSON();
-      assert.strictEqual(json[entryTypes.TRACE_KEY], 'projects//traces/1');
-      assert.strictEqual(json[entryTypes.SPAN_ID_KEY], '1');
-      assert.strictEqual(json[entryTypes.TRACE_SAMPLED_KEY], false);
+      expect(json[entryTypes.TRACE_KEY]).toBe('projects//traces/1');
+      expect(json[entryTypes.SPAN_ID_KEY]).toBe('1');
+      expect(json[entryTypes.TRACE_SAMPLED_KEY]).toBe(false);
     });
 
     it('should add message field for structured data', () => {
       entry.data = {message: 'message', test: 'test'};
       let json = entry.toStructuredJSON();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      assert(((json.message as any).message = 'message'));
+      expect((json.message as any).message).toBe('message');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      assert(((json.message as any).test = 'test'));
+      expect((json.message as any).test).toBe('test');
       json = entry.toStructuredJSON(undefined, false);
-      assert((json.message = 'message'));
-      assert((json.test = 'test'));
+      expect(json.message).toBe('message');
+      expect((json as any).test).toBe('test');
     });
 
     it('should add message field only when needed', () => {
       entry.data = 1;
       let json = entry.toStructuredJSON();
-      assert((json.message = '1'));
+      expect(json.message).toBe(1);
       json = entry.toStructuredJSON(undefined, false);
-      assert((json.message = '1'));
+      expect(json.message).toBe('1');
       entry.data = 'test';
       json = entry.toStructuredJSON(undefined, false);
-      assert((json.message = 'test'));
+      expect(json.message).toBe('test');
     });
 
     describe('toStructuredJSONWithOtel', () => {
       let sdk: NodeSDK;
-      before(() => {
+      beforeAll(() => {
         sdk = new NodeSDK({
           resource: new Resource({
             [SEMRESATTRS_SERVICE_NAME]: 'nodejs-logging-entry-test',
@@ -502,8 +497,8 @@ describe('Entry', () => {
         sdk.start();
       });
 
-      after(() => {
-        sdk.shutdown();
+      afterAll(async () => {
+        await sdk.shutdown();
       });
 
       it('should detect open telemetry trace and span if open telemetry context present', () => {
@@ -511,16 +506,13 @@ describe('Entry', () => {
           .getTracer('nodejs-logging-context-test')
           .startActiveSpan('foo', span => {
             const json = entry.toStructuredJSON();
-            assert.strictEqual(
-              json[entryTypes.TRACE_KEY],
+            expect(json[entryTypes.TRACE_KEY]).toBe(
               `projects//traces/${span.spanContext().traceId}`,
             );
-            assert.strictEqual(
-              json[entryTypes.SPAN_ID_KEY],
+            expect(json[entryTypes.SPAN_ID_KEY]).toBe(
               span.spanContext().spanId,
             );
-            assert.strictEqual(
-              json[entryTypes.TRACE_SAMPLED_KEY],
+            expect(json[entryTypes.TRACE_SAMPLED_KEY]).toBe(
               (span.spanContext().traceFlags & 1) !== 0,
             );
           });
@@ -539,16 +531,13 @@ describe('Entry', () => {
             };
             entry.metadata.httpRequest = req;
             const json = entry.toStructuredJSON();
-            assert.strictEqual(
-              json[entryTypes.TRACE_KEY],
+            expect(json[entryTypes.TRACE_KEY]).toBe(
               `projects//traces/${span.spanContext().traceId}`,
             );
-            assert.strictEqual(
-              json[entryTypes.SPAN_ID_KEY],
+            expect(json[entryTypes.SPAN_ID_KEY]).toBe(
               span.spanContext().spanId,
             );
-            assert.strictEqual(
-              json[entryTypes.TRACE_SAMPLED_KEY],
+            expect(json[entryTypes.TRACE_SAMPLED_KEY]).toBe(
               (span.spanContext().traceFlags & 1) !== 0,
             );
           });
@@ -567,10 +556,9 @@ describe('Entry', () => {
               traceSampled: false,
             };
             const json = entry.toStructuredJSON();
-            assert.strictEqual(json[entryTypes.TRACE_KEY], expected.trace);
-            assert.strictEqual(json[entryTypes.SPAN_ID_KEY], expected.spanId);
-            assert.strictEqual(
-              json[entryTypes.TRACE_SAMPLED_KEY],
+            expect(json[entryTypes.TRACE_KEY]).toBe(expected.trace);
+            expect(json[entryTypes.SPAN_ID_KEY]).toBe(expected.spanId);
+            expect(json[entryTypes.TRACE_SAMPLED_KEY]).toBe(
               expected.traceSampled,
             );
           });

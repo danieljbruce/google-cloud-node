@@ -14,10 +14,8 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import * as EventEmitter from 'events';
-import * as proxyquire from 'proxyquire';
+import {makeMiddleware} from '../../../src/middleware/express/make-middleware';
 
 const FAKE_PROJECT_ID = 'project-🦄';
 
@@ -33,25 +31,18 @@ function makeFakeResponse() {
 }
 
 let getOrInjectContextValue: {} | undefined;
-const FAKE_CONTEXT = {
+jest.mock('../../../src/utils/context', () => ({
   getOrInjectContext: () => {
     return getOrInjectContextValue;
   },
-};
+}));
 
 describe('middleware/express/make-middleware', () => {
   describe('makeMiddleware', () => {
-    const {makeMiddleware} = proxyquire(
-      '../../../src/middleware/express/make-middleware',
-      {
-        '../../../src/utils/context': FAKE_CONTEXT,
-      },
-    );
-
     it('should return a function accepting 3 arguments', () => {
       const middleware = makeMiddleware(FAKE_PROJECT_ID, () => {});
-      assert.ok(typeof middleware === 'function');
-      assert.ok(middleware.length === 3);
+      expect(typeof middleware).toBe('function');
+      expect(middleware.length).toBe(3);
     });
 
     describe('middleware', () => {
@@ -73,10 +64,10 @@ describe('middleware/express/make-middleware', () => {
 
         const middleware = makeMiddleware(FAKE_PROJECT_ID, () => {});
 
-        middleware(fakeRequest, fakeResponse, () => {
+        middleware(fakeRequest as any, fakeResponse as any, () => {
           called = true;
         });
-        assert.ok(called);
+        expect(called).toBe(true);
       });
 
       it('should call makeChildLogger with trace context only', () => {
@@ -86,16 +77,16 @@ describe('middleware/express/make-middleware', () => {
         const fakeResponse = makeFakeResponse();
 
         function makeChild(trace: {}) {
-          assert.strictEqual(trace, `${FAKE_TRACE_CONTEXT.trace}`);
+          expect(trace).toBe(`${FAKE_TRACE_CONTEXT.trace}`);
           return FAKE_CHILD_LOGGER;
         }
 
-        const middleware = makeMiddleware(FAKE_PROJECT_ID, makeChild);
-        middleware(fakeRequest, fakeResponse, () => {});
+        const middleware = makeMiddleware(FAKE_PROJECT_ID, makeChild as any);
+        middleware(fakeRequest as any, fakeResponse as any, () => {});
 
         // Should annotate the request with the child logger.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert.strictEqual((fakeRequest as any).log, FAKE_CHILD_LOGGER);
+        expect((fakeRequest as any).log).toBe(FAKE_CHILD_LOGGER);
       });
 
       it('should call makeChildLogger with correct span context', () => {
@@ -105,17 +96,17 @@ describe('middleware/express/make-middleware', () => {
         const fakeResponse = makeFakeResponse();
 
         function makeChild(trace: {}, span: {}) {
-          assert.strictEqual(trace, `${FAKE_TRACE_CONTEXT.trace}`);
-          assert.strictEqual(span, FAKE_TRACE_AND_SPAN_CONTEXT.spanId);
+          expect(trace).toBe(`${FAKE_TRACE_CONTEXT.trace}`);
+          expect(span).toBe(FAKE_TRACE_AND_SPAN_CONTEXT.spanId);
           return FAKE_CHILD_LOGGER;
         }
 
-        const middleware = makeMiddleware(FAKE_PROJECT_ID, makeChild);
-        middleware(fakeRequest, fakeResponse, () => {});
+        const middleware = makeMiddleware(FAKE_PROJECT_ID, makeChild as any);
+        middleware(fakeRequest as any, fakeResponse as any, () => {});
 
         // Should annotate the request with the child logger.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert.strictEqual((fakeRequest as any).log, FAKE_CHILD_LOGGER);
+        expect((fakeRequest as any).log).toBe(FAKE_CHILD_LOGGER);
       });
 
       it('should emit a request log when response is finished', done => {
@@ -125,22 +116,30 @@ describe('middleware/express/make-middleware', () => {
         let emitRequestLogCalled = false;
 
         function emitRequestLog(httpRequest: {}, trace: {}) {
-          assert.strictEqual(trace, `${FAKE_TRACE_CONTEXT.trace}`);
-          // TODO: check httpRequest properties.
-          emitRequestLogCalled = true;
+          try {
+            expect(trace).toBe(`${FAKE_TRACE_CONTEXT.trace}`);
+            // TODO: check httpRequest properties.
+            emitRequestLogCalled = true;
+          } catch (e) {
+            done(e);
+          }
         }
 
         const middleware = makeMiddleware(
           FAKE_PROJECT_ID,
           () => {},
-          emitRequestLog,
+          emitRequestLog as any,
         );
-        middleware(fakeRequest, fakeResponse, () => {});
+        middleware(fakeRequest as any, fakeResponse as any, () => {});
 
         setTimeout(() => {
-          fakeResponse.emit('finished');
-          assert.strictEqual(emitRequestLogCalled, true);
-          done();
+          try {
+            fakeResponse.emit('finished');
+            expect(emitRequestLogCalled).toBe(true);
+            done();
+          } catch (e) {
+            done(e);
+          }
         }, 10);
       });
     });

@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
-import * as sinon from 'sinon';
 import {Entry, Logging} from '../src';
 import {LogSync} from '../src/log-sync';
 import {LABELS_KEY} from '../src/entry';
@@ -40,48 +37,47 @@ describe('LogSync', () => {
   let log: any;
 
   describe('instantiation', () => {
-    before(() => {
+    beforeAll(() => {
       log = createLogger();
     });
 
     function createLogger() {
       LOGGING = {
         projectId: '{{project-id}}',
-        entry: sinon.stub(),
+        entry: jest.fn(),
       } as {} as Logging;
 
       return new LogSync(LOGGING, LOG_NAME);
     }
 
     it('should localize the escaped name', () => {
-      assert.strictEqual(log.name, LOG_NAME_ENCODED);
+      expect(log.name).toBe(LOG_NAME_ENCODED);
     });
 
     it('should localize the formatted name', () => {
       const log = new LogSync(LOGGING, LOG_NAME);
-      assert.strictEqual(
-        log.formattedName_,
+      expect(log.formattedName_).toBe(
         logCommon.formatLogName('{{project-id}}', LOG_NAME),
       );
     });
 
     it('should localize the Logging instance', () => {
-      assert.strictEqual(log.logging, LOGGING);
+      expect(log.logging).toBe(LOGGING);
     });
 
     it('should localize the name', () => {
-      assert.strictEqual(log.name, LOG_NAME_FORMATTED.split('/').pop());
+      expect(log.name).toBe(LOG_NAME_FORMATTED.split('/').pop());
     });
 
     it('should localize a custom transport', () => {
       const fakeStream = new stream.Writable();
       const log = new LogSync(LOGGING, LOG_NAME, fakeStream);
-      assert(log.transport instanceof stream.Writable);
-      assert.notStrictEqual(log.transport, process.stdout);
+      expect(log.transport).toBeInstanceOf(stream.Writable);
+      expect(log.transport).not.toBe(process.stdout);
     });
 
     it('should default to process.stdout transport', () => {
-      assert.strictEqual(log.transport, process.stdout);
+      expect(log.transport).toBe(process.stdout);
     });
   });
 
@@ -95,6 +91,11 @@ describe('LogSync', () => {
     let buffer: stream.Writable;
 
     beforeEach(() => {
+      if (fs.existsSync(TEST_FILE)) {
+        try {
+          fs.unlinkSync(TEST_FILE);
+        } catch (_) {}
+      }
       ENTRY = new Entry(undefined, 'testlog');
       ENTRIES = [ENTRY] as Entry[];
       OPTIONS = {} as WriteOptions;
@@ -102,15 +103,17 @@ describe('LogSync', () => {
     });
 
     afterEach(() => {
-      fs.unlink(TEST_FILE, e => {
-        console.log(e);
-      });
+      if (fs.existsSync(TEST_FILE)) {
+        try {
+          fs.unlinkSync(TEST_FILE);
+        } catch (_) {}
+      }
     });
 
     function createLogger() {
       LOGGING = {
         projectId: '{{project-id}}',
-        entry: sinon.stub(),
+        entry: jest.fn(),
       } as {} as Logging;
       buffer = fs.createWriteStream(TEST_FILE);
       return new LogSync(LOGGING, LOG_NAME, buffer);
@@ -119,12 +122,16 @@ describe('LogSync', () => {
     it('should use projectId from Logging for log name', done => {
       log.write(ENTRIES);
       buffer.end(() => {
-        const result = JSON.parse(fs.readFileSync(TEST_FILE, 'utf8'));
-        assert.strictEqual(
-          result.logName,
-          'projects/{{project-id}}/logs/escaping%2Frequired%2Ffor%2Fthis%2Flog-name',
-        );
-        done();
+        try {
+          const lines = fs.readFileSync(TEST_FILE, 'utf8').trim().split('\n');
+          const result = JSON.parse(lines[0]);
+          expect(result.logName).toBe(
+            'projects/{{project-id}}/logs/escaping%2Frequired%2Ffor%2Fthis%2Flog-name',
+          );
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -140,18 +147,28 @@ describe('LogSync', () => {
       });
       log.write(ENTRIES, optionsWithResource);
       buffer.end(() => {
-        const result = JSON.parse(fs.readFileSync(TEST_FILE, 'utf8'));
-        assert.strictEqual(result.resource.camel_case_key, VALUE);
-        done();
+        try {
+          const lines = fs.readFileSync(TEST_FILE, 'utf8').trim().split('\n');
+          const result = JSON.parse(lines[0]);
+          expect(result.resource.camel_case_key).toBe(VALUE);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
     it('should detect resource from LogEntry next', done => {
       log.write(new Entry({resource: {type: 'sometype'}}));
       buffer.end(() => {
-        const result = JSON.parse(fs.readFileSync(TEST_FILE, 'utf8'));
-        assert.strictEqual(result.resource.type, 'sometype');
-        done();
+        try {
+          const lines = fs.readFileSync(TEST_FILE, 'utf8').trim().split('\n');
+          const result = JSON.parse(lines[0]);
+          expect(result.resource.type).toBe('sometype');
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
@@ -159,27 +176,41 @@ describe('LogSync', () => {
       LOGGING.detectedResource = {type: 'fake resource'};
       log.write(ENTRIES);
       buffer.end(() => {
-        const result = JSON.parse(fs.readFileSync(TEST_FILE, 'utf8'));
-        assert.strictEqual(result.resource.type, 'fake resource');
-        done();
+        try {
+          const lines = fs.readFileSync(TEST_FILE, 'utf8').trim().split('\n');
+          const result = JSON.parse(lines[0]);
+          expect(result.resource.type).toBe('fake resource');
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
     it('should not require options', done => {
       log.write(ENTRY);
       buffer.end(() => {
-        const result = fs.readFileSync(TEST_FILE, 'utf8');
-        assert.ok(result.length > 0);
-        done();
+        try {
+          const result = fs.readFileSync(TEST_FILE, 'utf8');
+          expect(result.length).toBeGreaterThan(0);
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
 
     it('should clobber with labels from WriteOptions', done => {
       log.write(ENTRY, {labels: {foo: 'bar'}});
       buffer.end(() => {
-        const result = JSON.parse(fs.readFileSync(TEST_FILE, 'utf8'));
-        assert.strictEqual(result[LABELS_KEY].foo, 'bar');
-        done();
+        try {
+          const lines = fs.readFileSync(TEST_FILE, 'utf8').trim().split('\n');
+          const result = JSON.parse(lines[0]);
+          expect(result[LABELS_KEY].foo).toBe('bar');
+          done();
+        } catch (e) {
+          done(e);
+        }
       });
     });
   });
@@ -187,19 +218,19 @@ describe('LogSync', () => {
   describe('severity shortcuts', () => {
     let ENTRY: Entry;
     let LABELS: WriteOptions;
-    let assignSeverityStub: sinon.SinonStub;
-    let writeStub: sinon.SinonStub;
+    let assignSeveritySpy: jest.SpyInstance;
+    let writeSpy: jest.SpyInstance;
 
     beforeEach(() => {
       ENTRY = {} as Entry;
       LABELS = [] as WriteOptions;
-      assignSeverityStub = sinon.stub(logCommon, 'assignSeverityToEntries');
-      writeStub = sinon.stub(log, 'write');
+      assignSeveritySpy = jest.spyOn(logCommon, 'assignSeverityToEntries');
+      writeSpy = jest.spyOn(log, 'write');
     });
 
     afterEach(() => {
-      assignSeverityStub.restore();
-      writeStub.restore();
+      assignSeveritySpy.mockRestore();
+      writeSpy.mockRestore();
     });
 
     [
@@ -222,14 +253,14 @@ describe('LogSync', () => {
         it('should format the entries', async () => {
           const severity = severityMethodName.toUpperCase();
           severityMethod(ENTRY, LABELS);
-          assert(assignSeverityStub.calledOnceWith(ENTRY, severity));
+          expect(assignSeveritySpy).toHaveBeenCalledWith(ENTRY, severity);
         });
 
         it('should pass correct arguments to write', async () => {
           const assignedEntries: Entry[] = [];
-          assignSeverityStub.returns(assignedEntries);
+          assignSeveritySpy.mockReturnValue(assignedEntries);
           severityMethod(ENTRY, LABELS);
-          assert(writeStub.calledOnceWith(assignedEntries));
+          expect(writeSpy).toHaveBeenCalledWith(assignedEntries, LABELS);
         });
       });
     });

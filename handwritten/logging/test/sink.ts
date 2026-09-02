@@ -12,30 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as callbackify from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
-import {Sink as SINK} from '../src/sink';
-import {Logging, CreateSinkRequest, LogSink} from '../src/index';
 
 let callbackified = false;
-const fakeCallbackify = extend({}, callbackify, {
-  callbackifyAll(c: Function) {
-    if (c.name === 'Sink') {
-      callbackified = true;
-    }
-  },
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    callbackifyAll(c: Function) {
+      if (c.name === 'Sink') {
+        callbackified = true;
+      }
+    },
+  };
 });
 
-const sandbox = sinon.createSandbox();
+import {Sink} from '../src/sink';
+import {Logging, CreateSinkRequest, LogSink} from '../src/index';
 
 describe('Sink', () => {
-  // tslint:disable-next-line variable-name
-  let Sink: typeof SINK;
-  let sink: SINK;
+  let sink: Sink;
 
   const PROJECT_ID = 'project-id';
 
@@ -47,34 +43,25 @@ describe('Sink', () => {
   } as {} as Logging;
   const SINK_NAME = 'sink-name';
 
-  before(() => {
-    Sink = proxyquire('../src/sink', {
-      '@google-cloud/promisify': fakeCallbackify,
-    }).Sink;
-  });
-
   beforeEach(() => {
     sink = new Sink(LOGGING, SINK_NAME);
   });
 
-  afterEach(() => sandbox.restore());
-
   describe('instantiation', () => {
     it('should promisify all the things', () => {
-      assert(callbackified);
+      expect(callbackified).toBe(true);
     });
 
     it('should localize Logging instance', () => {
-      assert.strictEqual(sink.logging, LOGGING);
+      expect(sink.logging).toBe(LOGGING);
     });
 
     it('should localize the name', () => {
-      assert.strictEqual(sink.name, SINK_NAME);
+      expect(sink.name).toBe(SINK_NAME);
     });
 
     it('should localize the formatted name', () => {
-      assert.strictEqual(
-        sink.formattedName_,
+      expect(sink.formattedName_).toBe(
         'projects/' + LOGGING.projectId + '/sinks/' + SINK_NAME,
       );
     });
@@ -83,11 +70,12 @@ describe('Sink', () => {
   describe('create', () => {
     it('should call parent createSink', async () => {
       const config = {} as CreateSinkRequest;
-      sandbox
-        .stub(sink.logging, 'createSink')
-        .callsFake(async (name, config_) => {
-          assert.strictEqual(name, sink.name);
-          assert.strictEqual(config_, config);
+      jest
+        .spyOn(sink.logging, 'createSink')
+        .mockImplementation(async (name: any, config_: any) => {
+          expect(name).toBe(sink.name);
+          expect(config_).toBe(config);
+          return [] as any;
         });
       await sink.create(config);
     });
@@ -100,10 +88,10 @@ describe('Sink', () => {
         reqOpts: {},
         gaxOpts: {},
       ) => {
-        assert.deepStrictEqual(reqOpts, {
+        expect(reqOpts).toEqual({
           sinkName: sink.formattedName_,
         });
-        assert.strictEqual(gaxOpts, undefined);
+        expect(gaxOpts).toBeUndefined();
       };
 
       await sink.delete();
@@ -115,7 +103,7 @@ describe('Sink', () => {
         reqOpts: {},
         gaxOpts: {},
       ) => {
-        assert.deepStrictEqual(gaxOpts, gaxOptions);
+        expect(gaxOpts).toEqual(gaxOptions);
       };
 
       await sink.delete(gaxOptions);
@@ -128,10 +116,10 @@ describe('Sink', () => {
     });
     it('should execute gax method', async () => {
       sink.logging.configService.getSink = async (reqOpts: {}, gaxOpts: {}) => {
-        assert.deepStrictEqual(reqOpts, {
+        expect(reqOpts).toEqual({
           sinkName: sink.formattedName_,
         });
-        assert.strictEqual(gaxOpts, undefined);
+        expect(gaxOpts).toBeUndefined();
         return [];
       };
 
@@ -141,7 +129,7 @@ describe('Sink', () => {
     it('should accept gaxOptions', async () => {
       const gaxOptions = {};
       sink.logging.configService.getSink = async (reqOpts: {}, gaxOpts: {}) => {
-        assert.deepStrictEqual(gaxOpts, gaxOptions);
+        expect(gaxOpts).toEqual(gaxOptions);
         return [];
       };
       await sink.getMetadata(gaxOptions);
@@ -149,9 +137,9 @@ describe('Sink', () => {
 
     it('should update metadata', async () => {
       const metadata = {};
-      sandbox.stub(sink.logging.configService, 'getSink').returns([metadata]);
+      jest.spyOn(sink.logging.configService, 'getSink').mockResolvedValue([metadata] as any);
       await sink.getMetadata();
-      assert.strictEqual(sink.metadata, metadata);
+      expect(sink.metadata).toBe(metadata);
     });
 
     it('should return original arguments', async () => {
@@ -160,7 +148,7 @@ describe('Sink', () => {
         return [ARGS];
       };
       const [args] = await sink.getMetadata();
-      assert.deepStrictEqual(args, ARGS);
+      expect(args).toEqual(ARGS);
     });
   });
 
@@ -168,9 +156,9 @@ describe('Sink', () => {
     const FILTER = 'filter';
 
     it('should call set metadata', async () => {
-      sandbox.stub(sink, 'setMetadata').callsFake(async metadata => {
-        assert.strictEqual(metadata.filter, FILTER);
-        return [];
+      jest.spyOn(sink, 'setMetadata').mockImplementation(async (metadata: any) => {
+        expect(metadata.filter).toBe(FILTER);
+        return [] as any;
       });
       await sink.setFilter(FILTER);
     });
@@ -191,20 +179,17 @@ describe('Sink', () => {
       sink.logging.configService.updateSink = async () => {
         return [METADATA];
       };
-      assert.strictEqual(sink.metadata, undefined);
+      expect(sink.metadata).toBeUndefined();
       await sink.setMetadata(METADATA);
-      assert.deepStrictEqual(sink.metadata, METADATA);
+      expect(sink.metadata).toEqual(METADATA);
     });
 
-    it('should throw the error from refresh', () => {
+    it('should throw the error from refresh', async () => {
       const error = new Error('Error.');
       sink.getMetadata = async () => {
         throw error;
       };
-      sink.setMetadata(METADATA).then(
-        () => {},
-        err => assert.strictEqual(err, error),
-      );
+      await expect(sink.setMetadata(METADATA)).rejects.toBe(error);
     });
 
     it('should execute gax method', async () => {
@@ -215,11 +200,11 @@ describe('Sink', () => {
         reqOpts: {},
         gaxOpts: {},
       ) => {
-        assert.deepStrictEqual(reqOpts, {
+        expect(reqOpts).toEqual({
           sinkName: sink.formattedName_,
           sink: extend({}, currentMetadata, METADATA),
         });
-        assert.strictEqual(gaxOpts, undefined);
+        expect(gaxOpts).toBeUndefined();
         return [];
       };
 
@@ -231,11 +216,11 @@ describe('Sink', () => {
         gaxOptions: {},
       });
 
-      sandbox
-        .stub(sink.logging.configService, 'updateSink')
-        .callsFake(async (reqOpts: any, gaxOpts: any) => {
-          assert.strictEqual(reqOpts.sink.gaxOptions, undefined);
-          assert.strictEqual(gaxOpts, metadata.gaxOptions);
+      jest
+        .spyOn(sink.logging.configService, 'updateSink')
+        .mockImplementation(async (reqOpts: any, gaxOpts: any) => {
+          expect(reqOpts.sink.gaxOptions).toBeUndefined();
+          expect(gaxOpts).toBe(metadata.gaxOptions);
           return [];
         });
       await sink.setMetadata(metadata);
@@ -247,7 +232,7 @@ describe('Sink', () => {
         return [metadata];
       };
       await sink.setMetadata(metadata);
-      assert.strictEqual(sink.metadata, metadata);
+      expect(sink.metadata).toBe(metadata);
     });
 
     it('should return callback with original arguments', async () => {
@@ -256,7 +241,7 @@ describe('Sink', () => {
         return [ARGS];
       };
       const [args] = await sink.setMetadata(METADATA);
-      assert.deepStrictEqual(args, ARGS);
+      expect(args).toEqual(ARGS);
     });
   });
 });

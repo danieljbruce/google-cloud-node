@@ -19,9 +19,7 @@ import {
   assignSeverityToEntries,
   snakecaseKeys,
 } from '../../src/utils/log-common';
-import {describe, it} from 'mocha';
 import {Entry} from '../../src';
-import * as assert from 'assert';
 import * as extend from 'extend';
 
 describe('Log Common', () => {
@@ -36,27 +34,25 @@ describe('Log Common', () => {
     const SEVERITY = 'severity';
 
     it('should assign severity to a single entry', () => {
-      assert.deepStrictEqual(
+      expect(
         assignSeverityToEntries(ENTRIES[0], SEVERITY)
           .map(x => x.metadata)
           .map(x => x.severity),
-        [SEVERITY],
-      );
+      ).toEqual([SEVERITY]);
     });
 
     it('should assign severity property to multiple entries', () => {
-      assert.deepStrictEqual(
+      expect(
         assignSeverityToEntries(ENTRIES, SEVERITY)
           .map(x => x.metadata)
           .map(x => x.severity),
-        [SEVERITY, SEVERITY, SEVERITY],
-      );
+      ).toEqual([SEVERITY, SEVERITY, SEVERITY]);
     });
 
     it('should not affect original array', () => {
       const originalEntries = ENTRIES.map(x => extend({}, x));
       assignSeverityToEntries(originalEntries, SEVERITY);
-      assert.deepStrictEqual(originalEntries, ENTRIES);
+      expect(originalEntries).toEqual(ENTRIES);
     });
   });
 
@@ -67,28 +63,28 @@ describe('Log Common', () => {
     const EXPECTED = 'projects/' + PROJECT_ID + '/logs/' + NAME;
 
     it('should properly format the name', () => {
-      assert.strictEqual(formatLogName(PROJECT_ID, NAME), EXPECTED);
+      expect(formatLogName(PROJECT_ID, NAME)).toBe(EXPECTED);
     });
 
     it('should encode a name that requires it', () => {
       const name = 'appengine/logs';
       const expectedName = 'projects/' + PROJECT_ID + '/logs/appengine%2Flogs';
 
-      assert.strictEqual(formatLogName(PROJECT_ID, name), expectedName);
+      expect(formatLogName(PROJECT_ID, name)).toBe(expectedName);
     });
 
     it('should not encode a name that does not require it', () => {
       const name = 'appengine%2Flogs';
       const expectedName = 'projects/' + PROJECT_ID + '/logs/' + name;
 
-      assert.strictEqual(formatLogName(PROJECT_ID, name), expectedName);
+      expect(formatLogName(PROJECT_ID, name)).toBe(expectedName);
     });
 
     it('should format a name with empty PROJECT_ID', () => {
       const name = 'appengine%2Flogs';
       const expectedName = 'projects//logs/' + name;
 
-      assert.strictEqual(formatLogName('', name), expectedName);
+      expect(formatLogName('', name)).toBe(expectedName);
     });
   });
 
@@ -103,7 +99,7 @@ describe('Log Common', () => {
         AnotherOne: 'another',
       };
       const result = snakecaseKeys(labels);
-      assert.deepStrictEqual(result, {
+      expect(result).toEqual({
         project_id: 'id',
         foo_bar_baz: 'foobar',
         some_other: 'value',

@@ -12,23 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach, before, after, afterEach} from 'mocha';
 import BigNumber from 'bignumber.js';
 import * as extend from 'extend';
 import {GCPEnv} from 'google-auth-library';
-import * as proxyquire from 'proxyquire';
 
-let instanceOverride: {} | null;
-const fakeGcpMetadata = {
-  instance(path: string) {
+let instanceOverride: any = null;
+jest.mock('gcp-metadata', () => ({
+  instance: jest.fn((path: string) => {
     if (instanceOverride) {
       const override = Array.isArray(instanceOverride)
-        ? instanceOverride.find(entry => entry.path === path)
+        ? instanceOverride.find((entry: any) => entry.path === path)
         : instanceOverride;
 
       if (override.path) {
-        assert.strictEqual(path, override.path);
+        expect(path).toBe(override.path);
       }
 
       if (override.errorArg) {
@@ -41,50 +38,45 @@ const fakeGcpMetadata = {
     }
 
     return Promise.resolve('fake-instance-value');
-  },
-};
+  }),
+}));
 
 const FAKE_READFILE_ERROR_MESSAGE = 'fake readFile error';
 const FAKE_READFILE_CONTENTS = 'fake readFile contents';
 let readFileShouldError: boolean;
-const fakeFS = {
-  readFile: (filename: string, encoding: string, callback: Function) => {
-    setImmediate(() => {
-      if (readFileShouldError) {
-        callback(new Error(FAKE_READFILE_ERROR_MESSAGE));
-      } else {
-        callback(null, FAKE_READFILE_CONTENTS);
-      }
-    });
-  },
-};
+jest.mock('fs', () => {
+  const actualFs = jest.requireActual('fs');
+  return {
+    ...actualFs,
+    readFile: jest.fn((filename: string, encoding: string, callback: Function) => {
+      setImmediate(() => {
+        if (readFileShouldError) {
+          callback(new Error(FAKE_READFILE_ERROR_MESSAGE));
+        } else {
+          callback(null, FAKE_READFILE_CONTENTS);
+        }
+      });
+    }),
+  };
+});
+
+import * as metadata from '../../src/utils/metadata';
 
 describe('metadata', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let metadataCached: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let metadata: any;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const ENV_CACHED = extend({}, process.env);
-
   const INITIAL_ENV: {[key: string]: string | undefined} = {};
 
-  before(() => {
-    metadata = proxyquire('../../src/utils/metadata', {
-      'gcp-metadata': fakeGcpMetadata,
-      fs: fakeFS,
-    });
-
-    metadataCached = extend({}, metadata);
-  });
-
   beforeEach(() => {
-    extend(metadata, metadataCached);
     instanceOverride = null;
     readFileShouldError = false;
   });
 
   afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in ENV_CACHED)) {
+        delete process.env[key];
+      }
+    }
     extend(process.env, ENV_CACHED);
   });
 
@@ -102,13 +94,13 @@ describe('metadata', () => {
       'GOOGLE_CLOUD_REGION',
     ];
 
-    before(() => {
+    beforeAll(() => {
       for (const key of TARGET_KEYS) {
         INITIAL_ENV[key] = process.env[key];
       }
     });
 
-    after(() => {
+    afterAll(() => {
       for (const key of TARGET_KEYS) {
         const val = INITIAL_ENV[key];
         if (val === undefined) {
@@ -131,7 +123,7 @@ describe('metadata', () => {
       process.env.GOOGLE_CLOUD_REGION = GOOGLE_CLOUD_REGION;
       process.env.FUNCTION_REGION = FUNCTION_REGION;
       const descriptor = await metadata.getCloudFunctionDescriptor();
-      assert.deepStrictEqual(descriptor, {
+      expect(descriptor).toEqual({
         type: 'cloud_function',
         labels: {
           function_name: K_SERVICE,
@@ -144,7 +136,7 @@ describe('metadata', () => {
       process.env.FUNCTION_REGION = FUNCTION_REGION;
       delete process.env['K_SERVICE'];
       const descriptor = await metadata.getCloudFunctionDescriptor();
-      assert.deepStrictEqual(descriptor, {
+      expect(descriptor).toEqual({
         type: 'cloud_function',
         labels: {
           function_name: FUNCTION_NAME,
@@ -158,7 +150,7 @@ describe('metadata', () => {
       const ZONE_FULL = `projects/fake-project/zones/${ZONE_ID}`;
       instanceOverride = {path: 'zone', successArg: ZONE_FULL};
       const descriptor = await metadata.getCloudFunctionDescriptor();
-      assert.deepStrictEqual(descriptor, {
+      expect(descriptor).toEqual({
         type: 'cloud_function',
         labels: {
           function_name: K_SERVICE,
@@ -175,13 +167,13 @@ describe('metadata', () => {
 
     const TARGET_KEYS = ['K_SERVICE', 'K_REVISION', 'K_CONFIGURATION'];
 
-    before(() => {
+    beforeAll(() => {
       for (const key of TARGET_KEYS) {
         INITIAL_ENV[key] = process.env[key];
       }
     });
 
-    after(() => {
+    afterAll(() => {
       for (const key of TARGET_KEYS) {
         const val = INITIAL_ENV[key];
         if (val === undefined) {
@@ -206,7 +198,7 @@ describe('metadata', () => {
       const ZONE_FULL = `projects/fake-project/zones/${ZONE_ID}`;
       instanceOverride = {path: 'zone', successArg: ZONE_FULL};
       const descriptor = await metadata.getCloudRunDescriptor();
-      assert.deepStrictEqual(descriptor, {
+      expect(descriptor).toEqual({
         type: 'cloud_run_revision',
         labels: {
           service_name: K_SERVICE,
@@ -234,7 +226,7 @@ describe('metadata', () => {
       const ZONE_FULL = `projects/fake-project/zones/${ZONE_ID}`;
       instanceOverride = {path: 'zone', successArg: ZONE_FULL};
       const descriptor = await metadata.getGAEDescriptor();
-      assert.deepStrictEqual(descriptor, {
+      expect(descriptor).toEqual({
         type: 'gae_app',
         labels: {
           module_id: GAE_SERVICE,
@@ -248,7 +240,7 @@ describe('metadata', () => {
       delete process.env.GAE_SERVICE;
 
       const moduleId = (await metadata.getGAEDescriptor()).labels.module_id;
-      assert.strictEqual(moduleId, GAE_MODULE_NAME);
+      expect(moduleId).toBe(GAE_MODULE_NAME);
     });
   });
 
@@ -279,7 +271,7 @@ describe('metadata', () => {
         },
       ];
       const descriptor = await metadata.getGKEDescriptor();
-      assert.deepStrictEqual(descriptor, {
+      expect(descriptor).toEqual({
         type: 'k8s_container',
         labels: {
           cluster_name: CLUSTER_NAME,
@@ -296,24 +288,19 @@ describe('metadata', () => {
       instanceOverride = {
         errorArg: FAKE_ERROR,
       };
-      await assert.rejects(
-        metadata.getGKEDescriptor(),
-        (err: Error) => err === FAKE_ERROR,
-      );
+      await expect(metadata.getGKEDescriptor()).rejects.toBe(FAKE_ERROR);
     });
 
     it('should not error if reading namespace file fails', async () => {
       readFileShouldError = true;
 
-      await assert.doesNotReject(metadata.getGKEDescriptor(), (err: Error) =>
-        err.message.includes(FAKE_READFILE_ERROR_MESSAGE),
-      );
+      await expect(metadata.getGKEDescriptor()).resolves.toBeDefined();
     });
   });
 
   describe('getGlobalDescriptor', () => {
     it('should return the correct descriptor', () => {
-      assert.deepStrictEqual(metadata.getGlobalDescriptor(), {
+      expect(metadata.getGlobalDescriptor()).toEqual({
         type: 'global',
       });
     });
@@ -329,8 +316,8 @@ describe('metadata', () => {
           return null;
         },
       };
-      await metadata.getDefaultResource(fakeAuth);
-      assert.ok(called);
+      await metadata.getDefaultResource(fakeAuth as any);
+      expect(called).toBe(true);
     });
 
     describe('environments', () => {
@@ -352,8 +339,8 @@ describe('metadata', () => {
             },
           };
 
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'gae_app',
             labels: {
               module_id: GAE_SERVICE,
@@ -377,8 +364,8 @@ describe('metadata', () => {
             },
           };
 
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'cloud_function',
             labels: {
               function_name: FUNCTION_NAME,
@@ -389,7 +376,7 @@ describe('metadata', () => {
       });
 
       describe('cloud run', () => {
-        after(() => {
+        afterAll(() => {
           delete process.env['K_CONFIGURATION'];
           delete process.env['K_REVISION'];
           delete process.env['K_SERVICE'];
@@ -416,8 +403,8 @@ describe('metadata', () => {
             },
           };
 
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'cloud_run_revision',
             labels: {
               service_name: K_SERVICE,
@@ -450,8 +437,8 @@ describe('metadata', () => {
               return GCPEnv.COMPUTE_ENGINE;
             },
           };
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'gce_instance',
             labels: {
               instance_id: INSTANCE_ID.toString(),
@@ -482,8 +469,8 @@ describe('metadata', () => {
             },
           };
 
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'gce_instance',
             labels: {
               instance_id: INSTANCE_ID_STRING,
@@ -516,8 +503,8 @@ describe('metadata', () => {
           };
           process.env.HOSTNAME = 'node-gke-123';
           process.env.CONTAINER_NAME = 'my-container';
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'k8s_container',
             labels: {
               location: ZONE_ID,
@@ -539,8 +526,8 @@ describe('metadata', () => {
             },
           };
 
-          const defaultResource = await metadata.getDefaultResource(fakeAuth);
-          assert.deepStrictEqual(defaultResource, {
+          const defaultResource = await metadata.getDefaultResource(fakeAuth as any);
+          expect(defaultResource).toEqual({
             type: 'global',
           });
         });
@@ -564,22 +551,22 @@ describe('metadata', () => {
         },
       };
 
-      const sc1 = await metadata.detectServiceContext(fakeAuth);
-      assert.deepStrictEqual(sc1, {
+      const sc1 = await metadata.detectServiceContext(fakeAuth as any);
+      expect(sc1).toEqual({
         service: GAE_SERVICE,
         version: GAE_VERSION,
       });
 
       delete process.env.GAE_SERVICE;
-      const sc2 = await metadata.detectServiceContext(fakeAuth);
-      assert.deepStrictEqual(sc2, {
+      const sc2 = await metadata.detectServiceContext(fakeAuth as any);
+      expect(sc2).toEqual({
         service: GAE_MODULE_NAME,
         version: GAE_VERSION,
       });
 
       delete process.env.GAE_VERSION;
-      const sc3 = await metadata.detectServiceContext(fakeAuth);
-      assert.deepStrictEqual(sc3, {
+      const sc3 = await metadata.detectServiceContext(fakeAuth as any);
+      expect(sc3).toEqual({
         service: GAE_MODULE_NAME,
         version: GAE_MODULE_VERSION,
       });
@@ -594,8 +581,8 @@ describe('metadata', () => {
         },
       };
 
-      const sc1 = await metadata.detectServiceContext(fakeAuth);
-      assert.deepStrictEqual(sc1, {service: FUNCTION_NAME});
+      const sc1 = await metadata.detectServiceContext(fakeAuth as any);
+      expect(sc1).toEqual({service: FUNCTION_NAME});
     });
 
     it('should return the correct descriptor for Cloud Run', async () => {
@@ -608,8 +595,8 @@ describe('metadata', () => {
         },
       };
 
-      const sc1 = await metadata.detectServiceContext(fakeAuth);
-      assert.deepStrictEqual(sc1, {service: SERVICE_NAME});
+      const sc1 = await metadata.detectServiceContext(fakeAuth as any);
+      expect(sc1).toEqual({service: SERVICE_NAME});
 
       delete process.env['K_CONFIGURATION'];
       delete process.env['K_SERVICE'];
@@ -622,8 +609,8 @@ describe('metadata', () => {
         },
       };
       process.env.HOSTNAME = 'node-gke-123';
-      const serviceContext = await metadata.detectServiceContext(fakeAuth);
-      assert.deepStrictEqual(serviceContext, {
+      const serviceContext = await metadata.detectServiceContext(fakeAuth as any);
+      expect(serviceContext).toEqual({
         service: 'node-gke-123',
       });
       delete process.env.HOSTNAME;
@@ -635,8 +622,8 @@ describe('metadata', () => {
           return GCPEnv.COMPUTE_ENGINE;
         },
       };
-      const serviceContext = await metadata.detectServiceContext(fakeAuth);
-      assert.strictEqual(serviceContext, null);
+      const serviceContext = await metadata.detectServiceContext(fakeAuth as any);
+      expect(serviceContext).toBeNull();
     });
 
     it('should return null elsewhere', async () => {
@@ -645,8 +632,8 @@ describe('metadata', () => {
           return GCPEnv.NONE;
         },
       };
-      const serviceContext = await metadata.detectServiceContext(fakeAuth);
-      assert.strictEqual(serviceContext, null);
+      const serviceContext = await metadata.detectServiceContext(fakeAuth as any);
+      expect(serviceContext).toBeNull();
     });
   });
 });

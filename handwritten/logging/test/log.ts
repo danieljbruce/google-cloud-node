@@ -12,20 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
 import * as extend from 'extend';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
+
+let callbackified = false;
+jest.mock('@google-cloud/promisify', () => {
+  const actual = jest.requireActual('@google-cloud/promisify');
+  return {
+    ...actual,
+    callbackifyAll(c: Function, options: any) {
+      if (
+        c.name === 'Log' &&
+        options?.exclude?.includes('entry') &&
+        options?.exclude?.includes('getEntriesStream')
+      ) {
+        callbackified = true;
+      }
+      return actual.callbackifyAll(c, options);
+    },
+  };
+});
+
 import {Entry, Logging} from '../src';
-import {Log as LOG, LogOptions, WriteOptions} from '../src/log';
+import {Log, LogOptions, WriteOptions} from '../src/log';
 import {Data, EntryJson, LogEntry} from '../src/entry';
 
 import * as logCommon from '../src/utils/log-common';
 import * as instrumentation from '../src/utils/instrumentation';
 
 describe('Log', () => {
-  let Log: typeof LOG;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let log: any;
 
@@ -45,30 +59,21 @@ describe('Log', () => {
 
   let LOGGING: Logging;
 
-  const callbackifyFake = {
-    callbackifyAll: sinon.stub(),
-  };
-
-  before(() => {
-    Log = proxyquire('../src/log', {
-      '@google-cloud/promisify': callbackifyFake,
-      './entry': {Entry},
-    }).Log;
-
+  beforeAll(() => {
     log = createLogger();
   });
 
   beforeEach(() => {
-    log.logging.entry.reset();
-    log.logging.getEntries.reset();
-    log.logging.getEntriesStream.reset();
-    log.logging.tailEntries.reset();
-    log.logging.request.reset();
-    log.logging.loggingService.deleteLog.reset();
-    log.logging.loggingService.writeLogEntries.reset();
-    log.logging.auth.getEnv.reset();
-    log.logging.auth.getProjectId.reset();
-    log.logging.auth.getProjectId.resolves(PROJECT_ID);
+    log.logging.entry.mockReset();
+    log.logging.getEntries.mockReset();
+    log.logging.getEntriesStream.mockReset();
+    log.logging.tailEntries.mockReset();
+    log.logging.request.mockReset();
+    log.logging.loggingService.deleteLog.mockReset();
+    log.logging.loggingService.writeLogEntries.mockReset();
+    log.logging.auth.getEnv.mockReset();
+    log.logging.auth.getProjectId.mockReset();
+    log.logging.auth.getProjectId.mockResolvedValue(PROJECT_ID);
     // Required setup for Write():
     log.logging.setProjectId = () => {
       log.logging.projectId = PROJECT_ID;
@@ -84,20 +89,20 @@ describe('Log', () => {
     LOGGING = {
       options: maxRetries !== undefined ? {maxRetries: maxRetries} : undefined,
       projectId: '{{project-id}}',
-      entry: sinon.stub(),
-      setProjectId: sinon.stub(),
-      setDetectedResource: sinon.stub(),
-      getEntries: sinon.stub(),
-      getEntriesStream: sinon.stub(),
-      tailEntries: sinon.stub(),
-      request: sinon.stub(),
+      entry: jest.fn(),
+      setProjectId: jest.fn(),
+      setDetectedResource: jest.fn(),
+      getEntries: jest.fn(),
+      getEntriesStream: jest.fn(),
+      tailEntries: jest.fn(),
+      request: jest.fn(),
       loggingService: {
-        deleteLog: sinon.stub(),
-        writeLogEntries: sinon.stub(),
+        deleteLog: jest.fn(),
+        writeLogEntries: jest.fn(),
       },
       auth: {
-        getEnv: sinon.stub(),
-        getProjectId: sinon.stub(),
+        getEnv: jest.fn(),
+        getProjectId: jest.fn(),
       },
     } as {} as Logging;
 
@@ -120,26 +125,20 @@ describe('Log', () => {
 
   describe('instantiation', () => {
     it('should callbackify all the things', () => {
-      assert(
-        callbackifyFake.callbackifyAll.calledWithExactly(
-          Log,
-          sinon.match({exclude: ['entry', 'getEntriesStream']}),
-        ),
-      );
+      expect(callbackified).toBe(true);
     });
 
     it('should localize the escaped name', () => {
-      assert.strictEqual(log.name, LOG_NAME_ENCODED);
+      expect(log.name).toBe(LOG_NAME_ENCODED);
     });
 
     it('should localize removeCircular_ to default value', () => {
-      assert.strictEqual(log.removeCircular_, false);
+      expect(log.removeCircular_).toBe(false);
     });
 
     it('should localize the formatted name', () => {
       const log = new Log(LOGGING, LOG_NAME);
-      assert.strictEqual(
-        log.formattedName_,
+      expect(log.formattedName_).toBe(
         logCommon.formatLogName('{{project-id}}', LOG_NAME),
       );
     });
@@ -147,55 +146,53 @@ describe('Log', () => {
     it('should accept and localize options.removeCircular', () => {
       const options = {removeCircular: true};
       const log = new Log(LOGGING, LOG_NAME, options);
-      assert.strictEqual(log.removeCircular_, true);
+      expect(log.removeCircular_).toBe(true);
     });
 
     it('should localize the Logging instance', () => {
-      assert.strictEqual(log.logging, LOGGING);
+      expect(log.logging).toBe(LOGGING);
     });
 
     it('should localize the name', () => {
-      assert.strictEqual(log.name, LOG_NAME_FORMATTED.split('/').pop());
+      expect(log.name).toBe(LOG_NAME_FORMATTED.split('/').pop());
     });
 
     it('should default to no max entry size', () => {
-      assert.strictEqual(log.maxEntrySize, undefined);
+      expect(log.maxEntrySize).toBeUndefined();
     });
   });
 
   describe('delete', () => {
     it('should execute gax method', async () => {
       await log.delete();
-      assert(
-        log.logging.loggingService.deleteLog.calledWithExactly(
-          {
-            logName: log.formattedName_,
-          },
-          undefined,
-          undefined,
-        ),
+      expect(log.logging.loggingService.deleteLog).toHaveBeenCalledWith(
+        {
+          logName: log.formattedName_,
+        },
+        undefined,
+        undefined,
       );
     });
 
     it('should execute global callback for delete', async () => {
       log.defaultWriteDeleteCallback = () => {};
       await log.delete();
-      assert(
-        log.logging.loggingService.deleteLog.calledWithExactly(
-          {
-            logName: log.formattedName_,
-          },
-          undefined,
-          log.defaultWriteDeleteCallback,
-        ),
+      expect(log.logging.loggingService.deleteLog).toHaveBeenCalledWith(
+        {
+          logName: log.formattedName_,
+        },
+        undefined,
+        log.defaultWriteDeleteCallback,
       );
       log.defaultWriteDeleteCallback = undefined;
     });
 
     it('should accept gaxOptions', async () => {
       await log.delete({});
-      assert(
-        log.logging.loggingService.deleteLog.calledWith(sinon.match.any, {}),
+      expect(log.logging.loggingService.deleteLog).toHaveBeenCalledWith(
+        expect.anything(),
+        {},
+        undefined,
       );
     });
   });
@@ -207,17 +204,17 @@ describe('Log', () => {
       } as LogEntry;
       const data = {};
       const entryObject = {};
-      log.logging.entry.returns(entryObject);
+      log.logging.entry.mockReturnValue(entryObject);
 
       const entry = log.entry(metadata, data);
-      assert.strictEqual(entry, entryObject);
-      assert(log.logging.entry.calledWithExactly(metadata, data));
+      expect(entry).toBe(entryObject);
+      expect(log.logging.entry).toHaveBeenCalledWith(metadata, data);
     });
 
     it('should assume one regular argument means data', () => {
       const data = {};
       log.entry(data);
-      assert(log.logging.entry.calledWith(sinon.match.any, data));
+      expect(log.logging.entry).toHaveBeenCalledWith(expect.anything(), data);
     });
 
     it('should assume one httpRequest argument means metadata', () => {
@@ -225,18 +222,16 @@ describe('Log', () => {
         httpRequest: {},
       };
       log.entry(metadata);
-      assert(log.logging.entry.calledWith(metadata, {}));
+      expect(log.logging.entry).toHaveBeenCalledWith(metadata, {});
     });
   });
 
   describe('getEntries', () => {
     it('should call Logging getEntries with defaults', async () => {
       await log.getEntries();
-      assert(
-        log.logging.getEntries.calledWithExactly({
-          filter: `logName="${LOG_NAME_FORMATTED}"`,
-        }),
-      );
+      expect(log.logging.getEntries).toHaveBeenCalledWith({
+        filter: `logName="${LOG_NAME_FORMATTED}"`,
+      });
     });
 
     it('should add logName filter to user provided filter', async () => {
@@ -248,7 +243,7 @@ describe('Log', () => {
       expectedOptions.filter = `(${options.filter}) AND logName="${LOG_NAME_FORMATTED}"`;
 
       await log.getEntries(options);
-      assert(log.logging.getEntries.calledWithExactly(expectedOptions));
+      expect(log.logging.getEntries).toHaveBeenCalledWith(expectedOptions);
     });
 
     it('should not add logName filter if already present', async () => {
@@ -256,7 +251,7 @@ describe('Log', () => {
       const options = {filter};
 
       await log.getEntries(options);
-      assert(log.logging.getEntries.calledWithExactly({filter}));
+      expect(log.logging.getEntries).toHaveBeenCalledWith({filter});
     });
   });
 
@@ -264,17 +259,15 @@ describe('Log', () => {
     const FAKE_STREAM = {};
 
     beforeEach(() => {
-      log.logging.getEntriesStream.returns(FAKE_STREAM);
+      log.logging.getEntriesStream.mockReturnValue(FAKE_STREAM);
     });
 
     it('should call Logging getEntriesStream with defaults', () => {
       const stream = log.getEntriesStream();
-      assert.strictEqual(stream, FAKE_STREAM);
-      assert(
-        log.logging.getEntriesStream.calledWithExactly({
-          log: LOG_NAME_ENCODED,
-        }),
-      );
+      expect(stream).toBe(FAKE_STREAM);
+      expect(log.logging.getEntriesStream).toHaveBeenCalledWith({
+        log: LOG_NAME_ENCODED,
+      });
     });
 
     it('should allow overriding the options', () => {
@@ -284,16 +277,14 @@ describe('Log', () => {
       };
 
       const stream = log.getEntriesStream(options);
-      assert.strictEqual(stream, FAKE_STREAM);
-      assert(
-        log.logging.getEntriesStream.calledWithExactly(
-          extend(
-            {},
-            {
-              log: LOG_NAME_ENCODED,
-            },
-            options,
-          ),
+      expect(stream).toBe(FAKE_STREAM);
+      expect(log.logging.getEntriesStream).toHaveBeenCalledWith(
+        extend(
+          {},
+          {
+            log: LOG_NAME_ENCODED,
+          },
+          options,
         ),
       );
     });
@@ -303,17 +294,15 @@ describe('Log', () => {
     const FAKE_STREAM = {};
 
     beforeEach(() => {
-      log.logging.tailEntries.returns(FAKE_STREAM);
+      log.logging.tailEntries.mockReturnValue(FAKE_STREAM);
     });
 
     it('should call Logging tailEntries with defaults', () => {
       const stream = log.tailEntries();
-      assert.strictEqual(stream, FAKE_STREAM);
-      assert(
-        log.logging.tailEntries.calledWithExactly({
-          log: LOG_NAME_ENCODED,
-        }),
-      );
+      expect(stream).toBe(FAKE_STREAM);
+      expect(log.logging.tailEntries).toHaveBeenCalledWith({
+        log: LOG_NAME_ENCODED,
+      });
     });
 
     it('should allow overriding the options', () => {
@@ -323,16 +312,14 @@ describe('Log', () => {
       };
 
       const stream = log.tailEntries(options);
-      assert.strictEqual(stream, FAKE_STREAM);
-      assert(
-        log.logging.tailEntries.calledWithExactly(
-          extend(
-            {},
-            {
-              log: LOG_NAME_ENCODED,
-            },
-            options,
-          ),
+      expect(stream).toBe(FAKE_STREAM);
+      expect(log.logging.tailEntries).toHaveBeenCalledWith(
+        extend(
+          {},
+          {
+            log: LOG_NAME_ENCODED,
+          },
+          options,
         ),
       );
     });
@@ -342,23 +329,23 @@ describe('Log', () => {
     let ENTRY: Entry;
     let ENTRIES: Entry[];
     let OPTIONS: WriteOptions;
-    let truncateEntriesStub: sinon.SinonStub;
-    let decorateEntriesStub: sinon.SinonStub;
+    let truncateEntriesSpy: jest.SpyInstance;
+    let decorateEntriesSpy: jest.SpyInstance;
     let origDetectedResource: string;
 
-    before(() => {
+    beforeAll(() => {
       origDetectedResource = log.logging.detectedResource;
     });
     beforeEach(() => {
       ENTRY = {} as Entry;
       ENTRIES = [ENTRY] as Entry[];
       OPTIONS = {} as WriteOptions;
-      decorateEntriesStub = sinon.stub(log, 'decorateEntries').returnsArg(0);
-      truncateEntriesStub = sinon.stub(log, 'truncateEntries').returnsArg(0);
+      decorateEntriesSpy = jest.spyOn(log, 'decorateEntries').mockImplementation(x => x as any);
+      truncateEntriesSpy = jest.spyOn(log, 'truncateEntries').mockImplementation(x => x as any);
     });
     afterEach(() => {
-      decorateEntriesStub.restore();
-      truncateEntriesStub.restore();
+      decorateEntriesSpy.mockRestore();
+      truncateEntriesSpy.mockRestore();
       log.logging.detectedResource = origDetectedResource;
     });
 
@@ -374,22 +361,20 @@ describe('Log', () => {
       }) as WriteOptions;
 
       await log.write(ENTRIES, optionsWithResource);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWithExactly(
-          {
-            logName: log.formattedName_,
-            entries: ENTRIES,
-            partialSuccess: true,
-            resource: {
-              labels: {
-                project_id: 'fake-project',
-                region_zone: 'us-west-1',
-              },
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        {
+          logName: log.formattedName_,
+          entries: ENTRIES,
+          partialSuccess: true,
+          resource: {
+            labels: {
+              project_id: 'fake-project',
+              region_zone: 'us-west-1',
             },
           },
-          undefined,
-          undefined,
-        ),
+        },
+        undefined,
+        undefined,
       );
     });
 
@@ -399,8 +384,8 @@ describe('Log', () => {
         log.logging.projectId = fakeProject;
       };
       await log.write(ENTRIES);
-      assert(log.logging.loggingService.writeLogEntries.calledOnce);
-      assert.strictEqual(log.logging.projectId, fakeProject);
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledTimes(1);
+      expect(log.logging.projectId).toBe(fakeProject);
     });
 
     it('should cache a detected resource in Logging', async () => {
@@ -409,23 +394,21 @@ describe('Log', () => {
         log.logging.detectedResource = fakeResource;
       };
       await log.write(ENTRIES);
-      assert(log.logging.loggingService.writeLogEntries.calledOnce);
-      assert.strictEqual(log.logging.detectedResource, fakeResource);
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledTimes(1);
+      expect(log.logging.detectedResource).toBe(fakeResource);
     });
 
     it('should re-use detected resource', async () => {
       const reusableDetectedResource = 'environment-default-resource';
       log.logging.detectedResource = reusableDetectedResource;
-      log.logging.setDetectedResource = () => {
-        assert.fail;
-      };
+      log.logging.setDetectedResource = () => Promise.resolve();
       await log.write(ENTRIES);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            resource: reusableDetectedResource,
-          }),
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resource: reusableDetectedResource,
+        }),
+        undefined,
+        undefined,
       );
     });
 
@@ -445,66 +428,59 @@ describe('Log', () => {
       });
 
       await log.write(ENTRIES, optionsWithResource);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWithExactly(
-          {
-            logName: log.formattedName_,
-            entries: ENTRIES,
-            partialSuccess: true,
-            resource: EXPECTED_RESOURCE,
-          },
-          undefined,
-          undefined,
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        {
+          logName: log.formattedName_,
+          entries: ENTRIES,
+          partialSuccess: true,
+          resource: EXPECTED_RESOURCE,
+        },
+        undefined,
+        undefined,
       );
     });
 
     it('should call gax method', async () => {
       await log.write(ENTRIES, OPTIONS);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWithExactly(
-          {
-            logName: log.formattedName_,
-            entries: ENTRIES,
-            partialSuccess: true,
-            resource: FAKE_RESOURCE,
-          },
-          undefined,
-          undefined,
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        {
+          logName: log.formattedName_,
+          entries: ENTRIES,
+          partialSuccess: true,
+          resource: FAKE_RESOURCE,
+        },
+        undefined,
+        undefined,
       );
     });
 
     it('should call gax write method with global callback', async () => {
       log.defaultWriteDeleteCallback = () => {};
       await log.write(ENTRIES, OPTIONS);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWithExactly(
-          {
-            logName: log.formattedName_,
-            entries: ENTRIES,
-            partialSuccess: true,
-            resource: FAKE_RESOURCE,
-          },
-          undefined,
-          log.defaultWriteDeleteCallback,
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        {
+          logName: log.formattedName_,
+          entries: ENTRIES,
+          partialSuccess: true,
+          resource: FAKE_RESOURCE,
+        },
+        undefined,
+        log.defaultWriteDeleteCallback,
       );
       log.defaultWriteDeleteCallback = undefined;
     });
 
     it('should decorate the entries', async () => {
-      decorateEntriesStub.resetBehavior();
-      decorateEntriesStub.returns('decorated entries');
+      decorateEntriesSpy.mockImplementation(() => 'decorated entries' as any);
 
       await log.write(ENTRIES, OPTIONS);
-      assert(decorateEntriesStub.calledOnceWithExactly(ENTRIES));
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            entries: 'decorated entries',
-          }),
-        ),
+      expect(decorateEntriesSpy).toHaveBeenCalledWith(ENTRIES);
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entries: 'decorated entries',
+        }),
+        undefined,
+        undefined,
       );
     });
 
@@ -512,49 +488,59 @@ describe('Log', () => {
       const arrifiedEntries: Entry[] = [ENTRY];
 
       await log.write(ENTRY, OPTIONS);
-      assert(decorateEntriesStub.calledOnceWithExactly(arrifiedEntries));
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            entries: arrifiedEntries,
-          }),
-        ),
+      expect(decorateEntriesSpy).toHaveBeenCalledWith(arrifiedEntries);
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entries: arrifiedEntries,
+        }),
+        undefined,
+        undefined,
       );
     });
 
     it('should truncate the entries after decorating', async () => {
+      const order: string[] = [];
+      decorateEntriesSpy.mockImplementation((x) => {
+        order.push('decorate');
+        return x;
+      });
+      truncateEntriesSpy.mockImplementation((x) => {
+        order.push('truncate');
+        return x;
+      });
+
       await log.write(ENTRIES, OPTIONS);
-      assert(truncateEntriesStub.calledAfter(decorateEntriesStub));
-      assert(truncateEntriesStub.calledOnceWithExactly(ENTRIES));
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            entries: ENTRIES,
-          }),
-        ),
+      expect(order).toEqual(['decorate', 'truncate']);
+      expect(truncateEntriesSpy).toHaveBeenCalledWith(ENTRIES);
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entries: ENTRIES,
+        }),
+        undefined,
+        undefined,
       );
     });
 
     it('should not require options', async () => {
       await log.write(ENTRY);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            partialSuccess: true,
-          }),
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partialSuccess: true,
+        }),
+        undefined,
+        undefined,
       );
     });
 
     it('should pass through additional options', async () => {
       await log.write(ENTRY, {dryRun: true, partialSuccess: false});
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            dryRun: true,
-            partialSuccess: false,
-          }),
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dryRun: true,
+          partialSuccess: false,
+        }),
+        undefined,
+        undefined,
       );
     });
 
@@ -563,12 +549,12 @@ describe('Log', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (global as any).shouldSkipInstrumentationCheck = false;
       await log.write(ENTRIES, OPTIONS);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            partialSuccess: true,
-          }),
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partialSuccess: true,
+        }),
+        undefined,
+        undefined,
       );
       instrumentation.setInstrumentationStatus(true);
     });
@@ -578,38 +564,34 @@ describe('Log', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (global as any).shouldSkipInstrumentationCheck = false;
       await log.write(ENTRIES, OPTIONS);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledOnceWith(
-          sinon.match({
-            partialSuccess: true,
-          }),
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partialSuccess: true,
+        }),
+        undefined,
+        undefined,
       );
     });
 
     it('should pass through global options', async () => {
       log = createLogger(undefined, 1);
-      decorateEntriesStub = sinon.stub(log, 'decorateEntries').returnsArg(0);
+      decorateEntriesSpy = jest.spyOn(log, 'decorateEntries').mockImplementation(x => x as any);
       await log.write(ENTRIES, OPTIONS);
-      assert(
-        log.logging.loggingService.writeLogEntries.calledWith(
-          sinon.match.any,
-          {
-            maxRetries: 1,
-          },
-          sinon.match.any,
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.anything(),
+        {
+          maxRetries: 1,
+        },
+        undefined,
       );
-      log.logging.loggingService.writeLogEntries.reset();
+      log.logging.loggingService.writeLogEntries.mockReset();
       await log.write(ENTRIES, {gaxOptions: {maxRetries: 10}});
-      assert(
-        log.logging.loggingService.writeLogEntries.calledWith(
-          sinon.match.any,
-          {
-            maxRetries: 10,
-          },
-          sinon.match.any,
-        ),
+      expect(log.logging.loggingService.writeLogEntries).toHaveBeenCalledWith(
+        expect.anything(),
+        {
+          maxRetries: 10,
+        },
+        undefined,
       );
     });
   });
@@ -617,55 +599,53 @@ describe('Log', () => {
   describe('decorateEntries', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let toJSONResponse: any;
-    let logEntryStub: sinon.SinonStub;
-    let toJSONStub: sinon.SinonStub;
+    let logEntrySpy: jest.SpyInstance;
+    let toJSONSpy: jest.Mock;
 
     beforeEach(() => {
       toJSONResponse = {};
-      toJSONStub = sinon.stub().returns(toJSONResponse);
-      logEntryStub = sinon.stub(log, 'entry').returns({
-        toJSON: toJSONStub,
+      toJSONSpy = jest.fn().mockReturnValue(toJSONResponse);
+      logEntrySpy = jest.spyOn(log, 'entry').mockReturnValue({
+        toJSON: toJSONSpy,
       });
     });
 
     afterEach(() => {
-      logEntryStub.restore();
+      logEntrySpy.mockRestore();
     });
 
     it('should create an Entry object if one is not provided', () => {
       const entry = {};
       const decoratedEntries = log.decorateEntries([entry]);
-      assert.strictEqual(decoratedEntries[0], toJSONResponse);
-      assert(log.entry.calledWithExactly(entry), PROJECT_ID);
+      expect(decoratedEntries[0]).toBe(toJSONResponse);
+      expect(log.entry).toHaveBeenCalledWith(entry);
     });
 
     it('should get JSON format from Entry object', () => {
       const entry = new Entry();
       entry.toJSON = () => toJSONResponse as {} as EntryJson;
       const decoratedEntries = log.decorateEntries([entry]);
-      assert.strictEqual(decoratedEntries[0], toJSONResponse);
-      assert(log.entry.notCalled);
+      expect(decoratedEntries[0]).toBe(toJSONResponse);
+      expect(log.entry).not.toHaveBeenCalled();
     });
 
     it('should pass log.removeCircular to toJSON', () => {
       log.removeCircular_ = true;
       log.logging.projectId = PROJECT_ID;
       const entry = new Entry();
-      const localJSONStub = sinon
-        .stub(entry, 'toJSON')
-        .returns({} as EntryJson);
+      const localJSONSpy = jest.spyOn(entry, 'toJSON').mockReturnValue({} as EntryJson);
       log.decorateEntries([entry]);
-      assert(
-        localJSONStub.calledWithExactly({removeCircular: true}, PROJECT_ID),
-      );
+      expect(localJSONSpy).toHaveBeenCalledWith({removeCircular: true}, PROJECT_ID);
     });
 
     it('should throw error from serialization', () => {
       const entry = new Entry();
-      sinon.stub(entry, 'toJSON').throws('Error.');
-      assert.throws(() => {
+      jest.spyOn(entry, 'toJSON').mockImplementation(() => {
+        throw new Error('Error.');
+      });
+      expect(() => {
         log.decorateEntries([entry]);
-      }, 'Error.');
+      }).toThrow('Error.');
     });
   });
 
@@ -682,7 +662,7 @@ describe('Log', () => {
 
       log.truncateEntries(entries);
       const text = entries[0].textPayload;
-      assert.ok(text, longEntry);
+      expect(text).toBe(longEntry);
     });
 
     it('should truncate string entry if maxEntrySize hit', () => {
@@ -694,8 +674,8 @@ describe('Log', () => {
       log.truncateEntries(entries);
 
       const text: string = entries[0].textPayload!;
-      assert.ok(text.startsWith('hello world'));
-      assert.ok(text.length < maxSize + entryMetaMaxLength);
+      expect(text.startsWith('hello world')).toBe(true);
+      expect(text.length).toBeLessThan(maxSize + entryMetaMaxLength);
     });
 
     it('should not truncate string entry if less than maxEntrySize', () => {
@@ -707,7 +687,7 @@ describe('Log', () => {
       log.truncateEntries(entries);
 
       const text: string = entries[0].textPayload!;
-      assert.strictEqual(text, shortEntry);
+      expect(text).toBe(shortEntry);
     });
 
     it('should truncate message field, on object entry, if maxEntrySize hit', () => {
@@ -719,8 +699,8 @@ describe('Log', () => {
       log.truncateEntries(entries);
 
       const text: string = entries[0].jsonPayload!.fields!.message.stringValue!;
-      assert.ok(text.startsWith('hello world'));
-      assert.ok(text.length < maxSize + entryMetaMaxLength);
+      expect(text.startsWith('hello world')).toBe(true);
+      expect(text.length).toBeLessThan(maxSize + entryMetaMaxLength);
     });
 
     it('should truncate stack trace', async () => {
@@ -740,22 +720,22 @@ describe('Log', () => {
       const stack: string =
         entries[0].jsonPayload!.fields!.metadata.structValue!.fields!.stack
           .stringValue!;
-      assert.strictEqual(stack, '');
-      assert.ok(message.startsWith('hello world'));
-      assert.ok(message.length < maxSize + entryMetaMaxLength);
+      expect(stack).toBe('');
+      expect(message.startsWith('hello world')).toBe(true);
+      expect(message.length).toBeLessThan(maxSize + entryMetaMaxLength);
     });
 
     it('should not contin duplicate or illegal fields to be truncated and defaults should present', async () => {
-      assert.ok(log.jsonFieldsToTruncate.length > 1);
-      assert.ok(log.jsonFieldsToTruncate[0] === TRUNCATE_FIELD);
+      expect(log.jsonFieldsToTruncate.length).toBeGreaterThan(1);
+      expect(log.jsonFieldsToTruncate[0]).toBe(TRUNCATE_FIELD);
       const notExists = log.jsonFieldsToTruncate.filter(
         (str: string) => str === INVALID_TRUNCATE_FIELD,
       );
-      assert.strictEqual(notExists.length, 0);
+      expect(notExists.length).toBe(0);
       const existOnce = log.jsonFieldsToTruncate.filter(
         (str: string) => str === TRUNCATE_FIELD,
       );
-      assert.strictEqual(existOnce.length, 1);
+      expect(existOnce.length).toBe(1);
     });
 
     it('should truncate custom defined field', async () => {
@@ -775,28 +755,28 @@ describe('Log', () => {
       const custom: string =
         entries[0].jsonPayload!.fields!.metadata.structValue!.fields!.custom
           .stringValue!;
-      assert.ok(message.startsWith('hello world'));
-      assert.strictEqual(custom, '');
-      assert.ok(message.length < maxSize + entryMetaMaxLength);
+      expect(message.startsWith('hello world')).toBe(true);
+      expect(custom).toBe('');
+      expect(message.length).toBeLessThan(maxSize + entryMetaMaxLength);
     });
   });
 
   describe('severity shortcuts', () => {
     let ENTRY: Entry;
     let LABELS: WriteOptions;
-    let assignSeverityStub: sinon.SinonStub;
-    let writeStub: sinon.SinonStub;
+    let assignSeveritySpy: jest.SpyInstance;
+    let writeSpy: jest.SpyInstance;
 
     beforeEach(() => {
       ENTRY = {} as Entry;
       LABELS = [] as WriteOptions;
-      assignSeverityStub = sinon.stub(logCommon, 'assignSeverityToEntries');
-      writeStub = sinon.stub(log, 'write');
+      assignSeveritySpy = jest.spyOn(logCommon, 'assignSeverityToEntries');
+      writeSpy = jest.spyOn(log, 'write').mockResolvedValue([] as any);
     });
 
     afterEach(() => {
-      assignSeverityStub.restore();
-      writeStub.restore();
+      assignSeveritySpy.mockRestore();
+      writeSpy.mockRestore();
     });
 
     [
@@ -819,14 +799,14 @@ describe('Log', () => {
         it('should format the entries', async () => {
           const severity = severityMethodName.toUpperCase();
           await severityMethod(ENTRY, LABELS);
-          assert(assignSeverityStub.calledOnceWith(ENTRY, severity));
+          expect(assignSeveritySpy).toHaveBeenCalledWith(ENTRY, severity);
         });
 
         it('should pass correct arguments to write', async () => {
           const assignedEntries = [] as Entry[];
-          assignSeverityStub.returns(assignedEntries);
+          assignSeveritySpy.mockReturnValue(assignedEntries);
           await severityMethod(ENTRY, LABELS);
-          assert(writeStub.calledOnceWith(assignedEntries));
+          expect(writeSpy).toHaveBeenCalledWith(assignedEntries, LABELS);
         });
       });
     });
