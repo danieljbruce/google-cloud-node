@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it, beforeEach, before, after} from 'mocha';
 import {expect, use} from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
 
@@ -25,7 +24,7 @@ const nop = () => {};
 describe('ExponentialBackoff', () => {
   let observedDelays: number[] = [];
 
-  before(() => {
+  beforeAll(() => {
     setTimeoutHandler((callback, timeout) => {
       observedDelays.push(timeout);
       callback();
@@ -36,7 +35,7 @@ describe('ExponentialBackoff', () => {
     observedDelays = [];
   });
 
-  after(() => setTimeoutHandler(setTimeout));
+  afterAll(() => setTimeoutHandler(setTimeout));
 
   function assertDelayEquals(expected: number) {
     expect(observedDelays.shift()).to.equal(expected);

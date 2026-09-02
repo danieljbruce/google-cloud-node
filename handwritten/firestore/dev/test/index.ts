@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it, beforeEach, before, afterEach, after} from 'mocha';
 import {expect, use} from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
 import * as extend from 'extend';
 import {GoogleError, GrpcClient, Status} from 'google-gax';
-import * as sinon from 'sinon';
 
 import {google} from '../protos/firestore_v1_proto_api';
 
@@ -634,7 +632,7 @@ describe('instantiation', () => {
       databaseId: 'bar',
     });
 
-    return expect(firestore.formattedName).to.equal(
+    expect(firestore.formattedName).to.equal(
       'projects/foo/databases/bar',
     );
   });
@@ -797,14 +795,14 @@ describe('instantiation', () => {
   });
 
   describe('grpcOptions flow control window size', () => {
-    let createStubSpy: sinon.SinonSpy;
+    let createStubSpy: any;
 
     beforeEach(() => {
-      createStubSpy = sinon.spy(GrpcClient.prototype, 'createStub');
+      createStubSpy = jest.spyOn(GrpcClient.prototype, 'createStub' as any);
     });
 
     afterEach(() => {
-      createStubSpy.restore();
+      createStubSpy.mockRestore();
     });
 
     it('defaults flow_control_window to 256 KB', async () => {
@@ -818,8 +816,8 @@ describe('instantiation', () => {
         },
       );
 
-      expect(createStubSpy.calledOnce).to.be.true;
-      const clientOpts = createStubSpy.firstCall.args[1];
+      expect(createStubSpy.mock.calls.length).to.equal(1);
+      const clientOpts = createStubSpy.mock.calls[0][1];
       expect(clientOpts.grpcOptions).to.exist;
       expect(clientOpts.grpcOptions['grpc-node.flow_control_window']).to.equal(
         256 * 1024, // 256 KB
@@ -842,8 +840,8 @@ describe('instantiation', () => {
         },
       );
 
-      expect(createStubSpy.calledOnce).to.be.true;
-      const clientOpts = createStubSpy.firstCall.args[1];
+      expect(createStubSpy.mock.calls.length).to.equal(1);
+      const clientOpts = createStubSpy.mock.calls[0][1];
       expect(clientOpts.grpcOptions).to.exist;
       expect(clientOpts.grpcOptions['grpc-node.flow_control_window']).to.equal(
         512 * 1024,
@@ -1146,11 +1144,11 @@ describe('listCollections() method', () => {
 });
 
 describe('getAll() method', () => {
-  before(() => {
+  beforeAll(() => {
     setTimeoutHandler(setImmediate);
   });
 
-  after(() => setTimeoutHandler(setTimeout));
+  afterAll(() => setTimeoutHandler(setTimeout));
 
   function resultEquals(
     result: DocumentSnapshot[],
@@ -1360,7 +1358,7 @@ describe('getAll() method', () => {
 
       expect(actualErrorAttempts).to.deep.eq(expectedErrorAttempts);
     });
-  }).timeout(5000);
+  }, 5000);
 
   it('requires at least one argument', () => {
     return createInstance().then(firestore => {

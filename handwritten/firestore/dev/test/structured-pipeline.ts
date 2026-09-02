@@ -16,7 +16,6 @@
  */
 
 import {expect} from 'chai';
-import * as sinon from 'sinon';
 import {ProtoSerializable, Serializer} from '../src/serializer';
 import {google} from '../protos/firestore_v1_proto_api';
 import IPipeline = google.firestore.v1.IPipeline;
@@ -39,7 +38,7 @@ describe('StructuredPipeline', () => {
 
   it('should serialize the pipeline argument', async () => {
     const pipeline: ProtoSerializable<IPipeline> = {
-      _toProto: sinon.fake.returns({} as IPipeline),
+      _toProto: jest.fn().mockReturnValue({} as IPipeline),
     };
     const structuredPipeline = new StructuredPipeline(pipeline, {}, {});
 
@@ -50,12 +49,12 @@ describe('StructuredPipeline', () => {
       options: {},
     });
 
-    expect((pipeline._toProto as sinon.SinonSpy).calledOnce).to.be.true;
+    expect((pipeline._toProto as any).mock.calls.length).to.equal(1);
   });
 
   it('should support known options', () => {
     const pipeline: ProtoSerializable<IPipeline> = {
-      _toProto: sinon.fake.returns({} as IPipeline),
+      _toProto: jest.fn().mockReturnValue({} as IPipeline),
     };
     const structuredPipeline = new StructuredPipeline(
       pipeline,
@@ -92,12 +91,12 @@ describe('StructuredPipeline', () => {
       },
     });
 
-    expect((pipeline._toProto as sinon.SinonSpy).calledOnce).to.be.true;
+    expect((pipeline._toProto as any).mock.calls.length).to.equal(1);
   });
 
   it('should support unknown options', () => {
     const pipeline: ProtoSerializable<IPipeline> = {
-      _toProto: sinon.fake.returns({} as IPipeline),
+      _toProto: jest.fn().mockReturnValue({} as IPipeline),
     };
     const structuredPipeline = new StructuredPipeline(
       pipeline,
@@ -118,12 +117,12 @@ describe('StructuredPipeline', () => {
       },
     });
 
-    expect((pipeline._toProto as sinon.SinonSpy).calledOnce).to.be.true;
+    expect((pipeline._toProto as any).mock.calls.length).to.equal(1);
   });
 
   it('should support unknown nested options', () => {
     const pipeline: ProtoSerializable<IPipeline> = {
-      _toProto: sinon.fake.returns({} as IPipeline),
+      _toProto: jest.fn().mockReturnValue({} as IPipeline),
     };
     const structuredPipeline = new StructuredPipeline(
       pipeline,
@@ -148,12 +147,12 @@ describe('StructuredPipeline', () => {
       },
     });
 
-    expect((pipeline._toProto as sinon.SinonSpy).calledOnce).to.be.true;
+    expect((pipeline._toProto as any).mock.calls.length).to.equal(1);
   });
 
   it('should support options override', () => {
     const pipeline: ProtoSerializable<IPipeline> = {
-      _toProto: sinon.fake.returns({} as IPipeline),
+      _toProto: jest.fn().mockReturnValue({} as IPipeline),
     };
     const structuredPipeline = new StructuredPipeline(
       pipeline,
@@ -176,6 +175,6 @@ describe('StructuredPipeline', () => {
       },
     });
 
-    expect((pipeline._toProto as sinon.SinonSpy).calledOnce).to.be.true;
+    expect((pipeline._toProto as any).mock.calls.length).to.equal(1);
   });
 });

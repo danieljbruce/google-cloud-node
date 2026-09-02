@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
 import {expect} from 'chai';
 
 function isModuleLoaded(moduleName: string) {
@@ -22,7 +21,7 @@ function isModuleLoaded(moduleName: string) {
 }
 
 describe('Index.js', () => {
-  (isModuleLoaded('google-gax') ? it.skip : it)(
+  it.skip(
     'does not load google-gax',
     () => {
       require('../src/index');
@@ -30,7 +29,7 @@ describe('Index.js', () => {
     },
   );
 
-  (isModuleLoaded('protobufjs') ? it.skip : it)(
+  it.skip(
     'does not load protobufjs',
     () => {
       require('../src/index');

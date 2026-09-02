@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {it} from 'mocha';
 import {expect} from 'chai';
-import * as sinon from 'sinon';
 import {validateUserInput, Serializer} from '../src/serializer';
 import {DocumentReference, Firestore} from '../src';
-import {SinonStubbedInstance} from 'sinon';
 
 describe('validateUserInput', () => {
   it('validates the depth of nested objects and arrays - 20', () => {
@@ -253,18 +250,15 @@ describe('serializer', () => {
   const DATABASE_ROOT = `projects/${PROJECT_ID}/databases/(default)`;
 
   let serializer: Serializer | undefined;
-  let firestoreStub: SinonStubbedInstance<Firestore> | undefined;
+  let firestoreStub: any;
 
   const mockResult = {};
 
   beforeEach(() => {
-    firestoreStub = sinon.stub({
-      doc: (_: string) => {
-        return mockResult;
-      },
+    firestoreStub = {
+      doc: jest.fn().mockReturnValue(mockResult as DocumentReference),
       _settings: {},
-    } as Firestore);
-    firestoreStub.doc.returns(mockResult as DocumentReference);
+    };
 
     serializer = new Serializer(firestoreStub);
   });
@@ -276,7 +270,8 @@ describe('serializer', () => {
       }) as DocumentReference;
 
       expect(result).to.equal(mockResult);
-      expect(firestoreStub!.doc.calledOnceWith('foo/bar')).to.be.true;
+      expect(firestoreStub!.doc.mock.calls.length).to.equal(1);
+      expect(firestoreStub!.doc.mock.calls[0]).to.deep.equal(['foo/bar']);
     });
 
     it('throws when given a reference to collection', () => {

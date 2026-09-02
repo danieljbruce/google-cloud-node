@@ -18,7 +18,6 @@ import {
   QueryPartition,
 } from '@google-cloud/firestore';
 
-import {afterEach, beforeEach, describe, it} from 'mocha';
 import {expect, use} from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
 import * as extend from 'extend';

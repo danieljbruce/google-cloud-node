@@ -15,7 +15,6 @@
 import {DocumentData} from '@google-cloud/firestore';
 
 import * as duplexify from 'duplexify';
-import {describe, it, beforeEach, afterEach} from 'mocha';
 import {expect} from 'chai';
 import * as extend from 'extend';
 import {GoogleError, Status} from 'google-gax';
@@ -993,7 +992,7 @@ describe('Query watch', () => {
         );
       }
     }
-  }).timeout(5000);
+  }, 5000);
 
   it('retries with unknown code', () => {
     return watchHelper.runTest(collQueryJSON(), () => {

@@ -16,7 +16,6 @@
  */
 
 import {expect} from 'chai';
-import * as sinon from 'sinon';
 import {createInstance, stream} from '../util/helpers';
 import {google} from '../../protos/firestore_v1_proto_api';
 import {Timestamp} from '../../src';
@@ -53,7 +52,7 @@ describe('execute(Pipeline|PipelineExecuteOptions)', () => {
   });
 
   it('serializes the pipeline', async () => {
-    const spy = sinon.fake.returns(stream());
+    const spy = jest.fn().mockReturnValue(stream());
     const firestore = await createInstance({
       executePipeline: spy,
     });
@@ -79,13 +78,13 @@ describe('execute(Pipeline|PipelineExecuteOptions)', () => {
         },
       },
     };
-    expect(spy.args[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]).to.deep.equal(
+    expect(spy.mock.calls[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]).to.deep.equal(
       executePipelineRequest,
     );
   });
 
   it('serializes the pipeline options', async () => {
-    const spy = sinon.fake.returns(stream());
+    const spy = jest.fn().mockReturnValue(stream());
     const firestore = await createInstance({
       executePipeline: spy,
     });
@@ -132,13 +131,13 @@ describe('execute(Pipeline|PipelineExecuteOptions)', () => {
         },
       },
     };
-    expect(spy.args[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]).to.deep.equal(
+    expect(spy.mock.calls[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]).to.deep.equal(
       executePipelineRequest,
     );
   });
 
   it('serializes the pipeline raw options', async () => {
-    const spy = sinon.fake.returns(stream());
+    const spy = jest.fn().mockReturnValue(stream());
     const firestore = await createInstance({
       executePipeline: spy,
     });
@@ -175,7 +174,7 @@ describe('execute(Pipeline|PipelineExecuteOptions)', () => {
         },
       },
     };
-    expect(spy.args[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]).to.deep.equal(
+    expect(spy.mock.calls[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]).to.deep.equal(
       executePipelineRequest,
     );
   });
