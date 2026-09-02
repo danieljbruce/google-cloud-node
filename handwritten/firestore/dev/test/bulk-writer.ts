@@ -14,7 +14,6 @@
 
 import {BulkWriterOptions, DocumentData} from '@google-cloud/firestore';
 
-import {afterEach, beforeEach, describe, it} from 'mocha';
 import {expect} from 'chai';
 import {GoogleError, Status} from 'google-gax';
 
@@ -1347,7 +1346,7 @@ describe.skip('BulkWriter', () => {
     await bulkWriter.close();
   });
 
-  describe('if bulkCommit() fails', async () => {
+  describe('if bulkCommit() fails', () => {
     function instantiateInstance(): Promise<BulkWriter> {
       const overrides: ApiOverride = {
         batchWrite: () => {

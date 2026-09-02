@@ -17,46 +17,12 @@
 
 /* eslint-disable no-restricted-properties */
 
-import {describe, it} from 'mocha';
-
-// Helper to make a type itselt (T) and optionally union that with (T['skip'])
-type tOrSkipT<T> = T | (T extends {skip: unknown} ? T['skip'] : T);
-
-declare module 'mocha' {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
-  interface TestFunction {
-    skipEnterprise: tOrSkipT<TestFunction>;
-    skipEmulator: tOrSkipT<TestFunction>;
-    skipClassic: tOrSkipT<TestFunction>;
-  }
-
-  interface PendingTestFunction {
-    skipEnterprise: tOrSkipT<PendingTestFunction>;
-    skipEmulator: tOrSkipT<PendingTestFunction>;
-    skipClassic: tOrSkipT<PendingTestFunction>;
-  }
-
-  interface SuiteFunction {
-    skipEnterprise: tOrSkipT<SuiteFunction>;
-    skipEmulator: tOrSkipT<SuiteFunction>;
-    skipClassic: tOrSkipT<SuiteFunction>;
-  }
-
-  interface PendingSuiteFunction {
-    skipEnterprise: tOrSkipT<PendingSuiteFunction>;
-    skipEmulator: tOrSkipT<PendingSuiteFunction>;
-    skipClassic: tOrSkipT<PendingSuiteFunction>;
-  }
-}
-
 // Define helpers
-export function mixinSkipImplementations(obj: unknown): void {
+export function mixinSkipImplementations(obj: any): void {
+  if (!obj) return;
   Object.defineProperty(obj, 'skipEnterprise', {
     get(): unknown {
-      if (this === it.skip) {
-        return this;
-      }
-      if (this === describe.skip) {
+      if (this === obj.skip) {
         return this;
       }
       if (process.env.RUN_ENTERPRISE_TESTS) {
@@ -68,10 +34,7 @@ export function mixinSkipImplementations(obj: unknown): void {
 
   Object.defineProperty(obj, 'skipEmulator', {
     get(): unknown {
-      if (this === it.skip) {
-        return this;
-      }
-      if (this === describe.skip) {
+      if (this === obj.skip) {
         return this;
       }
       if (process.env.FIRESTORE_EMULATOR_HOST) {
@@ -83,10 +46,7 @@ export function mixinSkipImplementations(obj: unknown): void {
 
   Object.defineProperty(obj, 'skipClassic', {
     get(): unknown {
-      if (this === it.skip) {
-        return this;
-      }
-      if (this === describe.skip) {
+      if (this === obj.skip) {
         return this;
       }
       if (!process.env.RUN_ENTERPRISE_TESTS) {
@@ -97,7 +57,7 @@ export function mixinSkipImplementations(obj: unknown): void {
   });
 }
 
-// TODO add mocha functions that must be extended
-[global.it, global.describe, it, it.skip, describe, describe.skip].forEach(
-  mixinSkipImplementations,
-);
+// TODO add functions that must be extended
+const g = global as any;
+const targets = [g.it, g.describe, g.it?.skip, g.describe?.skip].filter(Boolean);
+targets.forEach(mixinSkipImplementations);

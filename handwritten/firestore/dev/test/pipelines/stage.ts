@@ -16,7 +16,6 @@
  */
 
 import {expect} from 'chai';
-import * as sinon from 'sinon';
 import {createInstance, stream} from '../util/helpers';
 import {google} from '../../protos/firestore_v1_proto_api';
 import {Pipelines, Firestore} from '../../src';
@@ -339,7 +338,7 @@ describe('stage option serialization', () => {
 
   testDefinitions.forEach(testDefinition => {
     it(testDefinition.name, async () => {
-      const spy = sinon.fake.returns(stream());
+      const spy = jest.fn().mockReturnValue(stream());
       const firestore = await createInstance({
         executePipeline: spy,
       });
@@ -351,7 +350,7 @@ describe('stage option serialization', () => {
         : expectedSerializedOptions;
 
       expect(
-        spy.args[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]['structuredPipeline'][
+        spy.mock.calls[FIRST_CALL][EXECUTE_PIPELINE_REQUEST]['structuredPipeline'][
           'pipeline'
         ]['stages'][testDefinition.stageIndex ?? 0]['options'],
       ).to.deep.equal(expectedOptions);
@@ -377,7 +376,7 @@ describe('stage _validateUserData', () => {
     );
 
     // Should not throw when ignoreUndefinedProperties is true
-    const spy = sinon.fake.returns(stream());
+    const spy = jest.fn().mockReturnValue(stream());
     const firestoreWithIgnore = await createInstance(
       {
         executePipeline: spy,

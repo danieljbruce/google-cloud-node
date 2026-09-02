@@ -14,6 +14,10 @@
     "declaration": true,
     "declarationDir": "build/types",
     "stripInternal": false,
+    "types": [
+      "jest",
+      "node"
+    ]
   },
   "include": [
     "dev/src/*.d.ts",
@@ -24,7 +28,6 @@
     "dev/protos/*.json",
     "dev/test/*.ts",
     "dev/test/**/*.ts",
-    "dev/system-test/*.ts",
     "dev/conformance/*.ts",
     "types/*.d.ts"
   ]

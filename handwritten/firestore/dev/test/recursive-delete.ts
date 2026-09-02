@@ -11,11 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import {afterEach, beforeEach, describe, it} from 'mocha';
 import {fail} from 'assert';
 import {expect} from 'chai';
 import {GoogleError, Status} from 'google-gax';
-import sinon = require('sinon');
 
 import {google} from '../protos/firestore_v1_proto_api';
 
@@ -626,7 +624,7 @@ describe('recursiveDelete() method:', () => {
         runQuery: () => stream(),
       };
       firestore = await createInstance(overrides);
-      const spy = sinon.spy(firestore, 'bulkWriter');
+      const spy = jest.spyOn(firestore, 'bulkWriter');
 
       await firestore.recursiveDelete(firestore.collection('foo'));
       await firestore.recursiveDelete(firestore.collection('boo'));
@@ -634,7 +632,7 @@ describe('recursiveDelete() method:', () => {
 
       // Only the first recursiveDelete() call should have called the
       // constructor. Subsequent calls should have used the same bulkWriter.
-      expect(spy.callCount).to.equal(1);
+      expect(spy.mock.calls.length).to.equal(1);
     });
 
     it('throws error if BulkWriter instance is closed', async () => {

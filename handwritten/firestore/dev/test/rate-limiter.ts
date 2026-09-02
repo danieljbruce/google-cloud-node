@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it, beforeEach} from 'mocha';
 import {expect} from 'chai';
 
 import {RateLimiter} from '../src/rate-limiter';

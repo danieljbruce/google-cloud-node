@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
 import {expect} from 'chai';
 import {isPlainObject, tryGetPreferRestEnvironmentVariable} from '../src/util';
-import * as sinon from 'sinon';
 
 describe('isPlainObject()', () => {
   it('allows Object.create()', () => {
@@ -36,19 +34,17 @@ describe('isPlainObject()', () => {
   });
 
   describe('tryGetPreferRestEnvironmentVariable', () => {
-    const sandbox = sinon.createSandbox();
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let warnSpy: any;
     let originalValue: string | undefined;
 
     beforeEach(() => {
-      warnSpy = sandbox.spy(console, 'warn');
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       originalValue = process.env.FIRESTORE_PREFER_REST;
     });
 
     afterEach(() => {
-      sandbox.restore();
+      warnSpy.mockRestore();
       if (originalValue === undefined) {
         delete process.env.FIRESTORE_PREFER_REST;
       } else {
@@ -89,14 +85,14 @@ describe('isPlainObject()', () => {
     it('returns undefined when the environment variable is not set', async () => {
       delete process.env.FIRESTORE_PREFER_REST;
       expect(tryGetPreferRestEnvironmentVariable()).to.be.undefined;
-      expect(warnSpy.calledOnce).to.be.false;
+      expect(warnSpy.mock.calls.length).to.equal(0);
     });
 
     it('returns undefined and warns when the environment variable is set to an unsupported value', async () => {
       process.env.FIRESTORE_PREFER_REST = 'enable';
       expect(tryGetPreferRestEnvironmentVariable()).to.be.undefined;
-      expect(warnSpy.calledOnce).to.be.true;
-      expect(warnSpy.getCall(0).args[0]).to.match(
+      expect(warnSpy.mock.calls.length).to.equal(1);
+      expect(warnSpy.mock.calls[0][0]).to.match(
         /unsupported value.*FIRESTORE_PREFER_REST/,
       );
     });

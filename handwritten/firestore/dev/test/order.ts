@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it, beforeEach, afterEach} from 'mocha';
 import {expect} from 'chai';
 
 import {google} from '../protos/firestore_v1_proto_api';
@@ -496,5 +495,5 @@ describe('CompareUtf8Strings', () => {
       );
       throw new Error('Test failed');
     }
-  }).timeout(30000);
+  }, 30000);
 });
