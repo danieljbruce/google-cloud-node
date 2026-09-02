@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
-import {Histogram} from '../src/histogram.js';
+import {Histogram} from '../src/histogram';
 
 describe('Histogram', () => {
   let histogram: Histogram;
@@ -29,23 +27,23 @@ describe('Histogram', () => {
   describe('initialization', () => {
     it('should set default min/max values', () => {
       histogram = new Histogram();
-      assert.strictEqual(histogram.options.min, 0);
-      assert.strictEqual(histogram.options.max, Number.MAX_SAFE_INTEGER);
+      expect(histogram.options.min).toBe(0);
+      expect(histogram.options.max).toBe(Number.MAX_SAFE_INTEGER);
     });
 
     it('should accept user defined min/max values', () => {
       histogram = new Histogram({min: 5, max: 10});
 
-      assert.strictEqual(histogram.options.min, 5);
-      assert.strictEqual(histogram.options.max, 10);
+      expect(histogram.options.min).toBe(5);
+      expect(histogram.options.max).toBe(10);
     });
 
     it('should create a data map', () => {
-      assert(histogram.data instanceof Map);
+      expect(histogram.data instanceof Map).toBe(true);
     });
 
     it('should set the initial length to 0', () => {
-      assert.strictEqual(histogram.length, 0);
+      expect(histogram.length).toBe(0);
     });
   });
 
@@ -54,13 +52,13 @@ describe('Histogram', () => {
       histogram.data.set(MIN_VALUE, 1);
       histogram.add(MIN_VALUE);
 
-      assert.strictEqual(histogram.data.get(MIN_VALUE), 2);
+      expect(histogram.data.get(MIN_VALUE)).toBe(2);
     });
 
     it('should initialize a value if absent', () => {
       histogram.add(MIN_VALUE);
 
-      assert.strictEqual(histogram.data.get(MIN_VALUE), 1);
+      expect(histogram.data.get(MIN_VALUE)).toBe(1);
     });
 
     it('should adjust the length for each item added', () => {
@@ -68,7 +66,7 @@ describe('Histogram', () => {
       histogram.add(MIN_VALUE);
       histogram.add(MIN_VALUE * 2);
 
-      assert.strictEqual(histogram.length, 3);
+      expect(histogram.length).toBe(3);
     });
 
     it('should cap the value', () => {
@@ -76,8 +74,8 @@ describe('Histogram', () => {
 
       histogram.add(outOfBounds);
 
-      assert.strictEqual(histogram.data.get(outOfBounds), undefined);
-      assert.strictEqual(histogram.data.get(MAX_VALUE), 1);
+      expect(histogram.data.get(outOfBounds)).toBeUndefined();
+      expect(histogram.data.get(MAX_VALUE)).toBe(1);
     });
 
     it('should apply a minimum', () => {
@@ -85,8 +83,8 @@ describe('Histogram', () => {
 
       histogram.add(outOfBounds);
 
-      assert.strictEqual(histogram.data.get(outOfBounds), undefined);
-      assert.strictEqual(histogram.data.get(MIN_VALUE), 1);
+      expect(histogram.data.get(outOfBounds)).toBeUndefined();
+      expect(histogram.data.get(MIN_VALUE)).toBe(1);
     });
   });
 
@@ -106,14 +104,14 @@ describe('Histogram', () => {
         histogram.add(value * 1000);
       });
 
-      assert.strictEqual(histogram.percentile(100), 200000);
-      assert.strictEqual(histogram.percentile(101), 200000);
-      assert.strictEqual(histogram.percentile(99), 199000);
-      assert.strictEqual(histogram.percentile(1), 101000);
+      expect(histogram.percentile(100)).toBe(200000);
+      expect(histogram.percentile(101)).toBe(200000);
+      expect(histogram.percentile(99)).toBe(199000);
+      expect(histogram.percentile(1)).toBe(101000);
     });
 
     it('should return the min value if unable to determine', () => {
-      assert.strictEqual(histogram.percentile(99), MIN_VALUE);
+      expect(histogram.percentile(99)).toBe(MIN_VALUE);
     });
   });
 });

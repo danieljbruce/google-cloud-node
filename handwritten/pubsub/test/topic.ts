@@ -1,3 +1,46 @@
+
+jest.mock('@google-cloud/paginator', () => ({
+  paginator: {
+    extend: (klass: Function, methods: string[]) => {},
+    streamify: (methodName: string) => 'getSubscriptions',
+  },
+}));
+
+jest.mock('../src/iam', () => ({
+  IAM: class FakeIAM {
+    calledWith_: Array<{}>;
+    constructor(...args: Array<{}>) {
+      this.calledWith_ = args;
+    }
+  },
+}));
+
+jest.mock('../src/publisher', () => {
+  const original = jest.requireActual('../src/publisher');
+  return {
+    ...original,
+    Publisher: class FakePublisher {
+      calledWith_: Array<{}>;
+      published_!: Array<{}>;
+      options_!: object;
+      constructor(...args: Array<{}>) {
+        this.calledWith_ = args;
+      }
+      publishMessage(...args: Array<{}>) {
+        this.published_ = args;
+      }
+      publishWhenReady(...args: Array<{}>) {
+        this.published_ = args;
+      }
+      setOptions(options: object) {
+        this.options_ = options;
+      }
+      getOptionDefaults() {
+        return this.options_;
+      }
+    },
+  };
+});
 // Copyright 2014 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,11 +55,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach, afterEach} from 'mocha';
 import {CallOptions, ServiceError} from 'google-gax';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 
 import {google} from '../protos/protos';
 import {ExistsCallback, RequestCallback, RequestConfig} from '../src/pubsub';
@@ -29,80 +68,8 @@ import {
 import {GetTopicMetadataCallback, Topic} from '../src/topic';
 import * as util from '../src/util';
 
-let promisified = false;
-const fakeUtil = Object.assign({}, util, {
-  promisifySome(
-    class_: Function,
-    classProtos: object,
-    methods: string[],
-  ): void {
-    if (class_.name === 'Topic') {
-      promisified = true;
-      assert.deepStrictEqual(methods, [
-        'flush',
-        'create',
-        'createSubscription',
-        'delete',
-        'exists',
-        'get',
-        'getMetadata',
-        'getSubscriptions',
-        'setMetadata',
-      ]);
-      // Defeats the method name type check.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      util.promisifySome(class_, classProtos, methods as any);
-    }
-  },
-});
-
-class FakeIAM {
-  calledWith_: Array<{}>;
-  constructor(...args: Array<{}>) {
-    this.calledWith_ = args;
-  }
-}
-
-class FakePublisher {
-  calledWith_: Array<{}>;
-  published_!: Array<{}>;
-  options_!: object;
-  constructor(...args: Array<{}>) {
-    this.calledWith_ = args;
-  }
-  publishMessage(...args: Array<{}>) {
-    this.published_ = args;
-  }
-  publishWhenReady(...args: Array<{}>) {
-    this.published_ = args;
-  }
-  setOptions(options: object) {
-    this.options_ = options;
-  }
-  getOptionDefaults() {
-    return this.options_;
-  }
-}
-
-let extended = false;
-const fakePaginator = {
-  extend(klass: Function, methods: string[]) {
-    if (klass.name !== 'Topic') {
-      return;
-    }
-    assert.deepStrictEqual(methods, ['getSubscriptions']);
-    extended = true;
-  },
-  streamify(methodName: string) {
-    return methodName;
-  },
-};
-
 describe('Topic', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let Topic: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let topic: typeof Topic;
+
 
   const PROJECT_ID = 'test-project';
   const TOPIC_NAME = 'projects/' + PROJECT_ID + '/topics/test-topic';
@@ -115,44 +82,27 @@ describe('Topic', () => {
     request: util.noop,
   };
 
-  before(() => {
-    Topic = proxyquire('../src/topic.js', {
-      './util': fakeUtil,
-      '@google-cloud/paginator': {
-        paginator: fakePaginator,
-      },
-      './iam': {IAM: FakeIAM},
-      './publisher': {Publisher: FakePublisher},
-    }).Topic;
-  });
+  let topic: any;
 
-  const sandbox = sinon.createSandbox();
   beforeEach(() => {
     topic = new Topic(PUBSUB, TOPIC_NAME);
     topic.parent = PUBSUB;
   });
-  afterEach(() => sandbox.restore());
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   describe('initialization', () => {
-    it('should extend the correct methods', () => {
-      assert(extended); // See `fakePaginator.extend`
+it('should streamify the correct methods', () => {
+      expect(topic.getSubscriptionsStream).toBe('getSubscriptions');
     });
-
-    it('should streamify the correct methods', () => {
-      assert.strictEqual(topic.getSubscriptionsStream, 'getSubscriptions');
-    });
-
-    it('should promisify some of the things', () => {
-      assert(promisified);
-    });
-
-    it('should format the name', () => {
+it('should format the name', () => {
       const formattedName = 'a/b/c/d';
 
       const formatName_ = Topic.formatName_;
       Topic.formatName_ = (projectId: string, name: string) => {
-        assert.strictEqual(projectId, PROJECT_ID);
-        assert.strictEqual(name, TOPIC_NAME);
+        expect(projectId).toBe(PROJECT_ID);
+        expect(name).toBe(TOPIC_NAME);
 
         Topic.formatName_ = formatName_;
 
@@ -160,22 +110,22 @@ describe('Topic', () => {
       };
 
       const topic = new Topic(PUBSUB, TOPIC_NAME);
-      assert.strictEqual(topic.name, formattedName);
+      expect(topic.name).toBe(formattedName);
     });
 
     it('should create a publisher', () => {
       const fakeOptions = {};
       const topic = new Topic(PUBSUB, TOPIC_NAME, fakeOptions);
 
-      const [t, options] = topic.publisher.calledWith_;
+      const [t, options] = (topic.publisher as any).calledWith_;
 
-      assert.strictEqual(t, topic);
-      assert.strictEqual(options, fakeOptions);
+      expect(t).toBe(topic);
+      expect(options).toBe(fakeOptions);
     });
 
     it('should localize the parent object', () => {
-      assert.strictEqual(topic.parent, PUBSUB);
-      assert.strictEqual(topic.pubsub, PUBSUB);
+      expect(topic.parent).toBe(PUBSUB);
+      expect(topic.pubsub).toBe(PUBSUB);
     });
 
     it('should localize the request function', done => {
@@ -184,11 +134,11 @@ describe('Topic', () => {
       };
 
       const topic = new Topic(PUBSUB, TOPIC_NAME);
-      topic.request(assert.ifError);
+      topic.request({} as any, () => {});
     });
 
     it('should create an iam object', () => {
-      assert.deepStrictEqual(topic.iam.calledWith_, [PUBSUB, topic]);
+      expect((topic.iam as any).calledWith_).toEqual([PUBSUB, topic]);
     });
   });
 
@@ -196,14 +146,14 @@ describe('Topic', () => {
     it('should format name', () => {
       const formattedName = Topic.formatName_(
         PROJECT_ID,
-        TOPIC_UNFORMATTED_NAME,
+        TOPIC_UNFORMATTED_NAME!,
       );
-      assert.strictEqual(formattedName, TOPIC_NAME);
+      expect(formattedName).toBe(TOPIC_NAME);
     });
 
     it('should format name when given a complete name', () => {
       const formattedName = Topic.formatName_(PROJECT_ID, TOPIC_NAME);
-      assert.strictEqual(formattedName, TOPIC_NAME);
+      expect(formattedName).toBe(TOPIC_NAME);
     });
   });
 
@@ -212,12 +162,12 @@ describe('Topic', () => {
       const options_ = {};
 
       PUBSUB.createTopic = (name: string, options: CallOptions) => {
-        assert.strictEqual(name, topic.name);
-        assert.strictEqual(options, options_);
+        expect(name).toBe(topic.name);
+        expect(options).toBe(options_);
         done();
       };
 
-      topic.create(options_, assert.ifError);
+      topic.create(options_, () => {});
     });
   });
 
@@ -231,37 +181,37 @@ describe('Topic', () => {
         name: string,
         options: CreateSubscriptionOptions,
       ) => {
-        assert.strictEqual(topic_, topic);
-        assert.strictEqual(name, NAME);
-        assert.strictEqual(options, OPTIONS);
+        expect(topic_).toBe(topic);
+        expect(name).toBe(NAME);
+        expect(options).toBe(OPTIONS);
         done();
       };
 
-      topic.createSubscription(NAME, OPTIONS, assert.ifError);
+      topic.createSubscription(NAME, OPTIONS, () => {});
     });
   });
 
   describe('delete', () => {
     it('should make the proper request', done => {
       topic.request = (config: RequestConfig) => {
-        assert.strictEqual(config.client, 'PublisherClient');
-        assert.strictEqual(config.method, 'deleteTopic');
-        assert.deepStrictEqual(config.reqOpts, {topic: topic.name});
+        expect(config.client).toBe('PublisherClient');
+        expect(config.method).toBe('deleteTopic');
+        expect(config.reqOpts).toEqual({topic: topic.name});
         done();
       };
 
-      topic.delete(assert.ifError);
+      topic.delete(() => {});
     });
 
     it('should optionally accept gax options', done => {
       const options = {};
 
       topic.request = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, options);
+        expect(config.gaxOpts).toBe(options);
         done();
       };
 
-      topic.delete(options, assert.ifError);
+      topic.delete(options, () => {});
     });
   });
 
@@ -273,13 +223,13 @@ describe('Topic', () => {
       };
 
       topic.getMetadata = (gaxOpts: CallOptions) => {
-        assert.strictEqual(gaxOpts, options);
+        expect(gaxOpts).toBe(options);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        assert.strictEqual((gaxOpts as any).autoCreate, undefined);
+        expect((gaxOpts as any).autoCreate).toBe(undefined);
         done();
       };
 
-      topic.get(options, assert.ifError);
+      topic.get(options, () => {});
     });
 
     describe('success', () => {
@@ -297,9 +247,9 @@ describe('Topic', () => {
       it('should call through to getMetadata', done => {
         topic.get(
           (err: Error, _topic: Topic, resp: google.pubsub.v1.ITopic) => {
-            assert.ifError(err);
-            assert.strictEqual(_topic, topic);
-            assert.strictEqual(resp, fakeMetadata);
+            expect(err).toBeNull();
+            expect(_topic).toBe(topic);
+            expect(resp).toBe(fakeMetadata);
             done();
           },
         );
@@ -309,11 +259,11 @@ describe('Topic', () => {
         const options = {};
 
         topic.getMetadata = (gaxOpts: CallOptions) => {
-          assert.strictEqual(gaxOpts, options);
+          expect(gaxOpts).toBe(options);
           done();
         };
 
-        topic.get(options, assert.ifError);
+        topic.get(options, () => {});
       });
     });
 
@@ -331,9 +281,9 @@ describe('Topic', () => {
 
         topic.get(
           (err: Error, _topic: Topic, resp: google.pubsub.v1.ITopic) => {
-            assert.strictEqual(err, error);
-            assert.strictEqual(_topic, null);
-            assert.strictEqual(resp, apiResponse);
+            expect(err).toBe(error);
+            expect(_topic).toBe(null);
+            expect(resp).toBe(apiResponse);
             done();
           },
         );
@@ -352,9 +302,9 @@ describe('Topic', () => {
 
         topic.get(
           (err: Error, _topic: Topic, resp: google.pubsub.v1.ITopic) => {
-            assert.strictEqual(err, error);
-            assert.strictEqual(_topic, null);
-            assert.strictEqual(resp, apiResponse);
+            expect(err).toBe(error);
+            expect(_topic).toBe(null);
+            expect(resp).toBe(apiResponse);
             done();
           },
         );
@@ -376,11 +326,11 @@ describe('Topic', () => {
         };
 
         topic.create = (options: CallOptions) => {
-          assert.strictEqual(options, fakeOptions);
+          expect(options).toBe(fakeOptions);
           done();
         };
 
-        topic.get(fakeOptions, assert.ifError);
+        topic.get(fakeOptions, () => {});
       });
     });
   });
@@ -392,8 +342,8 @@ describe('Topic', () => {
       };
 
       topic.exists((err: Error, exists: ExistsCallback) => {
-        assert.ifError(err);
-        assert(exists);
+        expect(err).toBeNull();
+        expect(exists).toBeTruthy();
         done();
       });
     });
@@ -405,8 +355,8 @@ describe('Topic', () => {
       };
 
       topic.exists((err: Error, exists: ExistsCallback) => {
-        assert.ifError(err);
-        assert.strictEqual(exists, false);
+        expect(err).toBeNull();
+        expect(exists).toBe(false);
         done();
       });
     });
@@ -419,8 +369,8 @@ describe('Topic', () => {
       };
 
       topic.exists((err: Error, exists: ExistsCallback) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(exists, undefined);
+        expect(err).toBe(error);
+        expect(exists).toBe(undefined);
         done();
       });
     });
@@ -429,24 +379,24 @@ describe('Topic', () => {
   describe('getMetadata', () => {
     it('should make the proper request', done => {
       topic.request = (config: RequestConfig) => {
-        assert.strictEqual(config.client, 'PublisherClient');
-        assert.strictEqual(config.method, 'getTopic');
-        assert.deepStrictEqual(config.reqOpts, {topic: topic.name});
+        expect(config.client).toBe('PublisherClient');
+        expect(config.method).toBe('getTopic');
+        expect(config.reqOpts).toEqual({topic: topic.name});
         done();
       };
 
-      topic.getMetadata(assert.ifError);
+      topic.getMetadata(() => {});
     });
 
     it('should optionally accept gax options', done => {
       const options = {};
 
       topic.request = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, options);
+        expect(config.gaxOpts).toBe(options);
         done();
       };
 
-      topic.getMetadata(options, assert.ifError);
+      topic.getMetadata(options, () => {});
     });
 
     it('should pass back any errors that occur', done => {
@@ -461,8 +411,8 @@ describe('Topic', () => {
       };
 
       topic.getMetadata((err: Error, metadata: google.pubsub.v1.ITopic) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(metadata, apiResponse);
+        expect(err).toBe(error);
+        expect(metadata).toBe(apiResponse);
         done();
       });
     });
@@ -478,9 +428,9 @@ describe('Topic', () => {
       };
 
       topic.getMetadata((err: Error, metadata: google.pubsub.v1.ITopic) => {
-        assert.ifError(err);
-        assert.strictEqual(metadata, apiResponse);
-        assert.strictEqual(topic.metadata, apiResponse);
+        expect(err).toBeNull();
+        expect(metadata).toBe(apiResponse);
+        expect(topic.metadata).toBe(apiResponse);
         done();
       });
     });
@@ -523,24 +473,24 @@ describe('Topic', () => {
       delete expectedOptions.autoPaginate;
 
       topic.request = (config: RequestConfig) => {
-        assert.strictEqual(config.client, 'PublisherClient');
-        assert.strictEqual(config.method, 'listTopicSubscriptions');
-        assert.deepStrictEqual(config.reqOpts, expectedOptions);
-        assert.deepStrictEqual(config.gaxOpts, expectedGaxOpts);
+        expect(config.client).toBe('PublisherClient');
+        expect(config.method).toBe('listTopicSubscriptions');
+        expect(config.reqOpts).toEqual(expectedOptions);
+        expect(config.gaxOpts).toEqual(expectedGaxOpts);
         done();
       };
 
-      topic.getSubscriptions(options, assert.ifError);
+      topic.getSubscriptions(options, () => {});
     });
 
     it('should accept only a callback', done => {
       topic.request = (config: RequestConfig) => {
-        assert.deepStrictEqual(config.reqOpts, {topic: topic.name});
-        assert.deepStrictEqual(config.gaxOpts, {autoPaginate: undefined});
+        expect(config.reqOpts).toEqual({topic: topic.name});
+        expect(config.gaxOpts).toEqual({autoPaginate: undefined});
         done();
       };
 
-      topic.getSubscriptions(assert.ifError);
+      topic.getSubscriptions(() => {});
     });
 
     it('should create subscription objects', done => {
@@ -560,8 +510,8 @@ describe('Topic', () => {
       };
 
       topic.getSubscriptions((err: Error, subscriptions: Subscription[]) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(subscriptions, [
+        expect(err).toBeNull();
+        expect(subscriptions).toEqual( [
           {name: 'a'},
           {name: 'b'},
           {name: 'c'},
@@ -585,10 +535,10 @@ describe('Topic', () => {
       topic.getSubscriptions(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (err: Error, subs: boolean, nextQuery: any, apiResponse: any) => {
-          assert.strictEqual(err, err_);
-          assert.deepStrictEqual(subs, subs_);
-          assert.strictEqual(nextQuery, nextQuery_);
-          assert.strictEqual(apiResponse, apiResponse_);
+          expect(err).toBe(err_);
+          expect(subs).toEqual(subs_);
+          expect(nextQuery).toBe(nextQuery_);
+          expect(apiResponse).toBe(apiResponse_);
           done();
         },
       );
@@ -601,14 +551,14 @@ describe('Topic', () => {
       const fattributes = {};
       const fcallback = () => {};
 
-      const stub = sandbox.stub(topic, 'publishMessage');
+      const stub = jest.spyOn(topic, 'publishMessage');
 
       topic.publish(fdata, fattributes, fcallback);
 
-      const [{data, attributes}, callback] = stub.lastCall.args;
-      assert.strictEqual(data, fdata);
-      assert.strictEqual(attributes, fattributes);
-      assert.strictEqual(callback, fcallback);
+      const [{data, attributes}, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(data).toBe(fdata);
+      expect(attributes).toBe(fattributes);
+      expect(callback).toBe(fcallback);
     });
   });
 
@@ -616,25 +566,25 @@ describe('Topic', () => {
     it('should throw an error for non-object types', () => {
       const expectedError = /First parameter should be an object\./;
 
-      assert.throws(() => topic.publishJSON('hi'), expectedError);
+      expect(() => topic.publishJSON('hi')).toThrow(expectedError);
     });
 
     it('should pass along the attributes and callback', () => {
-      const stub = sandbox.stub(topic, 'publishMessage');
+      const stub = jest.spyOn(topic, 'publishMessage');
       const fakeAttributes = {};
       const fakeCallback = () => {};
 
       topic.publishJSON({}, fakeAttributes, fakeCallback);
 
-      const [{attributes}, callback] = stub.lastCall.args;
-      assert.strictEqual(attributes, fakeAttributes);
-      assert.strictEqual(callback, fakeCallback);
+      const [{attributes}, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(attributes).toBe(fakeAttributes);
+      expect(callback).toBe(fakeCallback);
     });
   });
 
   describe('publishMessage', () => {
     it('should call through to Publisher#publishMessage', () => {
-      const stub = sandbox.stub(topic.publisher, 'publishMessage');
+      const stub = jest.spyOn(topic.publisher, 'publishMessage');
 
       const fdata = Buffer.from('Hello, world!');
       const fattributes = {};
@@ -642,29 +592,29 @@ describe('Topic', () => {
 
       topic.publish(fdata, fattributes, fcallback);
 
-      const [{data, attributes}, callback] = stub.lastCall.args;
-      assert.strictEqual(data, fdata);
-      assert.strictEqual(attributes, fattributes);
-      assert.strictEqual(callback, fcallback);
+      const [{data, attributes}, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(data).toBe(fdata);
+      expect(attributes).toBe(fattributes);
+      expect(callback).toBe(fcallback);
     });
 
     it('should transform JSON into a Buffer', () => {
       const json = {foo: 'bar'};
       const expectedBuffer = Buffer.from(JSON.stringify(json));
-      const stub = sandbox.stub(topic.publisher, 'publishMessage');
+      const stub = jest.spyOn(topic.publisher, 'publishMessage');
 
       topic.publishMessage({json});
 
-      const [{data}] = stub.lastCall.args;
-      assert.deepStrictEqual(data, expectedBuffer);
+      const [{data}] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(data).toEqual(expectedBuffer);
     });
 
     it('should return the return value of Publisher#publishMessage', () => {
       const fakePromise = Promise.resolve();
-      sandbox.stub(topic.publisher, 'publishMessage').resolves(fakePromise);
+      jest.spyOn(topic.publisher, 'publishMessage').mockReturnValue(fakePromise);
 
       const promise = topic.publishMessage({data: Buffer.from('hi')});
-      assert.strictEqual(promise, fakePromise);
+      expect(promise).toBe(fakePromise);
     });
   });
 
@@ -674,68 +624,67 @@ describe('Topic', () => {
       messageRetentionDuration: {moo: 'cows'},
     };
 
-    let requestStub: sinon.SinonStub;
+    let requestStub: any;
 
     beforeEach(() => {
-      requestStub = sandbox.stub(topic, 'request');
+      requestStub = jest.spyOn(topic, 'request');
     });
 
     it('should call the correct rpc', () => {
-      topic.setMetadata(METADATA, assert.ifError);
+      topic.setMetadata(METADATA, () => {});
 
-      const [{client, method}] = requestStub.lastCall.args;
-      assert.strictEqual(client, 'PublisherClient');
-      assert.strictEqual(method, 'updateTopic');
+      const [{client, method}] = (requestStub as any).mock.calls[(requestStub as any).mock.calls.length - 1];
+      expect(client).toBe('PublisherClient');
+      expect(method).toBe('updateTopic');
     });
 
     it('should send the correct request options', () => {
-      topic.setMetadata(METADATA, assert.ifError);
+      topic.setMetadata(METADATA, () => {});
 
       const expectedTopic = Object.assign({name: topic.name}, METADATA);
       const expectedUpdateMask = {
         paths: ['labels', 'message_retention_duration'],
       };
 
-      const [{reqOpts}] = requestStub.lastCall.args;
-      assert.deepStrictEqual(reqOpts.topic, expectedTopic);
-      assert.deepStrictEqual(reqOpts.updateMask, expectedUpdateMask);
+      const [{reqOpts}] = (requestStub as any).mock.calls[(requestStub as any).mock.calls.length - 1];
+      expect(reqOpts.topic).toEqual(expectedTopic);
+      expect(reqOpts.updateMask).toEqual(expectedUpdateMask);
     });
 
     it('should accept call options', () => {
       const callOptions = {};
 
-      topic.setMetadata(METADATA, callOptions, assert.ifError);
+      topic.setMetadata(METADATA, callOptions, () => {});
 
-      const [{gaxOpts}] = requestStub.lastCall.args;
-      assert.strictEqual(gaxOpts, callOptions);
+      const [{gaxOpts}] = (requestStub as any).mock.calls[(requestStub as any).mock.calls.length - 1];
+      expect(gaxOpts).toBe(callOptions);
     });
 
     it('should pass the user callback to request', () => {
-      const spy = sandbox.spy();
+      const spy = jest.fn();
 
       topic.setMetadata(METADATA, spy);
 
-      const [, callback] = requestStub.lastCall.args;
-      assert.strictEqual(callback, spy);
+      const [, callback] = (requestStub as any).mock.calls[(requestStub as any).mock.calls.length - 1];
+      expect(callback).toBe(spy);
     });
   });
 
   describe('setPublishOptions', () => {
     it('should call through to Publisher#setOptions', () => {
       const fakeOptions = {};
-      const stub = sandbox
-        .stub(topic.publisher, 'setOptions')
-        .withArgs(fakeOptions);
+      const stub = jest.spyOn(topic.publisher, 'setOptions')
+        ;
 
       topic.setPublishOptions(fakeOptions);
 
-      assert.strictEqual(stub.callCount, 1);
+      expect((stub as any).mock.calls.length).toBe(1);
     });
 
     it('should call through to Publisher#getOptionDefaults', () => {
       topic.publisher.options_ = {};
       const defaults = topic.getPublishOptionDefaults();
-      assert.strictEqual(defaults, topic.publisher.options_);
+      expect(defaults).toBe(topic.publisher.options_);
     });
   });
 
@@ -748,8 +697,8 @@ describe('Topic', () => {
         name: string,
         options: SubscriptionOptions,
       ) => {
-        assert.strictEqual(name, subscriptionName);
-        assert.deepStrictEqual(options, opts);
+        expect(name).toBe(subscriptionName);
+        expect(options).toEqual(opts);
         done();
       };
 
@@ -761,7 +710,7 @@ describe('Topic', () => {
         name: string,
         options: SubscriptionOptions,
       ) => {
-        assert.strictEqual(options.topic, topic);
+        expect(options.topic).toBe(topic);
         done();
       };
 

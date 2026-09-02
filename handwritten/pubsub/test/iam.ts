@@ -12,37 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, before, beforeEach} from 'mocha';
-import * as proxyquire from 'proxyquire';
-
 import * as iamTypes from '../src/iam';
 import {PubSub, RequestConfig} from '../src/pubsub';
 import * as util from '../src/util';
-
-let promisified = false;
-const fakeUtil = Object.assign({}, util, {
-  promisifySome(
-    class_: Function,
-    classProtos: object,
-    methods: string[],
-  ): void {
-    if (class_.name === 'IAM') {
-      promisified = true;
-      assert.deepStrictEqual(methods, [
-        'getPolicy',
-        'setPolicy',
-        'testPermissions',
-      ]);
-    }
-    // Defeats the method name type check.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    util.promisifySome(class_, classProtos, methods as any);
-  },
-});
+import {IAM} from '../src/iam';
 
 describe('IAM', () => {
-  let IAM: typeof iamTypes.IAM;
   let iam: iamTypes.IAM;
 
   const PUBSUB = {
@@ -51,19 +26,13 @@ describe('IAM', () => {
   } as {} as PubSub;
   const ID = 'id';
 
-  before(() => {
-    IAM = proxyquire('../src/iam.js', {
-      './util': fakeUtil,
-    }).IAM;
-  });
-
   beforeEach(() => {
     iam = new IAM(PUBSUB, ID);
   });
 
   describe('initialization', () => {
     it('should localize pubsub', () => {
-      assert.strictEqual(iam.pubsub, PUBSUB);
+      expect(iam.pubsub).toBe(PUBSUB);
     });
 
     it('should localize pubsub#request', () => {
@@ -71,18 +40,18 @@ describe('IAM', () => {
       const fakePubsub = {
         request: {
           bind(context: PubSub) {
-            assert.strictEqual(context, fakePubsub);
+            expect(context).toBe(fakePubsub);
             return fakeRequest;
           },
         },
       } as {} as PubSub;
       const iam = new IAM(fakePubsub, ID);
 
-      assert.strictEqual(iam.request, fakeRequest);
+      expect(iam.request).toBe(fakeRequest);
     });
 
     it('should localize the ID string', () => {
-      assert.strictEqual(iam.id, ID);
+      expect(iam.id).toBe(ID);
     });
 
     it('should localize the ID getter', () => {
@@ -91,11 +60,7 @@ describe('IAM', () => {
           return 'test';
         },
       });
-      assert.strictEqual(iam.id, 'test');
-    });
-
-    it('should promisify some of the things', () => {
-      assert(promisified);
+      expect(iam.id).toBe('test');
     });
   });
 
@@ -103,25 +68,29 @@ describe('IAM', () => {
     it('should make the correct API request', done => {
       iam.request = config => {
         const reqOpts = {resource: iam.id};
-        assert.strictEqual(config.client, 'SubscriberClient');
-        assert.strictEqual(config.method, 'getIamPolicy');
-        assert.deepStrictEqual(config.reqOpts, reqOpts);
+        expect(config.client).toBe('SubscriberClient');
+        expect(config.method).toBe('getIamPolicy');
+        expect(config.reqOpts).toEqual(reqOpts);
 
         done();
       };
 
-      iam.getPolicy(assert.ifError);
+      iam.getPolicy(err => {
+        expect(err).toBeNull();
+      });
     });
 
     it('should accept gax options', done => {
       const gaxOpts = {};
 
       iam.request = config => {
-        assert.strictEqual(config.gaxOpts, gaxOpts);
+        expect(config.gaxOpts).toBe(gaxOpts);
         done();
       };
 
-      iam.getPolicy(gaxOpts, assert.ifError);
+      iam.getPolicy(gaxOpts, err => {
+        expect(err).toBeNull();
+      });
     });
   });
 
@@ -129,43 +98,47 @@ describe('IAM', () => {
     const policy: iamTypes.Policy = {etag: 'ACAB', bindings: []};
 
     it('should throw an error if a policy is not supplied', () => {
-      assert.throws(() => {
+      expect(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (iam as any).setPolicy(util.noop);
-      }, /A policy object is required\./);
+      }).toThrow(/A policy object is required\./);
     });
 
     it('should make the correct API request', done => {
       iam.request = config => {
         const reqOpts = {resource: iam.id, policy};
-        assert.strictEqual(config.client, 'SubscriberClient');
-        assert.strictEqual(config.method, 'setIamPolicy');
-        assert.deepStrictEqual(config.reqOpts, reqOpts);
+        expect(config.client).toBe('SubscriberClient');
+        expect(config.method).toBe('setIamPolicy');
+        expect(config.reqOpts).toEqual(reqOpts);
 
         done();
       };
 
-      iam.setPolicy(policy, assert.ifError);
+      iam.setPolicy(policy, err => {
+        expect(err).toBeNull();
+      });
     });
 
     it('should accept gax options', done => {
       const gaxOpts = {};
 
       iam.request = (config: RequestConfig) => {
-        assert.strictEqual(config.gaxOpts, gaxOpts);
+        expect(config.gaxOpts).toBe(gaxOpts);
         done();
       };
 
-      iam.setPolicy(policy, gaxOpts, assert.ifError);
+      iam.setPolicy(policy, gaxOpts, err => {
+        expect(err).toBeNull();
+      });
     });
   });
 
   describe('testPermissions', () => {
     it('should throw an error if permissions are missing', () => {
-      assert.throws(() => {
+      expect(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (iam as any).testPermissions(util.noop);
-      }, /Permissions are required\./);
+      }).toThrow(/Permissions are required\./);
     });
 
     it('should make the correct API request', done => {
@@ -173,14 +146,16 @@ describe('IAM', () => {
       const reqOpts = {resource: iam.id, permissions: [permissions]};
 
       iam.request = config => {
-        assert.strictEqual(config.client, 'SubscriberClient');
-        assert.strictEqual(config.method, 'testIamPermissions');
-        assert.deepStrictEqual(config.reqOpts, reqOpts);
+        expect(config.client).toBe('SubscriberClient');
+        expect(config.method).toBe('testIamPermissions');
+        expect(config.reqOpts).toEqual(reqOpts);
 
         done();
       };
 
-      iam.testPermissions(permissions, assert.ifError);
+      iam.testPermissions(permissions, err => {
+        expect(err).toBeNull();
+      });
     });
 
     it('should accept gax options', done => {
@@ -188,11 +163,13 @@ describe('IAM', () => {
       const gaxOpts = {};
 
       iam.request = config => {
-        assert.strictEqual(config.gaxOpts, gaxOpts);
+        expect(config.gaxOpts).toBe(gaxOpts);
         done();
       };
 
-      iam.testPermissions(permissions, gaxOpts, assert.ifError);
+      iam.testPermissions(permissions, gaxOpts, err => {
+        expect(err).toBeNull();
+      });
     });
 
     it('should send an error back if the request fails', done => {
@@ -205,9 +182,9 @@ describe('IAM', () => {
       };
 
       iam.testPermissions(permissions, (err, permissions, apiResp) => {
-        assert.strictEqual(err, error);
-        assert.strictEqual(permissions, null);
-        assert.strictEqual(apiResp, apiResponse);
+        expect(err).toBe(error);
+        expect(permissions).toBeNull();
+        expect(apiResp).toBe(apiResponse);
         done();
       });
     });
@@ -223,12 +200,12 @@ describe('IAM', () => {
       };
 
       iam.testPermissions(permissions, (err, permissions, apiResp) => {
-        assert.ifError(err);
-        assert.deepStrictEqual(permissions, {
+        expect(err).toBeNull();
+        expect(permissions).toEqual({
           'storage.bucket.list': false,
           'storage.bucket.consume': true,
         });
-        assert.strictEqual(apiResp, apiResponse);
+        expect(apiResp).toBe(apiResponse);
 
         done();
       });

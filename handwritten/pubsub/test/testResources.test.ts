@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it, beforeEach} from 'mocha';
 import {TestResources} from './testResources';
-import * as assert from 'node:assert';
 
 describe('testResources (unit)', () => {
   const fixedId = 'fixed';
@@ -33,22 +31,19 @@ describe('testResources (unit)', () => {
 
   it('has predictable prefixes', () => {
     const prefix = testResources.getPrefix('testId');
-    assert.strictEqual(prefix, `${suiteId}-${fixedTime}-testId`);
+    expect(prefix).toBe(`${suiteId}-${fixedTime}-testId`);
 
     const normalizedPrefix = testResources.getPrefix('test-id-dashes');
-    assert.strictEqual(
-      normalizedPrefix,
-      `${suiteId}-${fixedTime}-test_id_dashes`,
-    );
+    expect(normalizedPrefix).toBe(`${suiteId}-${fixedTime}-test_id_dashes`);
 
     const suitePrefix = testResources.getPrefix();
-    assert.strictEqual(suitePrefix, `${suiteId}-${fixedTime}`);
+    expect(suitePrefix).toBe(`${suiteId}-${fixedTime}`);
   });
 
   it('generates names', () => {
     const prefix = testResources.getPrefix('testId');
     const name = testResources.generateName('testId');
-    assert.strictEqual(name, `${prefix}-${fixedId}`);
+    expect(name).toBe(`${prefix}-${fixedId}`);
   });
 
   it('filters for cleanup', () => {
@@ -71,14 +66,8 @@ describe('testResources (unit)', () => {
       },
     ];
     const filtered = testResources.filterForCleanup(resources);
-    assert.strictEqual(filtered.length, 2);
-    assert.strictEqual(
-      1,
-      filtered.filter(r => r.name?.includes('bob-9871')).length,
-    );
-    assert.strictEqual(
-      1,
-      filtered.filter(r => r.name?.includes('bob-5782')).length,
-    );
+    expect(filtered.length).toBe(2);
+    expect(filtered.filter(r => r.name?.includes('bob-9871')).length).toBe(1);
+    expect(filtered.filter(r => r.name?.includes('bob-5782')).length).toBe(1);
   });
 });

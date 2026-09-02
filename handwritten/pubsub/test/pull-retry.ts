@@ -12,19 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import * as sinon from 'sinon';
-import {describe, it, beforeEach, afterEach} from 'mocha';
 import {grpc} from 'google-gax';
 import {PullRetry} from '../src/pull-retry';
 
 describe('PullRetry', () => {
-  const sandbox = sinon.createSandbox();
-
-  beforeEach(() => {});
-
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
   describe('retry', () => {
@@ -37,14 +30,14 @@ describe('PullRetry', () => {
         grpc.status.UNAVAILABLE,
       ].forEach((code: grpc.status) => {
         const shouldRetry = PullRetry.retry({code} as grpc.StatusObject);
-        assert.strictEqual(shouldRetry, true);
+        expect(shouldRetry).toBe(true);
       });
 
       const serverShutdown = PullRetry.retry({
         code: grpc.status.UNAVAILABLE,
         details: 'Server shutdownNow invoked',
       } as grpc.StatusObject);
-      assert.strictEqual(serverShutdown, true);
+      expect(serverShutdown).toBe(true);
     });
 
     it('should return false for non-retryable errors', () => {
@@ -57,24 +50,24 @@ describe('PullRetry', () => {
         grpc.status.UNIMPLEMENTED,
       ].forEach((code: grpc.status) => {
         const shouldRetry = PullRetry.retry({code} as grpc.StatusObject);
-        assert.strictEqual(shouldRetry, false);
+        expect(shouldRetry).toBe(false);
       });
     });
 
     it('should reset the failure count on OK', () => {
-      assert.ok(
+      expect(
         PullRetry.resetFailures({
           code: grpc.status.OK,
         } as grpc.StatusObject),
-      );
+      ).toBe(true);
     });
 
     it('should reset the failure count on DEADLINE_EXCEEDED', () => {
-      assert.ok(
+      expect(
         PullRetry.resetFailures({
           code: grpc.status.DEADLINE_EXCEEDED,
         } as grpc.StatusObject),
-      );
+      ).toBe(true);
     });
   });
 });

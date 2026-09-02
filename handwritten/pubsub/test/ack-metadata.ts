@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
-import * as assert from 'assert';
 import {
   AckErrorInfo,
   processAckErrorInfo,
@@ -26,7 +24,7 @@ describe('ack-metadata', () => {
   it('deals with no ErrorInfo', () => {
     const error = {} as GoogleError;
     const results = processAckErrorInfo(error);
-    assert.strictEqual(results.size, 0);
+    expect(results.size).toBe(0);
   });
 
   it('handles permanent errors', () => {
@@ -40,7 +38,7 @@ describe('ack-metadata', () => {
 
     const results = processAckErrorInfo(error);
 
-    assert.deepStrictEqual(Array.from(results.entries()), [
+    expect(Array.from(results.entries())).toEqual([
       [
         ackId,
         {
@@ -63,7 +61,7 @@ describe('ack-metadata', () => {
 
     const results = processAckErrorInfo(error);
 
-    assert.deepStrictEqual(Array.from(results.entries()), [
+    expect(Array.from(results.entries())).toEqual([
       [
         ackId,
         {
@@ -85,7 +83,7 @@ describe('ack-metadata', () => {
 
     const results = processAckErrorInfo(error);
 
-    assert.deepStrictEqual(Array.from(results.entries()), [
+    expect(Array.from(results.entries())).toEqual([
       [
         ackId,
         {
@@ -145,7 +143,7 @@ describe('ack-metadata', () => {
     ackIds.forEach(id => {
       const ackError = results.get(id);
       const expected = expectedResults.get(id);
-      assert.deepStrictEqual(ackError, expected);
+      expect(ackError).toEqual(expected);
     });
   });
 
@@ -219,7 +217,7 @@ describe('ack-metadata', () => {
 
     for (const t of testTable) {
       const result = processAckRpcError(t.code);
-      assert.deepStrictEqual(result, t.result);
+      expect(result).toEqual(t.result);
     }
   });
 });

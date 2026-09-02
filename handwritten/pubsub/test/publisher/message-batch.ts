@@ -14,18 +14,13 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach} from 'mocha';
 import {randomBytes} from 'crypto';
-import * as sinon from 'sinon';
 
 import {MessageBatch} from '../../src/publisher/message-batch';
 import {PubsubMessage} from '../../src/publisher';
 
 describe('MessageBatch', () => {
   let batch: MessageBatch;
-
-  const sandbox = sinon.createSandbox();
 
   const options = {
     maxBytes: 1000,
@@ -37,38 +32,38 @@ describe('MessageBatch', () => {
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
   });
 
   describe('initialization', () => {
     it('should localize options', () => {
-      assert.deepStrictEqual(batch.options, options);
+      expect(batch.options).toEqual(options);
     });
 
     it('should create a message array', () => {
-      assert.deepStrictEqual(batch.messages, []);
+      expect(batch.messages).toEqual([]);
     });
 
     it('should create a callback array', () => {
-      assert.deepStrictEqual(batch.callbacks, []);
+      expect(batch.callbacks).toEqual([]);
     });
 
     it('should capture the creation time', () => {
       const now = Date.now();
 
-      sandbox.stub(Date, 'now').returns(now);
+      jest.spyOn(Date, 'now').mockReturnValue(now);
       batch = new MessageBatch(options, 'topicName');
 
-      assert.strictEqual(batch.created, now);
+      expect(batch.created).toBe(now);
     });
 
     it('should initialize bytes to 0', () => {
-      assert.strictEqual(batch.bytes, 0);
+      expect(batch.bytes).toBe(0);
     });
   });
 
   describe('add', () => {
-    const callback = sandbox.spy();
+    const callback = jest.fn();
     let message: PubsubMessage;
     let messageSize: number;
     beforeEach(() => {
@@ -80,17 +75,17 @@ describe('MessageBatch', () => {
 
     it('should add the message to the message array', () => {
       batch.add(message, callback);
-      assert.deepStrictEqual(batch.messages, [message]);
+      expect(batch.messages).toEqual([message]);
     });
 
     it('should add the callback to the callback array', () => {
       batch.add(message, callback);
-      assert.deepStrictEqual(batch.callbacks, [callback]);
+      expect(batch.callbacks).toEqual([callback]);
     });
 
     it('should adjust the byte count', () => {
       batch.add(message, callback);
-      assert.strictEqual(batch.bytes, messageSize);
+      expect(batch.bytes).toBe(messageSize);
     });
   });
 
@@ -107,24 +102,24 @@ describe('MessageBatch', () => {
     it('should return false if too many messages', () => {
       batch.options.maxMessages = 0;
       const canFit = batch.canFit(message);
-      assert.strictEqual(canFit, false);
-      assert.strictEqual(batch.canFitCount(), false);
-      assert.strictEqual(batch.canFitSize(message), true);
+      expect(canFit).toBe(false);
+      expect(batch.canFitCount()).toBe(false);
+      expect(batch.canFitSize(message)).toBe(true);
     });
 
     it('should return false if too many bytes', () => {
       batch.options.maxBytes = messageSize - 1;
       const canFit = batch.canFit(message);
-      assert.strictEqual(canFit, false);
-      assert.strictEqual(batch.canFitCount(), true);
-      assert.strictEqual(batch.canFitSize(message), false);
+      expect(canFit).toBe(false);
+      expect(batch.canFitCount()).toBe(true);
+      expect(batch.canFitSize(message)).toBe(false);
     });
 
     it('should return true if it can fit', () => {
       const canFit = batch.canFit(message);
-      assert.strictEqual(canFit, true);
-      assert.strictEqual(batch.canFitCount(), true);
-      assert.strictEqual(batch.canFitSize(message), true);
+      expect(canFit).toBe(true);
+      expect(batch.canFitCount()).toBe(true);
+      expect(batch.canFitSize(message)).toBe(true);
     });
   });
 
@@ -136,11 +131,11 @@ describe('MessageBatch', () => {
           data: Buffer.from('Hello!'),
         })
         .forEach(message => {
-          batch.add(message, sandbox.spy());
+          batch.add(message, jest.fn());
         });
 
       const isAtMax = batch.isAtMax();
-      assert.strictEqual(isAtMax, true);
+      expect(isAtMax).toBe(true);
     });
 
     it('should return true if at max byte limit', () => {
@@ -148,10 +143,10 @@ describe('MessageBatch', () => {
         data: randomBytes(Math.pow(1024, 2) * 9),
       };
 
-      batch.add(message, sandbox.spy());
+      batch.add(message, jest.fn());
 
       const isAtMax = batch.isAtMax();
-      assert.strictEqual(isAtMax, true);
+      expect(isAtMax).toBe(true);
     });
 
     it('should return false if it is not full', () => {
@@ -159,10 +154,10 @@ describe('MessageBatch', () => {
         data: randomBytes(500),
       };
 
-      batch.add(message, sandbox.spy());
+      batch.add(message, jest.fn());
 
       const isAtMax = batch.isAtMax();
-      assert.strictEqual(isAtMax, false);
+      expect(isAtMax).toBe(false);
     });
   });
 
@@ -178,28 +173,28 @@ describe('MessageBatch', () => {
 
     it('should return true if at max message limit', () => {
       batch.options.maxMessages = 1;
-      batch.add(message, sandbox.spy());
+      batch.add(message, jest.fn());
       const isFull = batch.isFull();
-      assert.strictEqual(isFull, true);
-      assert.strictEqual(batch.isFullMessages(), true);
-      assert.strictEqual(batch.isFullSize(), false);
+      expect(isFull).toBe(true);
+      expect(batch.isFullMessages()).toBe(true);
+      expect(batch.isFullSize()).toBe(false);
     });
 
     it('should return true if at max byte limit', () => {
       batch.options.maxBytes = messageSize;
-      batch.add(message, sandbox.spy());
+      batch.add(message, jest.fn());
       const isFull = batch.isFull();
-      assert.strictEqual(isFull, true);
-      assert.strictEqual(batch.isFullMessages(), false);
-      assert.strictEqual(batch.isFullSize(), true);
+      expect(isFull).toBe(true);
+      expect(batch.isFullMessages()).toBe(false);
+      expect(batch.isFullSize()).toBe(true);
     });
 
     it('should return false if it is not full', () => {
-      batch.add(message, sandbox.spy());
+      batch.add(message, jest.fn());
       const isFull = batch.isFull();
-      assert.strictEqual(isFull, false);
-      assert.strictEqual(batch.isFullMessages(), false);
-      assert.strictEqual(batch.isFullSize(), false);
+      expect(isFull).toBe(false);
+      expect(batch.isFullMessages()).toBe(false);
+      expect(batch.isFullSize()).toBe(false);
     });
   });
 
@@ -207,13 +202,13 @@ describe('MessageBatch', () => {
     it('updates the options', () => {
       const newOptions = {};
       batch.setOptions(newOptions);
-      assert.strictEqual(newOptions, batch.options);
+      expect(newOptions).toBe(batch.options);
     });
   });
 
   it('returns data from end()', () => {
     const output = batch.end();
-    assert.strictEqual(output.messages, batch.messages);
-    assert.strictEqual(output.callbacks, batch.callbacks);
+    expect(output.messages).toBe(batch.messages);
+    expect(output.callbacks).toBe(batch.callbacks);
   });
 });

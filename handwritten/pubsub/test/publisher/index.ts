@@ -14,91 +14,63 @@
  * limitations under the License.
  */
 
-import * as pfy from '@google-cloud/promisify';
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach} from 'mocha';
-import {EventEmitter} from 'events';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
 import * as opentelemetry from '@opentelemetry/api';
+import {SpanKind} from '@opentelemetry/api';
 import {Topic} from '../../src';
 import * as p from '../../src/publisher';
+import {Publisher} from '../../src/publisher';
 import * as q from '../../src/publisher/message-queues';
 import {PublishError} from '../../src/publisher/publish-error';
-import * as util from '../../src/util';
-
 import {defaultOptions} from '../../src/default-options';
 import * as tracing from '../../src/telemetry-tracing';
 import {exporter} from '../tracing';
-import {SpanKind} from '@opentelemetry/api';
 
-let promisified = false;
-const fakeUtil = Object.assign({}, util, {
-  promisifySome(
-    class_: Function,
-    classProtos: object,
-    methods: string[],
-    options: pfy.PromisifyAllOptions,
-  ): void {
-    if (class_.name === 'Publisher') {
-      promisified = true;
-      assert.deepStrictEqual(methods, ['flush', 'publishMessage']);
-      assert.strictEqual(options.singular, true);
+jest.mock('../../src/publisher/message-queues', () => {
+  const {EventEmitter} = require('events');
+  class FakeQueue extends EventEmitter {
+    publisher: any;
+    constructor(publisher: any) {
+      super();
+      this.publisher = publisher;
     }
-    // Defeats the method name type check.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    util.promisifySome(class_, classProtos, methods as any, options);
-  },
+    updateOptions() {}
+    add(message: any, callback: any): void {}
+    async publish() {
+      await this._publish([], []);
+    }
+    async publishDrain() {
+      await this.publish();
+    }
+    async _publish(messages: any[], callbacks: any[]) {}
+  }
+
+  class FakeOrderedQueue extends FakeQueue {
+    orderingKey: string;
+    error?: Error;
+    constructor(publisher: any, key: string) {
+      super(publisher);
+      this.orderingKey = key;
+    }
+    resumePublishing(): void {}
+    async publish() {
+      await this._publish([], []);
+    }
+    async publishDrain() {
+      await this.publish();
+    }
+    async _publish(messages: any[], callbacks: any[]) {}
+  }
+
+  return {
+    Queue: FakeQueue,
+    OrderedQueue: FakeOrderedQueue,
+  };
 });
 
-class FakeQueue extends EventEmitter {
-  publisher: p.Publisher;
-  constructor(publisher: p.Publisher) {
-    super();
-    this.publisher = publisher;
-  }
-  updateOptions() {}
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  add(message: p.PubsubMessage, callback: p.PublishCallback): void {}
-  async publish() {
-    await this._publish([], []);
-  }
-  async publishDrain() {
-    await this.publish();
-  }
-  async _publish(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    messages: p.PubsubMessage[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    callbacks: p.PublishCallback[],
-  ) {}
-}
-
-class FakeOrderedQueue extends FakeQueue {
-  orderingKey: string;
-  error?: Error;
-  constructor(publisher: p.Publisher, key: string) {
-    super(publisher);
-    this.orderingKey = key;
-  }
-  resumePublishing(): void {}
-  async publish() {
-    await this._publish([], []);
-  }
-  async publishDrain() {
-    await this.publish();
-  }
-  async _publish(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    messages: p.PubsubMessage[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    callbacks: p.PublishCallback[],
-  ) {}
-}
+const {Queue: FakeQueue, OrderedQueue: FakeOrderedQueue} = require('../../src/publisher/message-queues');
 
 describe('Publisher', () => {
-  let sandbox: sinon.SinonSandbox;
-  let spy: sinon.SinonSpy;
+  let spy: jest.Mock;
   const topicId = 'topic-name';
   const projectId = 'PROJECT_ID';
   const topic = {
@@ -106,57 +78,39 @@ describe('Publisher', () => {
     pubsub: {projectId},
   } as Topic;
 
-  // tslint:disable-next-line variable-name
-  let Publisher: typeof p.Publisher;
   let publisher: p.Publisher;
 
   beforeEach(() => {
-    sandbox = sinon.createSandbox();
-    spy = sandbox.spy();
-
-    const mocked = proxyquire('../../src/publisher/index.js', {
-      '../util': fakeUtil,
-      './message-queues': {
-        Queue: FakeQueue,
-        OrderedQueue: FakeOrderedQueue,
-      },
-    });
-
-    Publisher = mocked.Publisher;
-
+    spy = jest.fn();
     publisher = new Publisher(topic);
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
     tracing.setGloballyEnabled(false);
   });
 
   describe('initialization', () => {
-    it('should promisify some of the things', () => {
-      assert(promisified);
-    });
-
     it('should capture user options', () => {
-      const stub = sandbox.stub(Publisher.prototype, 'setOptions');
+      const stub = jest.spyOn(Publisher.prototype, 'setOptions');
 
       const options = {};
       publisher = new Publisher(topic, options);
 
-      assert.ok(stub.calledWith(options));
+      expect(stub).toHaveBeenCalledWith(options);
     });
 
     it('should localize topic instance', () => {
-      assert.strictEqual(publisher.topic, topic);
+      expect(publisher.topic).toBe(topic);
     });
 
     it('should create a message queue', () => {
-      assert(publisher.queue instanceof FakeQueue);
-      assert.strictEqual(publisher.queue.publisher, publisher);
+      expect(publisher.queue instanceof FakeQueue).toBeTruthy();
+      expect(publisher.queue.publisher).toBe(publisher);
     });
 
     it('should create a map for ordered queues', () => {
-      assert(publisher.orderedQueues instanceof Map);
+      expect(publisher.orderedQueues instanceof Map).toBeTruthy();
     });
   });
 
@@ -164,32 +118,24 @@ describe('Publisher', () => {
     const buffer = Buffer.from('Hello, world!');
 
     it('should call through to publishMessage', () => {
-      const stub = sandbox.stub(publisher, 'publishMessage');
+      const stub = jest.spyOn(publisher as any, 'publishMessage');
 
-      // This warning is not real, but it should be resolved by future work
-      // on the linting config.
-      //
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       publisher.publish(buffer, spy);
 
-      const [{data}, callback] = stub.lastCall.args;
-      assert.strictEqual(data, buffer);
-      assert.strictEqual(callback, spy);
+      const [{data}, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(data).toBe(buffer);
+      expect(callback).toBe(spy);
     });
 
     it('should optionally accept attributes', () => {
-      const stub = sandbox.stub(publisher, 'publishMessage');
+      const stub = jest.spyOn(publisher as any, 'publishMessage');
       const attrs = {};
 
-      // This warning is not real, but it should be resolved by future work
-      // on the linting config.
-      //
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       publisher.publish(buffer, attrs, spy);
 
-      const [{attributes}, callback] = stub.lastCall.args;
-      assert.strictEqual(attributes, attrs);
-      assert.strictEqual(callback, spy);
+      const [{attributes}, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(attributes).toBe(attrs);
+      expect(callback).toBe(spy);
     });
   });
 
@@ -204,37 +150,21 @@ describe('Publisher', () => {
     it('export created spans', () => {
       tracing.setGloballyEnabled(true);
 
-      // Setup trace exporting
       tracingPublisher = new Publisher(topic);
       const msg = {data: buffer} as p.PubsubMessage;
       void tracingPublisher.publishMessage(msg);
 
-      // publishMessage is only the first part of the process now,
-      // so we need to manually end the span.
       msg.parentSpan?.end();
 
       const spans = exporter.getFinishedSpans();
-      assert.notStrictEqual(spans.length, 0, 'has span');
+      expect(spans.length).not.toBe(0);
       const createdSpan = spans.concat().pop()!;
-      assert.strictEqual(
-        createdSpan.status.code,
-        opentelemetry.SpanStatusCode.UNSET,
-      );
-      assert.strictEqual(
-        createdSpan.attributes['messaging.system'],
-        'gcp_pubsub',
-      );
-      assert.strictEqual(
-        createdSpan.attributes['messaging.destination.name'],
-        topicId,
-      );
-      assert.strictEqual(createdSpan.name, `${topicId} create`);
-      assert.strictEqual(
-        createdSpan.kind,
-        SpanKind.PRODUCER,
-        'span kind should be PRODUCER',
-      );
-      assert.ok(spans);
+      expect(createdSpan.status.code).toBe(opentelemetry.SpanStatusCode.UNSET);
+      expect(createdSpan.attributes['messaging.system']).toBe('gcp_pubsub');
+      expect(createdSpan.attributes['messaging.destination.name']).toBe(topicId);
+      expect(createdSpan.name).toBe(`${topicId} create`);
+      expect(createdSpan.kind).toBe(SpanKind.PRODUCER);
+      expect(spans).toBeTruthy();
     });
   });
 
@@ -243,44 +173,41 @@ describe('Publisher', () => {
 
     it('should throw an error if data is not a Buffer', () => {
       const badData = {} as Buffer;
-      assert.throws(
-        () => publisher.publishMessage({data: badData}, spy),
-        /Data must be in the form of a Buffer or Uint8Array\./,
-      );
+      expect(() => {
+        publisher.publishMessage({data: badData}, spy);
+      }).toThrow(/Data must be in the form of a Buffer or Uint8Array\./);
     });
 
     it('should throw an error if data and attributes are both empty', () => {
-      assert.throws(
-        () => publisher.publishMessage({}, spy),
-        /at least one attribute must be present/,
-      );
+      expect(() => {
+        publisher.publishMessage({}, spy);
+      }).toThrow(/at least one attribute must be present/);
     });
 
     it('should allow sending only attributes', () => {
       const attributes = {foo: 'bar'} as {};
-      assert.doesNotThrow(() => publisher.publishMessage({attributes}, spy));
+      expect(() => publisher.publishMessage({attributes}, spy)).not.toThrow();
     });
 
     it('should throw an error if attributes are wrong format', () => {
       const attributes = {foo: {bar: 'baz'}} as {};
 
-      assert.throws(
-        () => publisher.publishMessage({data, attributes}, spy),
+      expect(() => {
+        publisher.publishMessage({data, attributes}, spy);
+      }).toThrow(
         /All attributes must be in the form of a string.\n\nInvalid value of type "object" provided for "foo"\./,
       );
     });
 
     it('should add non-ordered messages to the message queue', done => {
-      const stub = sandbox.stub(publisher.queue, 'add');
+      const stub = jest.spyOn(publisher.queue, 'add');
       const fakeMessage = {data};
 
       publisher.publishMessage(fakeMessage, done);
 
-      const [message, callback] = stub.lastCall.args;
-      assert.strictEqual(message, fakeMessage);
+      const [message, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+      expect(message).toBe(fakeMessage);
 
-      // Because of publisher flow control indirection, we have to test
-      // the callback this way.
       callback(null);
     });
 
@@ -288,7 +215,7 @@ describe('Publisher', () => {
       const orderingKey = 'foo';
       const fakeMessage = {data, orderingKey};
 
-      let queue: FakeOrderedQueue;
+      let queue: any;
 
       beforeEach(() => {
         queue = new FakeOrderedQueue(publisher, orderingKey);
@@ -304,36 +231,32 @@ describe('Publisher', () => {
 
         queue = publisher.orderedQueues.get(
           orderingKey,
-        ) as unknown as FakeOrderedQueue;
+        ) as unknown as any;
 
-        assert(queue instanceof FakeOrderedQueue);
-        assert.strictEqual(queue.publisher, publisher);
-        assert.strictEqual(queue.orderingKey, orderingKey);
+        expect(queue instanceof FakeOrderedQueue).toBeTruthy();
+        expect(queue.publisher).toBe(publisher);
+        expect(queue.orderingKey).toBe(orderingKey);
       });
 
       it('should add the ordered message to the correct queue', done => {
-        const stub = sandbox.stub(queue, 'add');
+        const stub = jest.spyOn(queue, 'add');
 
         publisher.publishMessage(fakeMessage, done);
 
-        // Because of publisher flow control indirection, we can't test
-        // the callback here.
-        const [message, callback] = stub.lastCall.args;
-        assert.strictEqual(message, fakeMessage);
+        const [message, callback] = (stub as any).mock.calls[(stub as any).mock.calls.length - 1];
+        expect(message).toBe(fakeMessage);
 
-        // Because of publisher flow control indirection, we have to test
-        // the callback this way.
         callback(null);
       });
 
       it('should return an error if the queue encountered an error', done => {
         const error = new Error('err') as PublishError;
-        sandbox
-          .stub(queue, 'add')
-          .callsFake((message, callback) => callback(error));
+        jest
+          .spyOn(queue, 'add')
+          .mockImplementation(((message: any, callback: any) => callback(error)) as any);
 
-        publisher.publishMessage(fakeMessage, err => {
-          assert.strictEqual(err, error);
+        publisher.publishMessage(fakeMessage, (err: any) => {
+          expect(err).toBe(error);
           done();
         });
       });
@@ -344,31 +267,25 @@ describe('Publisher', () => {
 
         queue = publisher.orderedQueues.get(
           orderingKey,
-        ) as unknown as FakeOrderedQueue;
+        ) as unknown as any;
         queue.emit('drain');
 
-        assert.strictEqual(publisher.orderedQueues.size, 0);
+        expect(publisher.orderedQueues.size).toBe(0);
       });
 
       it('should drain any ordered queues on flush', done => {
-        // We have to stub out the regular queue as well, so that the flush() operation finishes.
-        sandbox.stub(FakeQueue.prototype, '_publish').callsFake(async () => {
-          // Simulate the drain taking longer than the publishes. This can
-          // happen if more messages are queued during the publish().
+        jest.spyOn(FakeQueue.prototype, '_publish').mockImplementation(async () => {
           process.nextTick(() => {
             publisher.queue.emit('drain');
           });
         });
 
-        sandbox
-          .stub(FakeOrderedQueue.prototype, '_publish')
-          .callsFake(async () => {
+        jest
+          .spyOn(FakeOrderedQueue.prototype, '_publish')
+          .mockImplementation(async () => {
             const queue = publisher.orderedQueues.get(
               orderingKey,
-            ) as unknown as FakeOrderedQueue;
-            // Simulate the drain taking longer than the publishes. This can
-            // happen on some ordered queue scenarios, especially if we have more
-            // than one queue to empty.
+            ) as unknown as any;
             process.nextTick(() => {
               queue.emit('drain');
             });
@@ -378,8 +295,8 @@ describe('Publisher', () => {
         publisher.publishMessage(fakeMessage, spy);
 
         publisher.flush(err => {
-          assert.strictEqual(err, null);
-          assert.strictEqual(publisher.orderedQueues.size, 0);
+          expect(err).toBeNull();
+          expect(publisher.orderedQueues.size).toBe(0);
           done();
         });
       });
@@ -390,7 +307,7 @@ describe('Publisher', () => {
     it('should resume publishing for the provided ordering key', () => {
       const orderingKey = 'foo';
       const queue = new FakeOrderedQueue(publisher, orderingKey);
-      const stub = sandbox.stub(queue, 'resumePublishing');
+      const stub = jest.spyOn(queue, 'resumePublishing');
 
       publisher.orderedQueues.set(
         orderingKey,
@@ -398,7 +315,7 @@ describe('Publisher', () => {
       );
       publisher.resumePublishing(orderingKey);
 
-      assert.strictEqual(stub.callCount, 1);
+      expect((stub as any).mock.calls.length).toBe(1);
     });
   });
 
@@ -406,7 +323,7 @@ describe('Publisher', () => {
     it('should apply default values', () => {
       publisher.setOptions({});
 
-      assert.deepStrictEqual(publisher.settings, {
+      expect(publisher.settings).toEqual({
         batching: {
           maxBytes: defaultOptions.publish.maxOutstandingBytes,
           maxMessages: defaultOptions.publish.maxOutstandingMessages,
@@ -442,7 +359,7 @@ describe('Publisher', () => {
 
       publisher.setOptions(options);
 
-      assert.deepStrictEqual(publisher.settings, options);
+      expect(publisher.settings).toEqual(options);
     });
 
     it('should cap maxBytes at 9MB', () => {
@@ -453,7 +370,7 @@ describe('Publisher', () => {
       });
 
       const expected = Math.pow(1024, 2) * 9;
-      assert.strictEqual(publisher.settings.batching!.maxBytes, expected);
+      expect(publisher.settings.batching!.maxBytes).toBe(expected);
     });
 
     it('should cap maxMessages at 1000', () => {
@@ -462,19 +379,18 @@ describe('Publisher', () => {
           maxMessages: 1001,
         },
       });
-      assert.strictEqual(publisher.settings.batching!.maxMessages, 1000);
+      expect(publisher.settings.batching!.maxMessages).toBe(1000);
     });
 
     it('should pass new option values into queues after construction', () => {
-      // Make sure we have some ordering queues.
       publisher.orderedQueues.set('a', new q.OrderedQueue(publisher, 'a'));
       publisher.orderedQueues.set('b', new q.OrderedQueue(publisher, 'b'));
 
-      const stubs = [sandbox.stub(publisher.queue, 'updateOptions')];
-      assert.deepStrictEqual(publisher.orderedQueues.size, 2);
+      const stubs = [jest.spyOn(publisher.queue, 'updateOptions')];
+      expect(publisher.orderedQueues.size).toBe(2);
       stubs.push(
         ...Array.from(publisher.orderedQueues.values()).map(q =>
-          sandbox.stub(q, 'updateOptions'),
+          jest.spyOn(q, 'updateOptions'),
         ),
       );
 
@@ -483,27 +399,21 @@ describe('Publisher', () => {
       };
       publisher.setOptions(newOptions);
 
-      stubs.forEach(s => assert.ok(s.calledOnce));
+      stubs.forEach(s => expect((s as any).mock.calls.length).toBe(1));
     });
   });
 
   describe('flush', () => {
-    // The ordered queue drain test is above with the ordered queue tests.
     it('should drain the main publish queue', done => {
-      sandbox.stub(publisher.queue, '_publish').callsFake(async () => {
-        // Simulate the drain taking longer than the publishes. This can
-        // happen if more messages are queued during the publish().
+      jest.spyOn(publisher.queue, '_publish').mockImplementation(async () => {
         process.nextTick(() => {
           publisher.queue.emit('drain');
         });
       });
 
       publisher.flush(err => {
-        assert.strictEqual(err, null);
-        assert.strictEqual(
-          !publisher.queue.batch || publisher.queue.batch.messages.length === 0,
-          true,
-        );
+        expect(err).toBeNull();
+        expect(!publisher.queue.batch || publisher.queue.batch.messages.length === 0).toBe(true);
         done();
       });
     });

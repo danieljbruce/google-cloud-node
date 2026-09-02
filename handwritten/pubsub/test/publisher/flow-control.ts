@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-
 import * as fc from '../../src/publisher/flow-control';
 
 describe('Flow Controller', () => {
@@ -28,8 +25,8 @@ describe('Flow Controller', () => {
   it('does basic bookkeeping correctly', async () => {
     const flow = new fc.FlowControl(optionsDefault);
     await flow.willSend(10, 1);
-    assert.strictEqual(flow.currentByteCount, 10);
-    assert.strictEqual(flow.currentMessageCount, 1);
+    expect(flow.currentByteCount).toBe(10);
+    expect(flow.currentMessageCount).toBe(1);
   });
 
   // This is an internal detail we really don't want to expose even inside
@@ -43,7 +40,7 @@ describe('Flow Controller', () => {
     const flow = new fc.FlowControl(optionsDefault);
     const promise = flow.willSend(1000, 1);
     const requests = requestQueue(flow);
-    assert.strictEqual(requests.length, 1);
+    expect(requests.length).toBe(1);
     requests[0].resolve();
     await promise;
   });
@@ -52,7 +49,7 @@ describe('Flow Controller', () => {
     const flow = new fc.FlowControl(optionsDefault);
     const promise = flow.willSend(10, 100);
     const requests = requestQueue(flow);
-    assert.strictEqual(requests.length, 1);
+    expect(requests.length).toBe(1);
     requests[0].resolve();
     await promise;
   });
@@ -61,9 +58,9 @@ describe('Flow Controller', () => {
     const flow = new fc.FlowControl(optionsDefault);
     const promise = flow.willSend(1000, 1);
     const requests = requestQueue(flow);
-    assert.strictEqual(requests.length, 1);
+    expect(requests.length).toBe(1);
     flow.sent(990, 1);
-    assert.strictEqual(requests.length, 0);
+    expect(requests.length).toBe(0);
     await promise;
   });
 
@@ -71,20 +68,20 @@ describe('Flow Controller', () => {
     const flow = new fc.FlowControl(optionsDefault);
     const promise = flow.willSend(1000, 2);
     const requests = requestQueue(flow);
-    assert.strictEqual(requests.length, 1);
+    expect(requests.length).toBe(1);
     flow.sent(800, 1);
-    assert.strictEqual(requests.length, 1);
+    expect(requests.length).toBe(1);
     flow.sent(150, 1);
-    assert.strictEqual(requests.length, 0);
+    expect(requests.length).toBe(0);
     await promise;
   });
 
   it('calculates with wouldExceed correctly', () => {
     const flowPause = new fc.FlowControl(optionsDefault);
-    assert.strictEqual(flowPause.wouldExceed(10000, 1), true);
-    assert.strictEqual(flowPause.wouldExceed(1, 1000), true);
-    assert.strictEqual(flowPause.wouldExceed(10000, 1000), true);
-    assert.strictEqual(flowPause.wouldExceed(5, 1), false);
+    expect(flowPause.wouldExceed(10000, 1)).toBe(true);
+    expect(flowPause.wouldExceed(1, 1000)).toBe(true);
+    expect(flowPause.wouldExceed(10000, 1000)).toBe(true);
+    expect(flowPause.wouldExceed(5, 1)).toBe(false);
   });
 
   it('sets options after the fact', () => {
@@ -93,7 +90,7 @@ describe('Flow Controller', () => {
       maxOutstandingMessages: 100,
     };
     flowPause.setOptions(newOptions);
-    assert.strictEqual(flowPause.options.maxOutstandingMessages, 100);
+    expect(flowPause.options.maxOutstandingMessages).toBe(100);
   });
 
   it('does not allow nonsensical option values', () => {
@@ -102,6 +99,6 @@ describe('Flow Controller', () => {
       maxOutstandingBytes: 0,
       maxOutstandingMessages: 0,
     };
-    assert.throws(() => flowPause.setOptions(newOptions));
+    expect(() => flowPause.setOptions(newOptions)).toThrow();
   });
 });

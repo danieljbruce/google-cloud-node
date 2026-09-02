@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach} from 'mocha';
-import * as sinon from 'sinon';
 import {google} from '../protos/protos';
 import {PubSub} from '../src/pubsub';
 import {ISchema, Schema, SchemaTypes, SchemaViews} from '../src/schema';
 
 import {v1} from '../src';
 type SchemaServiceClient = v1.SchemaServiceClient;
-
-const sandbox = sinon.createSandbox();
 
 describe('Schema', () => {
   let pubsub: PubSub;
@@ -43,7 +38,7 @@ describe('Schema', () => {
     pubsub = new PubSub({
       projectId: 'testProject',
     });
-    sandbox.stub(pubsub, 'getClientConfig').callsFake(async () => {
+    jest.spyOn(pubsub, 'getClientConfig').mockImplementation(async () => {
       pubsub.projectId = projectId;
       pubsub.name = projectName;
       return {};
@@ -56,122 +51,115 @@ describe('Schema', () => {
   });
 
   afterEach(async () => {
-    // Sadly I think it's not worthwhile to get this full pipeline
-    // to work for unit tests - the plan is to test the autoclose in
-    // the system tests.
-    //
-    // await pubsub.close();
-    // Private member access:
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // assert.strictEqual((schemaClient as any)._terminated, true);
-
-    sandbox.reset();
+    jest.restoreAllMocks();
   });
 
   it('properly sets its id', () => {
-    assert.strictEqual(schema.id, schemaId);
+    expect(schema.id).toBe(schemaId);
   });
 
   it('properly sets its name', async () => {
     const name = await schema.getName();
-    assert.strictEqual(name, schemaName);
+    expect(name).toBe(schemaName);
   });
 
   it('calls PubSub.createSchema() when create() is called', async () => {
     let called = false;
-    sandbox
-      .stub(pubsub, 'createSchema')
-      .callsFake(async (name, type, def, gaxOpts) => {
-        assert.strictEqual(name, schemaName);
-        assert.strictEqual(type, SchemaTypes.Avro);
-        assert.strictEqual(def, 'definition');
-        assert.ok(gaxOpts);
+    jest
+      .spyOn(pubsub, 'createSchema')
+      .mockImplementation(async (name: any, type: any, def: any, gaxOpts: any) => {
+        expect(name).toBe(schemaName);
+        expect(type).toBe(SchemaTypes.Avro);
+        expect(def).toBe('definition');
+        expect(gaxOpts).toBeTruthy();
         called = true;
         return new Schema(pubsub, name);
       });
 
     await schema.create(SchemaTypes.Avro, 'definition', {});
-    assert.ok(called);
+    expect(called).toBe(true);
   });
 
   it('calls getSchema() on the client when get() is called', async () => {
     let called = false;
-    sandbox
-      .stub(schemaClient, 'getSchema')
-      .callsFake(async (params, gaxOpts) => {
+    jest
+      .spyOn(schemaClient, 'getSchema')
+      .mockImplementation(async (params: any, gaxOpts: any) => {
         const name = await schema.getName();
-        assert.strictEqual(params.name, name);
-        assert.strictEqual(params.view, 'FULL');
-        assert.deepStrictEqual(gaxOpts, {});
+        expect(params.name).toBe(name);
+        expect(params.view).toBe('FULL');
+        expect(gaxOpts).toEqual({});
         called = true;
-        return [ischema];
+        return [ischema] as any;
       });
 
     const result = await schema.get(SchemaViews.Full, {});
-    assert.ok(called);
-    assert.strictEqual(result.name, schemaName);
-    assert.strictEqual(result.type, SchemaTypes.Avro);
-    assert.strictEqual(result.definition, 'foo');
+    expect(called).toBe(true);
+    expect(result.name).toBe(schemaName);
+    expect(result.type).toBe(SchemaTypes.Avro);
+    expect(result.definition).toBe('foo');
   });
 
   it('defaults to FULL when get() is called', async () => {
     let called = false;
-    sandbox.stub(schemaClient, 'getSchema').callsFake(async params => {
-      assert.strictEqual(params.view, 'FULL');
+    jest.spyOn(schemaClient, 'getSchema').mockImplementation(async (params: any) => {
+      expect(params.view).toBe('FULL');
       called = true;
-      return [ischema];
+      return [ischema] as any;
     });
 
     await schema.get();
-    assert.ok(called);
+    expect(called).toBe(true);
   });
 
   it('calls deleteSchema() on the client when delete() is called', async () => {
     let called = false;
-    sandbox
-      .stub(schemaClient, 'deleteSchema')
-      .callsFake(async (params, gaxOpts) => {
-        assert.strictEqual(params.name, schemaName);
-        assert.ok(gaxOpts);
+    jest
+      .spyOn(schemaClient, 'deleteSchema')
+      .mockImplementation(async (params: any, gaxOpts: any) => {
+        expect(params.name).toBe(schemaName);
+        expect(gaxOpts).toBeTruthy();
         called = true;
+        return [] as any;
       });
 
     await schema.delete({});
-    assert.ok(called);
+    expect(called).toBe(true);
   });
 
   it('calls validateMessage() on the client when validateMessage() is called on the wrapper', async () => {
     let called = false;
-    sandbox
-      .stub(schemaClient, 'validateMessage')
-      .callsFake(async (params, gaxOpts) => {
+    jest
+      .spyOn(schemaClient, 'validateMessage')
+      .mockImplementation(async (params: any, gaxOpts: any) => {
         const name = await schema.getName();
-        assert.strictEqual(params.parent, pubsub.name);
-        assert.strictEqual(params.name, name);
-        assert.strictEqual(params.schema, undefined);
-        assert.strictEqual(params.message, 'foo');
-        assert.strictEqual(params.encoding, encoding);
-        assert.ok(gaxOpts);
+        expect(params.parent).toBe(pubsub.name);
+        expect(params.name).toBe(name);
+        expect(params.schema).toBe(undefined);
+        expect(params.message).toBe('foo');
+        expect(params.encoding).toBe(encoding);
+        expect(gaxOpts).toBeTruthy();
         called = true;
+        return [] as any;
       });
 
     await schema.validateMessage('foo', encoding, {});
-    assert.ok(called);
+    expect(called).toBe(true);
   });
 
   it('resolves a missing project ID', async () => {
     pubsub = new PubSub();
     schema = pubsub.schema(schemaId);
-    assert.strictEqual(pubsub.isIdResolved, false);
-    assert.strictEqual(schema.name_, undefined);
-    sandbox.stub(pubsub, 'getClientConfig').callsFake(async () => {
+    expect(pubsub.isIdResolved).toBe(false);
+    expect(schema.name_).toBe(undefined);
+    jest.spyOn(pubsub, 'getClientConfig').mockImplementation(async () => {
       pubsub.projectId = projectId;
       pubsub.name = projectName;
       return {};
     });
     const name = await schema.getName();
-    assert.strictEqual(pubsub.isIdResolved, true);
-    assert.strictEqual(name, schemaName);
+    expect(pubsub.isIdResolved).toBe(true);
+    expect(name).toBe(schemaName);
   });
 
   it('loads metadata from a received message', () => {
@@ -181,7 +169,7 @@ describe('Schema', () => {
       googclient_schemaname: 'foobar',
     };
     const metadata = Schema.metadataFromMessage(testAttrs);
-    assert.deepStrictEqual(metadata, {
+    expect(metadata).toEqual({
       name: 'foobar',
       revision: 'revision',
       encoding: 'JSON',
