@@ -14,12 +14,9 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import {GCPEnv} from 'google-auth-library';
-import * as proxyquire from 'proxyquire';
 
-// types-only import. Actual require is done through proxyquire below.
+// types-only import. Actual require is done through jest.mock below.
 import {MiddlewareOptions} from '../../src/middleware/express';
 
 const FAKE_PROJECT_ID = 'project-🦄';
@@ -28,7 +25,7 @@ const FAKE_GENERATED_MIDDLEWARE = () => {};
 const FAKE_ENVIRONMENT = 'FAKE_ENVIRONMENT';
 
 let authEnvironment: string;
-let passedOptions: Array<MiddlewareOptions | undefined>;
+let passedOptions: Array<MiddlewareOptions | undefined> = [];
 
 class FakeLoggingBunyan {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,25 +54,32 @@ class FakeLoggingBunyan {
 
 let passedProjectId: string | undefined;
 let passedEmitRequestLog: Function | undefined;
-function fakeMakeMiddleware(
-  projectId: string,
-  makeChildLogger: Function,
-  emitRequestLog: Function,
-): Function {
-  passedProjectId = projectId;
-  passedEmitRequestLog = emitRequestLog;
-  return FAKE_GENERATED_MIDDLEWARE;
-}
 
-const {middleware, APP_LOG_SUFFIX} = proxyquire(
-  '../../src/middleware/express',
-  {
-    '../../src/index': {LoggingBunyan: FakeLoggingBunyan},
-    '@google-cloud/logging': {
-      middleware: {express: {makeMiddleware: fakeMakeMiddleware}},
+jest.mock('../../src/index', () => ({
+  LoggingBunyan: FakeLoggingBunyan,
+}));
+
+jest.mock('@google-cloud/logging', () => {
+  const actual = jest.requireActual('@google-cloud/logging');
+  return {
+    ...actual,
+    middleware: {
+      express: {
+        makeMiddleware: (
+          projectId: string,
+          makeChildLogger: Function,
+          emitRequestLog: Function,
+        ) => {
+          passedProjectId = projectId;
+          passedEmitRequestLog = emitRequestLog;
+          return FAKE_GENERATED_MIDDLEWARE;
+        },
+      },
     },
-  },
-);
+  };
+});
+
+import {middleware, APP_LOG_SUFFIX} from '../../src/middleware/express';
 
 describe('middleware/express', () => {
   beforeEach(() => {
@@ -87,42 +91,44 @@ describe('middleware/express', () => {
 
   it('should create and return a middleware', async () => {
     const {mw} = await middleware();
-    assert.strictEqual(mw, FAKE_GENERATED_MIDDLEWARE);
+    expect(mw).toBe(FAKE_GENERATED_MIDDLEWARE);
   });
 
   it('should generate two loggers with default logName and level', async () => {
     await middleware();
     // Should generate two loggers with the expected names.
-    assert.ok(passedOptions);
-    assert.strictEqual(passedOptions.length, 2);
-    assert.ok(
+    expect(passedOptions).toBeDefined();
+    expect(passedOptions.length).toBe(2);
+    expect(
       passedOptions.some(
         option => option!.logName === `bunyan_log_${APP_LOG_SUFFIX}`,
       ),
+    ).toBe(true);
+    expect(passedOptions.some(option => option!.logName === 'bunyan_log')).toBe(
+      true,
     );
-    assert.ok(passedOptions.some(option => option!.logName === 'bunyan_log'));
-    assert.ok(passedOptions.every(option => option!.level === 'info'));
+    expect(passedOptions.every(option => option!.level === 'info')).toBe(true);
   });
 
   it('should prefer user-provided logName and level', async () => {
     const LOGNAME = '㏒';
     const LEVEL = 'fatal';
-    const OPTIONS = {logName: LOGNAME, level: LEVEL};
+    const OPTIONS: MiddlewareOptions = {logName: LOGNAME, level: LEVEL};
     await middleware(OPTIONS);
-    assert.ok(passedOptions);
-    assert.strictEqual(passedOptions.length, 2);
-    assert.ok(
+    expect(passedOptions).toBeDefined();
+    expect(passedOptions.length).toBe(2);
+    expect(
       passedOptions.some(
         option => option!.logName === `${LOGNAME}_${APP_LOG_SUFFIX}`,
       ),
-    );
-    assert.ok(passedOptions.some(option => option!.logName === LOGNAME));
-    assert.ok(passedOptions.every(option => option!.level === LEVEL));
+    ).toBe(true);
+    expect(passedOptions.some(option => option!.logName === LOGNAME)).toBe(true);
+    expect(passedOptions.every(option => option!.level === LEVEL)).toBe(true);
   });
 
   it('should acquire the projectId and pass to makeMiddleware', async () => {
     await middleware();
-    assert.strictEqual(passedProjectId, FAKE_PROJECT_ID);
+    expect(passedProjectId).toBe(FAKE_PROJECT_ID);
   });
 
   [GCPEnv.APP_ENGINE, GCPEnv.CLOUD_FUNCTIONS, GCPEnv.CLOUD_RUN].forEach(env => {
@@ -134,10 +140,10 @@ describe('middleware/express', () => {
       } else {
         await middleware();
       }
-      assert.ok(passedOptions);
-      assert.strictEqual(passedOptions.length, 1);
+      expect(passedOptions).toBeDefined();
+      expect(passedOptions.length).toBe(1);
       // emitRequestLog parameter to makeChildLogger should be undefined.
-      assert.strictEqual(passedEmitRequestLog, undefined);
+      expect(passedEmitRequestLog).toBeUndefined();
     });
   });
 });

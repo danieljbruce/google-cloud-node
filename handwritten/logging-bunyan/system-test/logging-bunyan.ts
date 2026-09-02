@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as bunyan from 'bunyan';
 import * as crypto from 'crypto';
 import * as types from '../src/types/core';
@@ -35,8 +34,7 @@ function logName(name: string) {
   return `${UUID}_${name}`;
 }
 
-describe('LoggingBunyan', function () {
-  this.timeout(WRITE_CONSISTENCY_DELAY_MS);
+describe('LoggingBunyan', () => {
 
   const SERVICE = `logging-bunyan-system-test-${UUID}`;
   const LOG_NAME = logName('logging-bunyan-system-test');
@@ -104,8 +102,7 @@ describe('LoggingBunyan', function () {
     assert.ok(isDiagnosticPresent);
   });
 
-  it('should properly write log entries', async function () {
-    this.retries(3);
+  it('should properly write log entries', async () => {
     const timestamp = new Date();
     const start = Date.now();
 
@@ -231,10 +228,9 @@ describe('LoggingBunyan', function () {
     const ERROR_REPORTING_POLL_TIMEOUT = WRITE_CONSISTENCY_DELAY_MS;
     const errorsTransport = new ErrorsApiTransport();
 
-    it.skip('reports errors when logging errors', async function () {
+    it.skip('reports errors when logging errors', async () => {
       // This test began failing after the migration from kokoro to GCB.
       // We should unskip it later when we get the opportunity.
-      this.retries(3);
       const start = Date.now();
 
       const message = `an error at ${Date.now()}`;
