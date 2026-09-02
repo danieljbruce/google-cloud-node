@@ -13,10 +13,8 @@
 // limitations under the License.
 
 import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as gax from 'google-gax';
 import * as crypto from 'crypto';
-import * as sinon from 'sinon';
 import {BigQuery, TableRow, TableSchema} from '@google-cloud/bigquery';
 import {protos} from '@google-cloud/bigquery-storage-api';
 import * as protobuf from 'protobufjs';
@@ -36,8 +34,7 @@ type ReadRowsResponse =
   protos.google.cloud.bigquery.storage.v1.IReadRowsResponse;
 const {ReadClient, ArrowFormat, AvroFormat} = reader;
 
-const sandbox = sinon.createSandbox();
-afterEach(() => sandbox.restore());
+afterEach(() => jest.restoreAllMocks());
 
 if (process.env.NODE_ENV === 'DEBUG') {
   reader.setLogFunction(console.log);
@@ -108,11 +105,11 @@ describe('reader.ReaderClient', () => {
     ],
   };
 
-  before(async () => {
+  beforeAll(async () => {
     await cleanupDatasets(bigquery, GCLOUD_TESTS_PREFIX);
 
     await bigquery.createDataset(datasetId);
-  }).timeout(2 * 60 * 1000);
+  }, 2 * 60 * 1000);
 
   beforeEach(async () => {
     tableId = generateUuid();
@@ -153,7 +150,7 @@ describe('reader.ReaderClient', () => {
       ]);
   });
 
-  after(async () => {
+  afterAll(async () => {
     await bigquery.dataset(datasetId).delete({force: true}).catch(console.warn);
   });
 
@@ -768,7 +765,7 @@ describe('reader.ReaderClient', () => {
       } finally {
         client.close();
       }
-    }).timeout(60 * 1000);
+    }, 60 * 1000);
   });
 
   describe('Error Scenarios', () => {
@@ -837,7 +834,7 @@ describe('reader.ReaderClient', () => {
         // access private stream connection
         const stream = reader['_arrowReader']['_session']['_readStreams'][0];
         let reconnectedCalled = false;
-        sandbox.stub(stream, 'reconnect').callsFake(() => {
+        jest.spyOn(stream, 'reconnect').mockImplementation(() => {
           reconnectedCalled = true;
         });
         const conn = stream['_connection'] as gax.CancellableStream; // private method

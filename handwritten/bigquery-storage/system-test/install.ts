@@ -18,11 +18,10 @@
 
 import { packNTest } from 'pack-n-play';
 import { readFileSync } from 'fs';
-import { describe, it } from 'mocha';
 
 describe('📦 pack-n-play test', () => {
-  it('TypeScript code', async function () {
-    this.timeout(300000);
+  it('TypeScript code', async () => {
+    jest.setTimeout(300000);
     const options = {
       packageDir: process.cwd(),
       sample: {
@@ -35,8 +34,8 @@ describe('📦 pack-n-play test', () => {
     await packNTest(options);
   });
 
-  it('JavaScript code', async function () {
-    this.timeout(300000);
+  it('JavaScript code', async () => {
+    jest.setTimeout(300000);
     const options = {
       packageDir: process.cwd(),
       sample: {

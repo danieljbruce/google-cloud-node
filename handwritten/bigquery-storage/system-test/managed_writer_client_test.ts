@@ -15,10 +15,8 @@
 import * as assert from 'assert';
 import {readFileSync} from 'fs';
 import * as path from 'path';
-import {describe, it} from 'mocha';
 import * as crypto from 'crypto';
 import * as gax from 'google-gax';
-import * as sinon from 'sinon';
 import {BigQuery, TableSchema} from '@google-cloud/bigquery';
 import {protos} from '@google-cloud/bigquery-storage-api';
 import * as bigquerywriter from '../src';
@@ -34,8 +32,7 @@ const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'),
 );
 
-const sandbox = sinon.createSandbox();
-afterEach(() => sandbox.restore());
+afterEach(() => jest.restoreAllMocks());
 
 const {managedwriter, adapt} = bigquerywriter;
 const {WriterClient, Writer, JSONWriter, parseStorageErrors} = managedwriter;
@@ -109,11 +106,11 @@ describe('managedwriter.WriterClient', () => {
     ],
   };
 
-  before(async () => {
+  beforeAll(async () => {
     await cleanupDatasets(bigquery, GCLOUD_TESTS_PREFIX);
 
     await bigquery.createDataset(datasetId);
-  }).timeout(2 * 60 * 1000);
+  }, 2 * 60 * 1000);
 
   beforeEach(async () => {
     tableId = generateUuid();
@@ -127,7 +124,7 @@ describe('managedwriter.WriterClient', () => {
     parent = `projects/${projectId}/datasets/${datasetId}/tables/${tableId}`;
   });
 
-  after(async () => {
+  afterAll(async () => {
     await bigquery.dataset(datasetId).delete({force: true}).catch(console.warn);
   });
 
@@ -938,7 +935,7 @@ describe('managedwriter.WriterClient', () => {
       } finally {
         client.close();
       }
-    }).timeout(30 * 1000);
+    }, 30 * 1000);
 
     it('Change data capture (CDC)', async () => {
       bqWriteClient.initialize().catch(err => {
@@ -1313,14 +1310,14 @@ describe('managedwriter.WriterClient', () => {
       rowNum = 0;
     });
 
-    before(async () => {
+    beforeAll(async () => {
       flakyDatasetId = generateUuid();
       await bigquery.createDataset(flakyDatasetId, {
         location: flakyRegion,
       });
     });
 
-    after(async () => {
+    afterAll(async () => {
       await bigquery
         .dataset(flakyDatasetId)
         .delete({force: true})
@@ -1379,7 +1376,7 @@ describe('managedwriter.WriterClient', () => {
         } finally {
           client.close();
         }
-      }).timeout(2 * 60 * 1000);
+      }, 2 * 60 * 1000);
 
       it('opening the connection can fail more frequently', async () => {
         bqWriteClient.initialize().catch(err => {
@@ -1436,7 +1433,7 @@ describe('managedwriter.WriterClient', () => {
         } finally {
           client.close();
         }
-      }).timeout(2 * 60 * 1000);
+      }, 2 * 60 * 1000);
     });
 
     describe('should manage to send data in parallel', () => {
@@ -1491,7 +1488,7 @@ describe('managedwriter.WriterClient', () => {
         } finally {
           client.close();
         }
-      }).timeout(2 * 60 * 1000);
+      }, 2 * 60 * 1000);
 
       it('every 10 request there is a in stream INTERNAL error', async () => {
         bqWriteClient.initialize().catch(err => {
@@ -1510,9 +1507,9 @@ describe('managedwriter.WriterClient', () => {
           let numCalls = 0;
           let numSucess = 0;
           const conn = connection['_connection'] as gax.CancellableStream;
-          sandbox
-            .stub(conn, 'write')
-            .callsFake(
+          jest
+            .spyOn(conn, 'write')
+            .mockImplementation(
               (
                 chunk: unknown,
                 _,
@@ -1572,7 +1569,7 @@ describe('managedwriter.WriterClient', () => {
         } finally {
           client.close();
         }
-      }).timeout(2 * 60 * 1000);
+      }, 2 * 60 * 1000);
     });
   });
 
@@ -1937,7 +1934,7 @@ describe('managedwriter.WriterClient', () => {
       } finally {
         client.close();
       }
-    }).timeout(20 * 1000);
+    }, 20 * 1000);
 
     it('should mark any pending writes with error if connection was closed', async () => {
       bqWriteClient.initialize().catch(err => {

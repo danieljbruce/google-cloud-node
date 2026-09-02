@@ -11,9 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as protobuf from 'protobufjs';
 import * as adapt from '../../src/adapt';
 import * as messagesJSON from '../testdata/message.json';
@@ -65,7 +62,7 @@ describe('Adapt Protos', () => {
         storageSchema,
         'Test',
       );
-      assert.notEqual(protoDescriptor, null);
+      expect(protoDescriptor).not.toBeNull();
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
@@ -78,7 +75,7 @@ describe('Adapt Protos', () => {
       };
       const serialized = TestProto.encode(raw).finish();
       const decoded = TestProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual(raw);
     });
 
     it('basic with CDC fields', () => {
@@ -104,7 +101,7 @@ describe('Adapt Protos', () => {
         adapt.withChangeType(),
         adapt.withChangeSequenceNumber(),
       );
-      assert.notEqual(protoDescriptor, null);
+      expect(protoDescriptor).not.toBeNull();
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
@@ -117,7 +114,10 @@ describe('Adapt Protos', () => {
       };
       const serialized = TestProto.encode(raw).finish();
       const decoded = TestProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual({
+        ...raw,
+        id: '1',
+      });
     });
 
     it('basic with Flexible column fields', () => {
@@ -146,12 +146,12 @@ describe('Adapt Protos', () => {
         storageSchema,
         'Flexible',
       );
-      assert.notEqual(protoDescriptor, null);
+      expect(protoDescriptor).not.toBeNull();
 
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      assert.deepEqual(JSON.parse(JSON.stringify(protoDescriptor)), {
+      expect(JSON.parse(JSON.stringify(protoDescriptor))).toEqual({
         name: 'Flexible',
         field: [
           {
@@ -192,7 +192,10 @@ describe('Adapt Protos', () => {
       };
       const serialized = FlexibleProto.encode(raw).finish();
       const decoded = FlexibleProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual({
+        ...raw,
+        field_54m55Yil44Kz44Op44Og: '1',
+      });
     });
 
     it('nested struct', () => {
@@ -245,11 +248,11 @@ describe('Adapt Protos', () => {
         storageSchema,
         'Nested',
       );
-      assert.notEqual(protoDescriptor, null);
+      expect(protoDescriptor).not.toBeNull();
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
-      assert.deepEqual(JSON.parse(JSON.stringify(protoDescriptor)), {
+      expect(JSON.parse(JSON.stringify(protoDescriptor))).toEqual({
         name: 'Nested',
         field: [
           {
@@ -329,7 +332,13 @@ describe('Adapt Protos', () => {
       };
       const serialized = NestedProto.encode(raw).finish();
       const decoded = NestedProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual({
+        ...raw,
+        metadata: {
+          createdAt: String(raw.metadata.createdAt),
+          updatedAt: String(raw.metadata.updatedAt),
+        },
+      });
     });
 
     it('range', () => {
@@ -364,7 +373,7 @@ describe('Adapt Protos', () => {
         storageSchema,
         'Test',
       );
-      assert.notEqual(protoDescriptor, null);
+      expect(protoDescriptor).not.toBeNull();
       if (!protoDescriptor) {
         throw Error('null proto descriptor set');
       }
@@ -387,7 +396,13 @@ describe('Adapt Protos', () => {
       };
       const serialized = TestProto.encode(raw).finish();
       const decoded = TestProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual({
+        ...raw,
+        range_ts: {
+          start: String(raw.range_ts.start),
+          end: String(raw.range_ts.end),
+        },
+      });
     });
 
     it('convert both string and numeric value of table schema field type', () => {
@@ -443,7 +458,15 @@ describe('Adapt Protos', () => {
       };
       const serialized = TestProto.encode(raw).finish();
       const decoded = TestProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual({
+        rowNum: '1',
+        range: {
+          start: String(raw.range.start),
+        },
+        nested: {
+          integer: '10',
+        },
+      });
     });
 
     it('timestamp precision', () => {
@@ -462,8 +485,8 @@ describe('Adapt Protos', () => {
         storageSchema,
         'Test',
       );
-      assert.notEqual(protoDescriptor, null);
-      assert.deepStrictEqual(JSON.parse(JSON.stringify(protoDescriptor)), {
+      expect(protoDescriptor).not.toBeNull();
+      expect(JSON.parse(JSON.stringify(protoDescriptor))).toEqual({
         name: 'Test',
         field: [
           {
@@ -484,7 +507,7 @@ describe('Adapt Protos', () => {
       };
       const serialized = TestProto.encode(raw).finish();
       const decoded = TestProto.decode(serialized).toJSON();
-      assert.deepEqual(raw, decoded);
+      expect(decoded).toEqual(raw);
     });
   });
 
@@ -499,7 +522,7 @@ describe('Adapt Protos', () => {
       const normalized = adapt
         .normalizeDescriptor(new DescriptorProto(descriptor))
         .toJSON();
-      assert.deepEqual(normalized, {
+      expect(normalized).toEqual({
         name: 'GithubArchiveMessage',
         field: [
           {
@@ -650,7 +673,7 @@ describe('Adapt Protos', () => {
       const normalized = adapt
         .normalizeDescriptor(new DescriptorProto(descriptor))
         .toJSON();
-      assert.deepEqual(normalized, {
+      expect(normalized).toEqual({
         name: 'ExternalEnumMessage',
         field: [
           {
