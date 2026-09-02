@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
 import {grpc} from 'google-gax';
 import {PublishError} from '../../src/publisher/publish-error';
 
@@ -34,29 +32,28 @@ describe('PublishError', () => {
   });
 
   it('should give a helpful message', () => {
-    assert.strictEqual(
-      error.message,
+    expect(error.message).toBe(
       `Unable to publish for key "${orderingKey}". Reason: ${fakeError.message}`,
     );
   });
 
   it('should capture the error code', () => {
-    assert.strictEqual(error.code, fakeError.code);
+    expect(error.code).toBe(fakeError.code);
   });
 
   it('should capture the error details', () => {
-    assert.strictEqual(error.details, fakeError.details);
+    expect(error.details).toBe(fakeError.details);
   });
 
   it('should capture the error metadata', () => {
-    assert.strictEqual(error.metadata, fakeError.metadata);
+    expect(error.metadata).toBe(fakeError.metadata);
   });
 
   it('should capture the ordering key', () => {
-    assert.strictEqual(error.orderingKey, orderingKey);
+    expect(error.orderingKey).toBe(orderingKey);
   });
 
   it('should capture the original error', () => {
-    assert.strictEqual(error.error, fakeError);
+    expect(error.error).toBe(fakeError);
   });
 });

@@ -12,38 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
 import {ServiceError} from 'google-gax';
-import {describe, it, beforeEach, before, after, afterEach} from 'mocha';
-import * as proxyquire from 'proxyquire';
-import * as sinon from 'sinon';
-
 import {PubSub, RequestConfig} from '../src/pubsub';
 import * as snapTypes from '../src/snapshot';
+import {Snapshot} from '../src/snapshot';
 import {Subscription} from '../src/subscription';
-import * as util from '../src/util';
-
-let promisified = false;
-const fakeUtil = Object.assign({}, util, {
-  promisifySome(
-    class_: Function,
-    classProtos: object,
-    methods: string[],
-  ): void {
-    if (class_.name === 'Snapshot') {
-      promisified = true;
-      assert.deepStrictEqual(methods, ['delete', 'create', 'seek']);
-    }
-    // Defeats the method name type check.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    util.promisifySome(class_, classProtos, methods as any);
-  },
-});
 
 describe('Snapshot', () => {
-  // tslint:disable-next-line variable-name
-  let Snapshot: typeof snapTypes.Snapshot;
-
   let snapshot: snapTypes.Snapshot;
 
   const SNAPSHOT_NAME = 'a';
@@ -61,69 +36,60 @@ describe('Snapshot', () => {
     seek() {},
   } as {} as Subscription;
 
-  before(() => {
-    Snapshot = proxyquire('../src/snapshot', {
-      './util': fakeUtil,
-    }).Snapshot;
-  });
-
-  const sandbox = sinon.createSandbox();
   beforeEach(() => {
     snapshot = new Snapshot(SUBSCRIPTION, SNAPSHOT_NAME);
   });
-  afterEach(() => sandbox.restore());
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   describe('initialization', () => {
     const FULL_SNAPSHOT_NAME = 'a/b/c/d';
     let formatName_: (projectId: string, name: string) => string;
 
-    before(() => {
+    beforeEach(() => {
       formatName_ = Snapshot.formatName_;
       Snapshot.formatName_ = () => {
         return FULL_SNAPSHOT_NAME;
       };
     });
 
-    after(() => {
+    afterEach(() => {
       Snapshot.formatName_ = formatName_;
     });
 
-    it('should promisify some of the things', () => {
-      assert(promisified);
-    });
-
     it('should localize the parent', () => {
-      assert.strictEqual(snapshot.parent, SUBSCRIPTION);
+      expect(snapshot.parent).toBe(SUBSCRIPTION);
     });
 
     describe('name', () => {
       it('should create and cache the full name', () => {
         Snapshot.formatName_ = (projectId: string, name: string) => {
-          assert.strictEqual(projectId, PROJECT_ID);
-          assert.strictEqual(name, SNAPSHOT_NAME);
+          expect(projectId).toBe(PROJECT_ID);
+          expect(name).toBe(SNAPSHOT_NAME);
           return FULL_SNAPSHOT_NAME;
         };
 
         const snapshot = new Snapshot(SUBSCRIPTION, SNAPSHOT_NAME);
-        assert.strictEqual(snapshot.name, FULL_SNAPSHOT_NAME);
+        expect(snapshot.name).toBe(FULL_SNAPSHOT_NAME);
       });
 
       it('should pull the projectId from parent object', () => {
         Snapshot.formatName_ = (projectId: string, name: string) => {
-          assert.strictEqual(projectId, PROJECT_ID);
-          assert.strictEqual(name, SNAPSHOT_NAME);
+          expect(projectId).toBe(PROJECT_ID);
+          expect(name).toBe(SNAPSHOT_NAME);
           return FULL_SNAPSHOT_NAME;
         };
 
         const snapshot = new Snapshot(SUBSCRIPTION, SNAPSHOT_NAME);
-        assert.strictEqual(snapshot.name, FULL_SNAPSHOT_NAME);
+        expect(snapshot.name).toBe(FULL_SNAPSHOT_NAME);
       });
     });
 
     describe('with Subscription parent', () => {
       let pubsub: PubSub;
       let subscription: Subscription;
-      before(() => {
+      beforeEach(() => {
         pubsub = new PubSub({projectId: PROJECT_ID});
         subscription = pubsub.subscription('test');
       });
@@ -135,57 +101,57 @@ describe('Snapshot', () => {
 
         it('should call createSnapshot', done => {
           const fakeOpts = {};
-          sandbox
-            .stub(subscription, 'createSnapshot')
-            .callsFake((name, options) => {
-              assert.strictEqual(name, FULL_SNAPSHOT_NAME);
-              assert.strictEqual(options, fakeOpts);
+          jest
+            .spyOn(subscription, 'createSnapshot')
+            .mockImplementation(((name: any, options: any) => {
+              expect(name).toBe(FULL_SNAPSHOT_NAME);
+              expect(options).toBe(fakeOpts);
               done();
-            });
+            }) as any);
 
-          snapshot.create(fakeOpts, assert.ifError);
+          snapshot.create(fakeOpts, () => {});
         });
 
         it('should return any request errors', done => {
           const fakeError = new Error('err');
           const fakeResponse = {};
-          const stub = sandbox.stub(subscription, 'createSnapshot');
+          const stub = jest.spyOn(subscription, 'createSnapshot');
 
-          snapshot.create((err, snap, resp) => {
-            assert.strictEqual(err, fakeError);
-            assert.strictEqual(snap, null);
-            assert.strictEqual(resp, fakeResponse);
+          snapshot.create(((err: any, snap: any, resp: any) => {
+            expect(err).toBe(fakeError);
+            expect(snap).toBeNull();
+            expect(resp).toBe(fakeResponse);
             done();
-          });
+          }) as any);
 
-          const callback = stub.lastCall.args[2];
+          const callback = (stub as any).mock.calls[stub.mock.calls.length - 1][2];
           setImmediate(callback, fakeError as ServiceError, null, fakeResponse);
         });
 
         it('should return the correct snapshot', done => {
           const fakeSnapshot = new Snapshot(SUBSCRIPTION, SNAPSHOT_NAME);
           const fakeResponse = {};
-          const stub = sandbox.stub(subscription, 'createSnapshot');
+          const stub = jest.spyOn(subscription, 'createSnapshot');
 
-          snapshot.create((err, snap, resp) => {
-            assert.ifError(err);
-            assert.strictEqual(snap, snapshot);
-            assert.strictEqual(resp, fakeResponse);
+          snapshot.create(((err: any, snap: any, resp: any) => {
+            expect(err).toBeNull();
+            expect(snap).toBe(snapshot);
+            expect(resp).toBe(fakeResponse);
             done();
-          });
+          }) as any);
 
-          const callback = stub.lastCall.args[2];
+          const callback = (stub as any).mock.calls[stub.mock.calls.length - 1][2];
           setImmediate(callback, null, fakeSnapshot, fakeResponse);
         });
       });
 
       it('should call the seek method', done => {
-        sandbox.stub(subscription, 'seek').callsFake(snapshot => {
-          assert.strictEqual(snapshot, FULL_SNAPSHOT_NAME);
+        jest.spyOn(subscription, 'seek').mockImplementation(((snap: any) => {
+          expect(snap).toBe(FULL_SNAPSHOT_NAME);
           done();
-        });
+        }) as any);
         const snapshot = new Snapshot(subscription, SNAPSHOT_NAME);
-        snapshot.seek(assert.ifError);
+        snapshot.seek(() => {});
       });
     });
 
@@ -195,15 +161,13 @@ describe('Snapshot', () => {
       });
 
       it('should throw on create method', async () => {
-        await assert.rejects(
-          () => snapshot.create(),
+        await expect(snapshot.create()).rejects.toThrow(
           /This is only available if you accessed this object through Subscription#snapshot/,
         );
       });
 
       it('should throw on seek method', async () => {
-        await assert.rejects(
-          () => snapshot.seek(),
+        await expect(snapshot.seek()).rejects.toThrow(
           /This is only available if you accessed this object through Subscription#snapshot/,
         );
       });
@@ -215,21 +179,21 @@ describe('Snapshot', () => {
 
     it('should format the name', () => {
       const name = Snapshot.formatName_(PROJECT_ID, SNAPSHOT_NAME);
-      assert.strictEqual(name, EXPECTED);
+      expect(name).toBe(EXPECTED);
     });
 
     it('should not re-format the name', () => {
       const name = Snapshot.formatName_(PROJECT_ID, EXPECTED);
-      assert.strictEqual(name, EXPECTED);
+      expect(name).toBe(EXPECTED);
     });
   });
 
   describe('delete', () => {
     it('should make the correct request', done => {
       snapshot.parent.request = (config: RequestConfig, callback: Function) => {
-        assert.strictEqual(config.client, 'SubscriberClient');
-        assert.strictEqual(config.method, 'deleteSnapshot');
-        assert.deepStrictEqual(config.reqOpts, {snapshot: snapshot.name});
+        expect(config.client).toBe('SubscriberClient');
+        expect(config.method).toBe('deleteSnapshot');
+        expect(config.reqOpts).toEqual({snapshot: snapshot.name});
         callback(); // the done fn
       };
 

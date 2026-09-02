@@ -14,14 +14,11 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it, beforeEach} from 'mocha';
-
 import * as trace from '@opentelemetry/sdk-trace-base';
 import * as otel from '../src/telemetry-tracing';
 import {exporter} from './tracing';
 import {SpanKind} from '@opentelemetry/api';
-import sinon = require('sinon');
+import * as opentelemetry from '@opentelemetry/api';
 import {PubsubMessage} from '../src/publisher';
 import {Duration} from '../src/temporal';
 
@@ -33,47 +30,48 @@ describe('OpenTelemetryTracer', () => {
   afterEach(() => {
     exporter.reset();
     otel.setGloballyEnabled(false);
+    jest.restoreAllMocks();
   });
 
   describe('project parser', () => {
     it('parses subscription info', () => {
       const name = 'projects/project-name/subscriptions/sub-name';
       const info = otel.getSubscriptionInfo(name);
-      assert.strictEqual(info.subName, name);
-      assert.strictEqual(info.projectId, 'project-name');
-      assert.strictEqual(info.subId, 'sub-name');
-      assert.strictEqual(info.topicId, undefined);
-      assert.strictEqual(info.topicName, undefined);
+      expect(info.subName).toBe(name);
+      expect(info.projectId).toBe('project-name');
+      expect(info.subId).toBe('sub-name');
+      expect(info.topicId).toBe(undefined);
+      expect(info.topicName).toBe(undefined);
     });
 
     it('parses topic info', () => {
       const name = 'projects/project-name/topics/topic-name';
       const info = otel.getTopicInfo(name);
-      assert.strictEqual(info.topicName, name);
-      assert.strictEqual(info.projectId, 'project-name');
-      assert.strictEqual(info.topicId, 'topic-name');
-      assert.strictEqual(info.subId, undefined);
-      assert.strictEqual(info.subName, undefined);
+      expect(info.topicName).toBe(name);
+      expect(info.projectId).toBe('project-name');
+      expect(info.topicId).toBe('topic-name');
+      expect(info.subId).toBe(undefined);
+      expect(info.subName).toBe(undefined);
     });
 
     it('parses broken subscription info', () => {
       const name = 'projec/foo_foo/subs/sub_sub';
       const info = otel.getSubscriptionInfo(name);
-      assert.strictEqual(info.subName, name);
-      assert.strictEqual(info.projectId, undefined);
-      assert.strictEqual(info.subId, undefined);
-      assert.strictEqual(info.topicId, undefined);
-      assert.strictEqual(info.topicName, undefined);
+      expect(info.subName).toBe(name);
+      expect(info.projectId).toBe(undefined);
+      expect(info.subId).toBe(undefined);
+      expect(info.topicId).toBe(undefined);
+      expect(info.topicName).toBe(undefined);
     });
 
     it('parses broken topic info', () => {
       const name = 'projec/foo_foo/tops/top_top';
       const info = otel.getTopicInfo(name);
-      assert.strictEqual(info.subName, undefined);
-      assert.strictEqual(info.projectId, undefined);
-      assert.strictEqual(info.subId, undefined);
-      assert.strictEqual(info.topicId, undefined);
-      assert.strictEqual(info.topicName, name);
+      expect(info.subName).toBe(undefined);
+      expect(info.projectId).toBe(undefined);
+      expect(info.subId).toBe(undefined);
+      expect(info.topicId).toBe(undefined);
+      expect(info.topicName).toBe(name);
     });
   });
 
@@ -85,14 +83,14 @@ describe('OpenTelemetryTracer', () => {
         'projects/test/topics/topicfoo',
         'tests',
       ) as trace.Span;
-      span.end();
+      span!.end();
 
       const spans = exporter.getFinishedSpans();
-      assert.notStrictEqual(spans.length, 0);
+      expect(spans.length).not.toBe(0);
       const exportedSpan = spans.concat().pop()!;
 
-      assert.strictEqual(exportedSpan.name, 'topicfoo create');
-      assert.strictEqual(exportedSpan.kind, SpanKind.PRODUCER);
+      expect(exportedSpan.name).toBe('topicfoo create');
+      expect(exportedSpan.kind).toBe(SpanKind.PRODUCER);
     });
 
     it('injects a trace context', () => {
@@ -105,14 +103,13 @@ describe('OpenTelemetryTracer', () => {
         'tests',
       ) as trace.Span;
 
-      otel.injectSpan(span, message);
+      otel.injectSpan(span!, message);
 
-      assert.strictEqual(
+      expect(
         Object.getOwnPropertyNames(message.attributes).includes(
           otel.modernAttributeName,
         ),
-        true,
-      );
+      ).toBe(true);
     });
   });
 
@@ -126,16 +123,15 @@ describe('OpenTelemetryTracer', () => {
         'projects/test/topics/topicfoo',
         'tests',
       );
-      assert.ok(span);
+      expect(span).toBeTruthy();
 
-      otel.injectSpan(span, message);
+      otel.injectSpan(span!, message);
 
-      assert.strictEqual(
+      expect(
         Object.getOwnPropertyNames(message.attributes).includes(
           otel.modernAttributeName,
         ),
-        true,
-      );
+      ).toBe(true);
     });
 
     it('should issue a warning if OpenTelemetry span context key is set', () => {
@@ -149,14 +145,14 @@ describe('OpenTelemetryTracer', () => {
         'projects/test/topics/topicfoo',
         'tests',
       );
-      assert.ok(span);
+      expect(span).toBeTruthy();
 
-      const warnSpy = sinon.spy(console, 'warn');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
-        otel.injectSpan(span, message);
-        assert.strictEqual(warnSpy.callCount, 1);
+        otel.injectSpan(span!, message);
+        expect((warnSpy as any).mock.calls.length).toBe(1);
       } finally {
-        warnSpy.restore();
+        warnSpy.mockRestore();
       }
     });
 
@@ -168,10 +164,10 @@ describe('OpenTelemetryTracer', () => {
           [otel.modernAttributeName]: 'foobar',
         },
       };
-      assert.strictEqual(otel.containsSpanContext(message), true);
+      expect(otel.containsSpanContext(message)).toBe(true);
 
       message = {};
-      assert.strictEqual(otel.containsSpanContext(message), false);
+      expect(otel.containsSpanContext(message)).toBe(false);
     });
 
     it('extracts a trace context', () => {
@@ -186,10 +182,9 @@ describe('OpenTelemetryTracer', () => {
         message,
         'projects/test/subscriptions/subfoo',
       );
-      assert.strictEqual(
+      expect(
         childSpan!.spanContext().traceId,
-        'd4cda95b652f4a1592b449d5929fda1b',
-      );
+      ).toBe('d4cda95b652f4a1592b449d5929fda1b');
     });
   });
 
@@ -215,7 +210,7 @@ describe('OpenTelemetryTracer', () => {
         'tests',
         'create',
       );
-      assert.deepStrictEqual(topicAttrs, {
+      expect(topicAttrs).toEqual({
         'messaging.system': 'gcp_pubsub',
         'messaging.destination.name': topicInfo.topicId,
         'gcp.project_id': topicInfo.projectId,
@@ -240,7 +235,7 @@ describe('OpenTelemetryTracer', () => {
         'tests',
         'create',
       );
-      assert.deepStrictEqual(topicAttrs2, {
+      expect(topicAttrs2).toEqual({
         'messaging.system': 'gcp_pubsub',
         'messaging.destination.name': topicInfo.topicId,
         'messaging.operation': 'create',
@@ -279,25 +274,22 @@ describe('OpenTelemetryTracer', () => {
         tests.topicInfo.topicName!,
         'tests',
       );
-      assert.ok(span);
-      span.end();
+      expect(span).toBeTruthy();
+      span!.end();
 
       const spans = exporter.getFinishedSpans();
-      assert.strictEqual(spans.length, 1);
+      expect(spans.length).toBe(1);
 
       const firstSpan = spans.pop();
-      assert.ok(firstSpan);
-      assert.strictEqual(firstSpan.name, `${tests.topicInfo.topicId} create`);
-      assert.strictEqual(firstSpan.attributes['messaging.operation'], 'create');
-      assert.strictEqual(
-        firstSpan.attributes['messaging.destination.name'],
-        tests.topicInfo.topicId,
-      );
-      assert.strictEqual(firstSpan.attributes['messaging.operation'], 'create');
-      assert.strictEqual(
-        firstSpan.attributes['messaging.system'],
-        'gcp_pubsub',
-      );
+      expect(firstSpan).toBeTruthy();
+      expect(firstSpan!.name).toBe(`${tests.topicInfo.topicId} create`);
+      expect(firstSpan!.attributes['messaging.operation']).toBe('create');
+      expect(
+        firstSpan!.attributes['messaging.destination.name'],
+      ).toBe(tests.topicInfo.topicId);
+      expect(
+        firstSpan!.attributes['messaging.system'],
+      ).toBe('gcp_pubsub');
     });
 
     it('updates publisher topic names', () => {
@@ -306,23 +298,22 @@ describe('OpenTelemetryTracer', () => {
         tests.topicInfo.topicName!,
         'tests',
       );
-      assert.ok(span);
+      expect(span).toBeTruthy();
       otel.PubsubSpans.updatePublisherTopicName(
-        span,
+        span!,
         'projects/foo/topics/other',
       );
-      span.end();
+      span!.end();
 
       const spans = exporter.getFinishedSpans();
-      assert.strictEqual(spans.length, 1);
+      expect(spans.length).toBe(1);
 
       const firstSpan = spans.pop();
-      assert.ok(firstSpan);
-      assert.strictEqual(firstSpan.name, 'other create');
-      assert.strictEqual(
-        firstSpan.attributes['messaging.destination.name'],
-        'other',
-      );
+      expect(firstSpan).toBeTruthy();
+      expect(firstSpan!.name).toBe('other create');
+      expect(
+        firstSpan!.attributes['messaging.destination.name'],
+      ).toBe('other');
     });
 
     it('creates receive spans', () => {
@@ -331,37 +322,31 @@ describe('OpenTelemetryTracer', () => {
         tests.topicInfo.topicName!,
         'tests',
       );
-      assert.ok(parentSpan);
+      expect(parentSpan).toBeTruthy();
       const span = otel.PubsubSpans.createReceiveSpan(
         tests.message,
         tests.subInfo.subName!,
-        otel.spanContextToContext(parentSpan.spanContext()),
+        otel.spanContextToContext(parentSpan!.spanContext()),
         'tests',
       );
-      assert.ok(span);
-      span.end();
-      parentSpan.end();
+      expect(span).toBeTruthy();
+      span!.end();
+      parentSpan!.end();
 
       const spans = exporter.getFinishedSpans();
       const parentReadSpan = spans.pop();
       const childReadSpan = spans.pop();
-      assert.ok(parentReadSpan && childReadSpan);
+      expect(parentReadSpan && childReadSpan).toBeTruthy();
 
-      assert.strictEqual(childReadSpan.name, 'sub subscribe');
-      assert.strictEqual(
-        childReadSpan.attributes['messaging.operation'],
-        'receive',
-      );
-      assert.strictEqual(
-        childReadSpan.attributes['messaging.destination.name'],
-        'sub',
-      );
-      assert.strictEqual(
-        childReadSpan.attributes['messaging.operation'],
-        'receive',
-      );
-      assert.strictEqual(childReadSpan.kind, SpanKind.CONSUMER);
-      assert.ok(childReadSpan.parentSpanContext?.spanId);
+      expect(childReadSpan!.name).toBe('sub subscribe');
+      expect(
+        childReadSpan!.attributes['messaging.operation'],
+      ).toBe('receive');
+      expect(
+        childReadSpan!.attributes['messaging.destination.name'],
+      ).toBe('sub');
+      expect(childReadSpan!.kind).toBe(SpanKind.CONSUMER);
+      expect(childReadSpan!.parentSpanContext?.spanId).toBeTruthy();
     });
 
     it('creates publish RPC spans', () => {
@@ -380,19 +365,18 @@ describe('OpenTelemetryTracer', () => {
         'test',
       );
 
-      span.end();
+      span!.end();
       publishSpan?.end();
       const spans = exporter.getFinishedSpans();
       const publishReadSpan = spans.pop();
       const childReadSpan = spans.pop();
-      assert.ok(publishReadSpan && childReadSpan);
+      expect(publishReadSpan && childReadSpan).toBeTruthy();
 
-      assert.strictEqual(
-        publishReadSpan.attributes['messaging.batch.message_count'],
-        1,
-      );
-      assert.strictEqual(publishReadSpan.links.length, 1);
-      assert.strictEqual(childReadSpan.links.length, 1);
+      expect(
+        publishReadSpan!.attributes['messaging.batch.message_count'],
+      ).toBe(1);
+      expect(publishReadSpan!.links.length).toBe(1);
+      expect(childReadSpan!.links.length).toBe(1);
     });
 
     it('creates ack rpc span', () => {
@@ -409,29 +393,26 @@ describe('OpenTelemetryTracer', () => {
         subName,
         'tests',
       );
-      assert.ok(span);
+      expect(span).toBeTruthy();
       producerSpan.end();
-      span.end();
+      span!.end();
 
       const spans = exporter.getFinishedSpans();
-      assert.strictEqual(spans.length, 2);
+      expect(spans.length).toBe(2);
 
       const firstSpan = spans.pop();
-      assert.ok(firstSpan);
-      assert.strictEqual(firstSpan.kind, SpanKind.CLIENT);
-      assert.strictEqual(firstSpan.name, `${subName} ack`);
-      assert.strictEqual(
-        firstSpan.attributes['messaging.destination.name'],
-        subName,
-      );
-      assert.strictEqual(
-        firstSpan.attributes['messaging.batch.message_count'],
-        1,
-      );
-      assert.strictEqual(
-        firstSpan.attributes['messaging.system'],
-        'gcp_pubsub',
-      );
+      expect(firstSpan).toBeTruthy();
+      expect(firstSpan!.kind).toBe(SpanKind.CLIENT);
+      expect(firstSpan!.name).toBe(`${subName} ack`);
+      expect(
+        firstSpan!.attributes['messaging.destination.name'],
+      ).toBe(subName);
+      expect(
+        firstSpan!.attributes['messaging.batch.message_count'],
+      ).toBe(1);
+      expect(
+        firstSpan!.attributes['messaging.system'],
+      ).toBe('gcp_pubsub');
     });
 
     it('creates modack rpc span', () => {
@@ -451,35 +432,31 @@ describe('OpenTelemetryTracer', () => {
         Duration.from({seconds: 1}),
         true,
       );
-      assert.ok(span);
+      expect(span).toBeTruthy();
       producerSpan.end();
-      span.end();
+      span!.end();
 
       const spans = exporter.getFinishedSpans();
-      assert.strictEqual(spans.length, 2);
+      expect(spans.length).toBe(2);
 
       const firstSpan = spans.pop();
-      assert.ok(firstSpan);
-      assert.strictEqual(firstSpan.kind, SpanKind.CLIENT);
-      assert.strictEqual(firstSpan.name, `${subName} modack`);
-      assert.strictEqual(
-        firstSpan.attributes['messaging.destination.name'],
-        subName,
-      );
-      assert.strictEqual(
-        firstSpan.attributes[
+      expect(firstSpan).toBeTruthy();
+      expect(firstSpan!.kind).toBe(SpanKind.CLIENT);
+      expect(firstSpan!.name).toBe(`${subName} modack`);
+      expect(
+        firstSpan!.attributes['messaging.destination.name'],
+      ).toBe(subName);
+      expect(
+        firstSpan!.attributes[
           'messaging.gcp_pubsub.message.ack_deadline_seconds'
         ],
-        1,
-      );
-      assert.strictEqual(
-        firstSpan.attributes['messaging.gcp_pubsub.is_receipt_modack'],
-        true,
-      );
-      assert.strictEqual(
-        firstSpan.attributes['messaging.system'],
-        'gcp_pubsub',
-      );
+      ).toBe(1);
+      expect(
+        firstSpan!.attributes['messaging.gcp_pubsub.is_receipt_modack'],
+      ).toBe(true);
+      expect(
+        firstSpan!.attributes['messaging.system'],
+      ).toBe('gcp_pubsub');
     });
   });
 });

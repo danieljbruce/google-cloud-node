@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import * as assert from 'assert';
-import {describe, it, before, after} from 'mocha';
 import * as crypto from 'crypto';
 import defer = require('p-defer');
 

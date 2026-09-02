@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {describe, it} from 'mocha';
-import * as assert from 'assert';
-import * as sinon from 'sinon';
-
 import {ExponentialRetry} from '../src/exponential-retry';
 import {Duration} from '../src/temporal';
 import {TestUtils} from './test-utils';
@@ -36,8 +32,10 @@ function makeItem() {
 }
 
 describe('exponential retry class', () => {
-  const sandbox = sinon.createSandbox();
-  afterEach(() => sandbox.restore());
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
 
   it('initializes correctly', () => {
     // This one is honestly not terribly interesting except that the
@@ -48,46 +46,46 @@ describe('exponential retry class', () => {
     );
 
     const eri = introspect(er);
-    assert.strictEqual(eri._backoffMs, 1000);
-    assert.strictEqual(eri._maxBackoffMs, 2000);
+    expect(eri._backoffMs).toBe(1000);
+    expect(eri._maxBackoffMs).toBe(2000);
   });
 
   it('makes the first callback', () => {
-    const clock = TestUtils.useFakeTimers(sandbox);
+    const clock = TestUtils.useFakeTimers();
     const er = new ExponentialRetry<TestItem>(
       Duration.from({milliseconds: 100}),
       Duration.from({milliseconds: 1000}),
     );
-    sandbox.stub(global.Math, 'random').returns(0.75);
+    jest.spyOn(global.Math, 'random').mockReturnValue(0.75);
 
     const item = makeItem();
     let retried = false;
     er.retryLater(item, (s: typeof item, t: Duration) => {
-      assert.strictEqual(s, item);
-      assert.strictEqual(t.milliseconds, 125);
+      expect(s).toBe(item);
+      expect(t.milliseconds).toBe(125);
       retried = true;
     });
 
     clock.tick(125);
 
     const leftovers = er.close();
-    assert.strictEqual(retried, true);
-    assert.strictEqual(leftovers.length, 0);
+    expect(retried).toBe(true);
+    expect(leftovers.length).toBe(0);
   });
 
   it('closes gracefully', () => {
-    const clock = TestUtils.useFakeTimers(sandbox);
+    const clock = TestUtils.useFakeTimers();
     const er = new ExponentialRetry<TestItem>(
       Duration.from({milliseconds: 100}),
       Duration.from({milliseconds: 1000}),
     );
-    sandbox.stub(global.Math, 'random').returns(0.75);
+    jest.spyOn(global.Math, 'random').mockReturnValue(0.75);
 
     let called = false;
     const item = makeItem();
     er.retryLater(item, (s: typeof item, t: Duration) => {
-      assert.strictEqual(s, item);
-      assert.strictEqual(t.milliseconds, 125);
+      expect(s).toBe(item);
+      expect(t.milliseconds).toBe(125);
       called = true;
     });
 
@@ -97,28 +95,28 @@ describe('exponential retry class', () => {
 
     clock.tick(125);
 
-    assert.strictEqual(called, false);
+    expect(called).toBe(false);
 
     const eri = introspect(er);
-    assert.strictEqual(eri._items.isEmpty(), true);
+    expect(eri._items.isEmpty()).toBe(true);
 
-    assert.strictEqual(leftovers.length, 1);
+    expect(leftovers.length).toBe(1);
   });
 
   it('backs off exponentially', () => {
-    const clock = TestUtils.useFakeTimers(sandbox);
+    const clock = TestUtils.useFakeTimers();
     const er = new ExponentialRetry<TestItem>(
       Duration.from({milliseconds: 100}),
       Duration.from({milliseconds: 1000}),
     );
-    sandbox.stub(global.Math, 'random').returns(0.75);
+    jest.spyOn(global.Math, 'random').mockReturnValue(0.75);
 
     let callbackCount = 0;
     let callbackTime: Duration = Duration.from({milliseconds: 0});
 
     const item = makeItem();
     const callback = (s: TestItem, t: Duration) => {
-      assert.strictEqual(s, item);
+      expect(s).toBe(item);
       callbackTime = t;
       callbackCount++;
       if (callbackCount === 1) {
@@ -128,31 +126,31 @@ describe('exponential retry class', () => {
     er.retryLater(item, callback);
 
     clock.tick(125);
-    assert.strictEqual(callbackCount, 1);
-    assert.strictEqual(callbackTime.milliseconds, 125);
+    expect(callbackCount).toBe(1);
+    expect(callbackTime.milliseconds).toBe(125);
 
     clock.tick(400);
-    assert.strictEqual(callbackCount, 2);
-    assert.strictEqual(callbackTime.milliseconds, 375);
+    expect(callbackCount).toBe(2);
+    expect(callbackTime.milliseconds).toBe(375);
 
     const leftovers = er.close();
-    assert.strictEqual(leftovers.length, 0);
+    expect(leftovers.length).toBe(0);
   });
 
   it('backs off exponentially until the max backoff', () => {
-    const clock = TestUtils.useFakeTimers(sandbox);
+    const clock = TestUtils.useFakeTimers();
     const item = makeItem();
     const er = new ExponentialRetry<TestItem>(
       Duration.from({milliseconds: 100}),
       Duration.from({milliseconds: 150}),
     );
-    sandbox.stub(global.Math, 'random').returns(0.75);
+    jest.spyOn(global.Math, 'random').mockReturnValue(0.75);
 
     let callbackCount = 0;
     let callbackTime: Duration = Duration.from({milliseconds: 0});
 
     const callback = (s: TestItem, t: Duration) => {
-      assert.strictEqual(s, item);
+      expect(s).toBe(item);
       callbackTime = t;
       callbackCount++;
       if (callbackCount === 1) {
@@ -162,19 +160,19 @@ describe('exponential retry class', () => {
     er.retryLater(item, callback);
 
     clock.tick(125);
-    assert.strictEqual(callbackCount, 1);
-    assert.strictEqual(callbackTime.milliseconds, 125);
+    expect(callbackCount).toBe(1);
+    expect(callbackTime.milliseconds).toBe(125);
 
     clock.tick(400);
-    assert.strictEqual(callbackCount, 2);
-    assert.strictEqual(callbackTime.milliseconds, 312);
+    expect(callbackCount).toBe(2);
+    expect(callbackTime.milliseconds).toBe(312);
 
     const leftovers = er.close();
-    assert.strictEqual(leftovers.length, 0);
+    expect(leftovers.length).toBe(0);
   });
 
   it('calls retries in the right order', () => {
-    const clock = TestUtils.useFakeTimers(sandbox);
+    const clock = TestUtils.useFakeTimers();
     const items = [makeItem(), makeItem()];
 
     const er = new ExponentialRetry<TestItem>(
@@ -183,7 +181,7 @@ describe('exponential retry class', () => {
     );
 
     // Just disable the fuzz for this test.
-    sandbox.stub(global.Math, 'random').returns(0.5);
+    jest.spyOn(global.Math, 'random').mockReturnValue(0.5);
 
     const callbackCounts = [0, 0];
     const callbackTimes: Duration[] = [
@@ -205,11 +203,8 @@ describe('exponential retry class', () => {
     er.retryLater(items[0], callback);
 
     clock.tick(300);
-    assert.deepStrictEqual(callbackCounts, [2, 0]);
-    assert.deepStrictEqual(
-      callbackTimes.map(d => d.milliseconds),
-      [300, 0],
-    );
+    expect(callbackCounts).toEqual([2, 0]);
+    expect(callbackTimes.map(d => d.milliseconds)).toEqual([300, 0]);
 
     // Load in the second item and get it retrying.
     er.retryLater(items[1], callback);
@@ -218,17 +213,14 @@ describe('exponential retry class', () => {
 
     // The first item should've retried twice and still be in the queue,
     // while the second item should've retried once and quit.
-    assert.deepStrictEqual(callbackCounts, [2, 1]);
-    assert.deepStrictEqual(
-      callbackTimes.map(d => d.milliseconds),
-      [300, 100],
-    );
+    expect(callbackCounts).toEqual([2, 1]);
+    expect(callbackTimes.map(d => d.milliseconds)).toEqual([300, 100]);
 
     // Make sure that we did in fact set another timer for the next event.
     const eri = introspect(er);
-    assert.ok(eri._timer);
+    expect(eri._timer).toBeTruthy();
 
     const leftovers = er.close();
-    assert.strictEqual(leftovers.length, 1);
+    expect(leftovers.length).toBe(1);
   });
 });

@@ -15,7 +15,6 @@
 import {Message, PubSub, Subscription, Topic} from '../src';
 import * as tracing from '../src/telemetry-tracing';
 import * as assert from 'assert';
-import {describe, it, after, before} from 'mocha';
 import {TestResources} from './testResources';
 import {NodeTracerProvider} from '@opentelemetry/sdk-trace-node';
 import {SimpleSpanProcessor, InMemorySpanExporter} from '@opentelemetry/sdk-trace-base';

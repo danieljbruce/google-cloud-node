@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {SinonSandbox, SinonFakeTimers} from 'sinon';
 import {loggingUtils} from 'google-gax';
 
-type FakeTimersParam = Parameters<SinonSandbox['useFakeTimers']>[0];
-interface FakeTimerConfig {
-  now?: number;
-  toFake?: string[];
+export interface FakeClock {
+  tick(ms: number): void;
+  restore(): void;
 }
 
 /**
@@ -28,28 +26,26 @@ interface FakeTimerConfig {
  */
 export class TestUtils {
   /**
-   * This helper should be used to enable fake timers for Sinon sandbox.
+   * This helper should be used to enable fake timers for Jest.
    *
-   * @param sandbox The sandbox
+   * @param sandbox Optional legacy sandbox param for compatibility
    * @param now An optional date to set for "now"
-   * @returns The clock object from useFakeTimers()
+   * @returns The clock object with tick and restore methods
    */
-  static useFakeTimers(sandbox: SinonSandbox, now?: number): SinonFakeTimers {
-    const config: FakeTimerConfig = {
-      toFake: [
-        'setTimeout',
-        'clearTimeout',
-        'setInterval',
-        'clearInterval',
-        'Date',
-      ],
-    };
-    if (now) {
-      config.now = now;
+  static useFakeTimers(sandbox?: unknown, now?: number): FakeClock {
+    if (now !== undefined) {
+      jest.useFakeTimers({now: new Date(now)});
+    } else {
+      jest.useFakeTimers();
     }
-
-    // The types are screwy in useFakeTimers(). I'm just going to pick one.
-    return sandbox.useFakeTimers(config as FakeTimersParam);
+    return {
+      tick: (ms: number) => {
+        jest.advanceTimersByTime(ms);
+      },
+      restore: () => {
+        jest.useRealTimers();
+      },
+    };
   }
 }
 

@@ -14,7 +14,6 @@
 
 import {Message, PubSub, Schema} from '../src';
 import * as assert from 'assert';
-import {describe, it, after, before} from 'mocha';
 import {TestResources} from './testResources';
 import * as avro from 'avro-js';
 import * as fs from 'fs';

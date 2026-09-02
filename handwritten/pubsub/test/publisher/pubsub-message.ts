@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
-
 import {PubsubMessage} from '../../src/publisher';
 import * as pm from '../../src/publisher/pubsub-message';
 
@@ -24,15 +21,15 @@ describe('PubsubMessage', () => {
   it('should calculate properly for blank messages', () => {
     const blank: PubsubMessage = {};
     const size = pm.calculateMessageSize(blank);
-    assert.strictEqual(size, 0);
-    assert.strictEqual(blank.calculatedSize, size);
+    expect(size).toBe(0);
+    expect(blank.calculatedSize).toBe(size);
   });
 
   it('should calculate properly for a data only message', () => {
     const dataOnly: PubsubMessage = {data: Buffer.from('test')};
     const size = pm.calculateMessageSize(dataOnly);
-    assert.strictEqual(size, 4);
-    assert.strictEqual(dataOnly.calculatedSize, size);
+    expect(size).toBe(4);
+    expect(dataOnly.calculatedSize).toBe(size);
   });
 
   it('should calculate properly for an attr only message', () => {
@@ -42,8 +39,8 @@ describe('PubsubMessage', () => {
       },
     };
     const size = pm.calculateMessageSize(attrOnly);
-    assert.strictEqual(size, 6);
-    assert.strictEqual(attrOnly.calculatedSize, size);
+    expect(size).toBe(6);
+    expect(attrOnly.calculatedSize).toBe(size);
   });
 
   it('should calculate properly for a both message', () => {
@@ -55,8 +52,8 @@ describe('PubsubMessage', () => {
       },
     };
     const size = pm.calculateMessageSize(both);
-    assert.strictEqual(size, 17);
-    assert.strictEqual(both.calculatedSize, size);
+    expect(size).toBe(17);
+    expect(both.calculatedSize).toBe(size);
   });
 
   // This isn't really part of the spec, but it might happen.
@@ -67,7 +64,7 @@ describe('PubsubMessage', () => {
       },
     };
     const size = pm.calculateMessageSize(weird);
-    assert.strictEqual(size, 3);
-    assert.strictEqual(weird.calculatedSize, size);
+    expect(size).toBe(3);
+    expect(weird.calculatedSize).toBe(size);
   });
 });

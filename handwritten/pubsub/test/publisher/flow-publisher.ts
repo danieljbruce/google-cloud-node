@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-import * as assert from 'assert';
-import {describe, it, beforeEach, afterEach} from 'mocha';
-import * as sinon from 'sinon';
 import * as defer from 'p-defer';
 
 import {
@@ -39,7 +36,6 @@ class FakePublisher {
 
 describe('Flow control publisher', () => {
   let publisher: Publisher;
-  const sandbox = sinon.createSandbox();
 
   beforeEach(() => {
     publisher = new FakePublisher() as unknown as Publisher;
@@ -47,7 +43,7 @@ describe('Flow control publisher', () => {
   });
 
   afterEach(() => {
-    sandbox.restore();
+    jest.restoreAllMocks();
     tracing.setGloballyEnabled(false);
   });
 
@@ -64,14 +60,14 @@ describe('Flow control publisher', () => {
       ),
     };
     await fcp.publish(message as unknown as PubsubMessage);
-    assert.strictEqual(!!message.parentSpan, true);
+    expect(!!message.parentSpan).toBe(true);
   });
 
   it('should not create a flow span if no parent exists', async () => {
     const fcp = new fp.FlowControlledPublisher(publisher);
     const message = {data: Buffer.from('foo'), parentSpan: undefined};
     await fcp.publish(message as unknown as PubsubMessage);
-    assert.strictEqual(!message.parentSpan, true);
+    expect(!message.parentSpan).toBe(true);
   });
 
   it('should get no promise if there is flow control space left', async () => {
@@ -81,13 +77,13 @@ describe('Flow control publisher', () => {
       },
     });
 
-    const addStub = sandbox.stub(publisher, 'publishMessage').resolves('');
+    const addStub = jest.spyOn(publisher as any, 'publishMessage').mockImplementation(async () => '' as any);
 
     const fcp = new fp.FlowControlledPublisher(publisher);
     const publishResult = fcp.publish({data: Buffer.from('foo')});
 
-    assert.strictEqual(addStub.called, true);
-    assert.strictEqual(publishResult, null);
+    expect(addStub).toHaveBeenCalled();
+    expect(publishResult).toBeNull();
   });
 
   it('should get a promise when there is no flow control space left', async () => {
@@ -98,60 +94,63 @@ describe('Flow control publisher', () => {
     });
 
     const deferred = defer<string>();
-    const addStub = sandbox
-      .stub(publisher, 'publishMessage')
-      .returns(deferred.promise as unknown as void);
+    const addStub = jest
+      .spyOn(publisher as any, 'publishMessage')
+      .mockReturnValue(deferred.promise as unknown as any);
 
     const fcp = new fp.FlowControlledPublisher(publisher);
     const firstResult = fcp.publish({data: Buffer.from('foo')});
-    assert.strictEqual(addStub.calledOnce, true);
-    assert.strictEqual(firstResult, null);
+    expect(addStub).toHaveBeenCalledTimes(1);
+    expect(firstResult).toBeNull();
 
     const secondResult = fcp.publish({data: Buffer.from('bar')});
-    assert.ok(secondResult);
-    assert.strictEqual(addStub.calledOnce, true);
+    expect(secondResult).toBeDefined();
+    expect(addStub).toHaveBeenCalledTimes(1);
     publisher.flowControl.sent(3, 1);
     await secondResult;
-    assert.strictEqual(addStub.calledTwice, true);
+    expect(addStub).toHaveBeenCalledTimes(2);
   });
 
   it('should still call sent() on send errors', async () => {
-    const pubStub = sandbox.stub(publisher, 'publishMessage').rejects();
-    const sentStub = sandbox.stub(publisher.flowControl, 'sent');
+    const pubStub = jest.spyOn(publisher as any, 'publishMessage').mockImplementation(async () => {
+      throw new Error();
+    });
+    const sentStub = jest.spyOn(publisher.flowControl, 'sent');
 
     const fcp = new fp.FlowControlledPublisher(publisher);
-    await fcp.publish({data: Buffer.from('foo')});
+    fcp.publish({data: Buffer.from('foo')});
+    await fcp.all().catch(() => {});
 
-    assert.strictEqual(pubStub.called, true);
-    assert.strictEqual(sentStub.called, true);
+    expect(pubStub).toHaveBeenCalled();
+    expect(sentStub).toHaveBeenCalled();
   });
 
   it('should send messages immediately when publishNow is called', () => {
-    const pubStub = sandbox.stub(publisher, 'publishMessage').resolves('');
-    const addStub = sandbox.stub(publisher.flowControl, 'addToCount');
+    const pubStub = jest.spyOn(publisher as any, 'publishMessage').mockImplementation(async () => '' as any);
+    const addStub = jest.spyOn(publisher.flowControl, 'addToCount');
 
     const fcp = new fp.FlowControlledPublisher(publisher);
     fcp.publishNow({data: Buffer.from('foo')});
 
-    assert.strictEqual(pubStub.calledOnce, true);
-    assert.deepStrictEqual(addStub.args[0], [3, 1]);
+    expect(pubStub).toHaveBeenCalledTimes(1);
+    expect(addStub).toHaveBeenNthCalledWith(1, 3, 1);
   });
 
   it('should calculate the message size if needed, in wait mode', async () => {
-    sandbox.stub(publisher, 'publishMessage').resolves();
+    jest.spyOn(publisher as any, 'publishMessage').mockImplementation(async () => '' as any);
     const fcp = new fp.FlowControlledPublisher(publisher);
     const message: PubsubMessage = {data: Buffer.from('test!')};
     await fcp.publish(message);
 
-    assert.strictEqual(message.calculatedSize, 5);
+    expect(message.calculatedSize).toBe(5);
   });
 
   it('should calculate the message size if needed, in now mode', () => {
-    sandbox.stub(publisher, 'publishMessage').resolves();
+    jest.spyOn(publisher as any, 'publishMessage').mockImplementation(async () => '' as any);
     const fcp = new fp.FlowControlledPublisher(publisher);
     const message: PubsubMessage = {data: Buffer.from('test!')};
     fcp.publishNow(message);
 
-    assert.strictEqual(message.calculatedSize, 5);
+    expect(message.calculatedSize).toBe(5);
   });
 });

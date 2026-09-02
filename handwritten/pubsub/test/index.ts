@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as pubsub from '../src';
 
 describe('exports', () => {
   it('should export the gapic clients', () => {
-    assert.ok(pubsub.v1);
+    expect(pubsub.v1).toBeDefined();
   });
 });

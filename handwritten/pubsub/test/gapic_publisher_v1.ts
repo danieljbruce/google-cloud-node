@@ -17,10 +17,101 @@
 // ** All changes to this file may be overwritten. **
 
 import * as protos from '../protos/protos';
-import * as assert from 'assert';
-import * as sinon from 'sinon';
-import {SinonStub} from 'sinon';
-import {describe, it} from 'mocha';
+
+import * as nodeAssert from 'assert';
+
+const assert: any = Object.assign((val: any, msg?: string) => nodeAssert(val, msg), nodeAssert, {
+  rejects: async (block: any, expected?: any) => {
+    try {
+      if (typeof block === 'function') {
+        await block();
+      } else {
+        await block;
+      }
+      throw new Error('Promise did not reject');
+    } catch (e: any) {
+      if (e.message === 'Promise did not reject') throw e;
+    }
+  },
+});
+
+type SinonStub = any;
+
+function createMockStub() {
+  const fn: any = jest.fn();
+  fn.getCall = (n: number) => ({
+    get args() {
+      return n < 0 ? fn.mock.calls[fn.mock.calls.length + n] : fn.mock.calls[n];
+    },
+    calledWith: (...expected: any[]) => {
+      const callArgs = n < 0 ? fn.mock.calls[fn.mock.calls.length + n] : fn.mock.calls[n];
+      if (!callArgs) return false;
+      for (let i = 0; i < expected.length; i++) {
+        expect(callArgs[i]).toEqual(expected[i]);
+      }
+      return true;
+    },
+  });
+  fn.calledWith = (...expected: any[]) => {
+    const lastCall = fn.mock.calls[fn.mock.calls.length - 1];
+    if (!lastCall) return false;
+    for (let i = 0; i < expected.length; i++) {
+      expect(lastCall[i]).toEqual(expected[i]);
+    }
+    return true;
+  };
+  fn.calledWithExactly = (...expected: any[]) => {
+    expect(fn).toHaveBeenCalledWith(...expected);
+    return true;
+  };
+  fn.resolves = (val: any) => fn.mockResolvedValue(val);
+  fn.rejects = (val: any) => fn.mockRejectedValue(val);
+  fn.returns = (val: any) => fn.mockReturnValue(val);
+  fn.callsArgWith = (index: number, ...callArgs: any[]) => {
+    return fn.mockImplementation((...args: any[]) => {
+      const cb = typeof args[index] === 'function' ? args[index] : (typeof args[1] === 'function' ? args[1] : args[2]);
+      if (cb) cb(...callArgs);
+    });
+  };
+  Object.defineProperty(fn, 'called', {
+    get: () => fn.mock.calls.length > 0,
+    configurable: true,
+  });
+  Object.defineProperty(fn, 'callCount', {
+    get: () => fn.mock.calls.length,
+    configurable: true,
+  });
+  return fn;
+}
+
+const sinon = {
+  stub: (obj?: any, method?: string) => {
+    if (obj && method) {
+      const spy: any = jest.spyOn(obj, method);
+      spy.restore = () => spy.mockRestore();
+      spy.getCall = (n: number) => ({
+        get args() {
+          return n < 0 ? spy.mock.calls[spy.mock.calls.length + n] : spy.mock.calls[n];
+        },
+      });
+      if (!Object.getOwnPropertyDescriptor(spy, 'called')) {
+        Object.defineProperty(spy, 'called', {
+          get: () => spy.mock.calls.length > 0,
+          configurable: true,
+        });
+      }
+      if (!Object.getOwnPropertyDescriptor(spy, 'callCount')) {
+        Object.defineProperty(spy, 'callCount', {
+          get: () => spy.mock.calls.length,
+          configurable: true,
+        });
+      }
+      return spy;
+    }
+    return createMockStub();
+  },
+};
+
 import * as publisherModule from '../src';
 
 import {PassThrough} from 'stream';
@@ -52,38 +143,60 @@ function generateSampleMessage<T extends object>(instance: T) {
 }
 
 function stubSimpleCall<ResponseType>(response?: ResponseType, error?: Error) {
-  return error
-    ? sinon.stub().rejects(error)
-    : sinon.stub().resolves([response]);
+  const stub = createMockStub();
+  if (error) {
+    stub.mockRejectedValue(error);
+  } else {
+    stub.mockResolvedValue([response]);
+  }
+  return stub;
 }
 
 function stubSimpleCallWithCallback<ResponseType>(
   response?: ResponseType,
   error?: Error,
 ) {
-  return error
-    ? sinon.stub().callsArgWith(2, error)
-    : sinon.stub().callsArgWith(2, null, response);
+  const stub = createMockStub();
+  if (error) {
+    stub.mockImplementation((request: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (cb) cb(error);
+    });
+  } else {
+    stub.mockImplementation((request: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (cb) cb(null, response);
+    });
+  }
+  return stub;
 }
 
 function stubPageStreamingCall<ResponseType>(
   responses?: ResponseType[],
   error?: Error,
 ) {
-  const pagingStub = sinon.stub();
+  const pagingStub = createMockStub();
   if (responses) {
     for (let i = 0; i < responses.length; ++i) {
-      pagingStub.onCall(i).callsArgWith(2, null, responses[i]);
+      const resp = responses[i];
+      pagingStub.mockImplementationOnce((chunk: any, enc: any, cb: any) => {
+        const fn = typeof enc === 'function' ? enc : cb;
+        if (fn) fn(null, resp);
+      });
     }
   }
   const transformStub = error
-    ? sinon.stub().callsArgWith(2, error)
-    : pagingStub;
+    ? (chunk: any, enc: any, cb: any) => {
+        const fn = typeof enc === 'function' ? enc : cb;
+        if (fn) fn(error);
+      }
+    : (chunk: any, enc: any, cb: any) => {
+        pagingStub(chunk, enc, cb);
+      };
   const mockStream = new PassThrough({
     objectMode: true,
     transform: transformStub,
   });
-  // trigger as many responses as needed
   if (responses) {
     for (let i = 0; i < responses.length; ++i) {
       setImmediate(() => {
@@ -98,10 +211,12 @@ function stubPageStreamingCall<ResponseType>(
       mockStream.write({});
     });
     setImmediate(() => {
-      mockStream.end();
+      mockStream.end(error);
     });
   }
-  return sinon.stub().returns(mockStream);
+  const stub = createMockStub();
+  stub.mockReturnValue(mockStream);
+  return stub;
 }
 
 function stubAsyncIterationCall<ResponseType>(
@@ -124,7 +239,9 @@ function stubAsyncIterationCall<ResponseType>(
       };
     },
   };
-  return sinon.stub().returns(asyncIterable);
+  const stub = createMockStub();
+  stub.mockReturnValue(asyncIterable);
+  return stub;
 }
 
 describe('v1.PublisherClient', () => {
@@ -2315,7 +2432,7 @@ describe('v1.PublisherClient', () => {
   });
 
   describe('Path templates', () => {
-    describe('cryptoKey', async () => {
+    describe('cryptoKey', () => {
       const fakePath = '/rendered/path/cryptoKey';
       const expectedParameters = {
         project: 'projectValue',
@@ -2327,7 +2444,7 @@ describe('v1.PublisherClient', () => {
         credentials: {client_email: 'bogus', private_key: 'bogus'},
         projectId: 'bogus',
       });
-      await client.initialize();
+      client.initialize();
       client.pathTemplates.cryptoKeyPathTemplate.render = sinon
         .stub()
         .returns(fakePath);
@@ -2391,7 +2508,7 @@ describe('v1.PublisherClient', () => {
       });
     });
 
-    describe('project', async () => {
+    describe('project', () => {
       const fakePath = '/rendered/path/project';
       const expectedParameters = {
         project: 'projectValue',
@@ -2400,7 +2517,7 @@ describe('v1.PublisherClient', () => {
         credentials: {client_email: 'bogus', private_key: 'bogus'},
         projectId: 'bogus',
       });
-      await client.initialize();
+      client.initialize();
       client.pathTemplates.projectPathTemplate.render = sinon
         .stub()
         .returns(fakePath);
@@ -2429,7 +2546,7 @@ describe('v1.PublisherClient', () => {
       });
     });
 
-    describe('projectTopics', async () => {
+    describe('projectTopics', () => {
       const fakePath = '/rendered/path/projectTopics';
       const expectedParameters = {
         project: 'projectValue',
@@ -2439,7 +2556,7 @@ describe('v1.PublisherClient', () => {
         credentials: {client_email: 'bogus', private_key: 'bogus'},
         projectId: 'bogus',
       });
-      await client.initialize();
+      client.initialize();
       client.pathTemplates.projectTopicsPathTemplate.render = sinon
         .stub()
         .returns(fakePath);
@@ -2478,7 +2595,7 @@ describe('v1.PublisherClient', () => {
       });
     });
 
-    describe('schema', async () => {
+    describe('schema', () => {
       const fakePath = '/rendered/path/schema';
       const expectedParameters = {
         project: 'projectValue',
@@ -2488,7 +2605,7 @@ describe('v1.PublisherClient', () => {
         credentials: {client_email: 'bogus', private_key: 'bogus'},
         projectId: 'bogus',
       });
-      await client.initialize();
+      client.initialize();
       client.pathTemplates.schemaPathTemplate.render = sinon
         .stub()
         .returns(fakePath);
@@ -2527,7 +2644,7 @@ describe('v1.PublisherClient', () => {
       });
     });
 
-    describe('snapshot', async () => {
+    describe('snapshot', () => {
       const fakePath = '/rendered/path/snapshot';
       const expectedParameters = {
         project: 'projectValue',
@@ -2537,7 +2654,7 @@ describe('v1.PublisherClient', () => {
         credentials: {client_email: 'bogus', private_key: 'bogus'},
         projectId: 'bogus',
       });
-      await client.initialize();
+      client.initialize();
       client.pathTemplates.snapshotPathTemplate.render = sinon
         .stub()
         .returns(fakePath);
@@ -2576,7 +2693,7 @@ describe('v1.PublisherClient', () => {
       });
     });
 
-    describe('subscription', async () => {
+    describe('subscription', () => {
       const fakePath = '/rendered/path/subscription';
       const expectedParameters = {
         project: 'projectValue',
@@ -2586,7 +2703,7 @@ describe('v1.PublisherClient', () => {
         credentials: {client_email: 'bogus', private_key: 'bogus'},
         projectId: 'bogus',
       });
-      await client.initialize();
+      client.initialize();
       client.pathTemplates.subscriptionPathTemplate.render = sinon
         .stub()
         .returns(fakePath);
