@@ -14,8 +14,6 @@
 
 import {protos} from '@google-cloud/bigquery-storage-api';
 import google = protos.google;
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import * as adapt from '../../src/adapt';
 
 const TableFieldSchema = google.cloud.bigquery.storage.v1.TableFieldSchema;
@@ -32,11 +30,11 @@ describe('Adapt Schemas', () => {
       };
       const storageSchema =
         adapt.convertBigQuerySchemaToStorageTableSchema(schema);
-      assert.notEqual(storageSchema, null);
+      expect(storageSchema).not.toBeNull();
       if (!storageSchema) {
         throw Error('null storage schema');
       }
-      assert.deepEqual(storageSchema, {
+      expect(storageSchema).toEqual({
         fields: [
           {
             name: 'f1',
@@ -79,11 +77,11 @@ describe('Adapt Schemas', () => {
       };
       const storageSchema =
         adapt.convertBigQuerySchemaToStorageTableSchema(schema);
-      assert.notEqual(storageSchema, null);
+      expect(storageSchema).not.toBeNull();
       if (!storageSchema) {
         throw Error('null storage schema');
       }
-      assert.deepEqual(storageSchema, {
+      expect(storageSchema).toEqual({
         fields: [
           {
             name: 'arr',
@@ -122,11 +120,11 @@ describe('Adapt Schemas', () => {
       };
       const storageSchema =
         adapt.convertBigQuerySchemaToStorageTableSchema(schema);
-      assert.notEqual(storageSchema, null);
+      expect(storageSchema).not.toBeNull();
       if (!storageSchema) {
         throw Error('null storage schema');
       }
-      assert.deepEqual(storageSchema, {
+      expect(storageSchema).toEqual({
         fields: [
           {
             name: 'struct1',
@@ -184,11 +182,11 @@ describe('Adapt Schemas', () => {
       };
       const storageSchema =
         adapt.convertBigQuerySchemaToStorageTableSchema(schema);
-      assert.notEqual(storageSchema, null);
+      expect(storageSchema).not.toBeNull();
       if (!storageSchema) {
         throw Error('null storage schema');
       }
-      assert.deepEqual(storageSchema, {
+      expect(storageSchema).toEqual({
         fields: [
           {
             name: 'range_ts',

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as assert from 'assert';
-import {describe, it} from 'mocha';
 import {protos} from '@google-cloud/bigquery-storage-api';
 import {RecordBatchStreamWriter, tableFromArrays} from 'apache-arrow';
 import {Readable} from 'stream';
@@ -102,7 +100,7 @@ describe('Arrow Transform', () => {
     const rows = BigQuery.mergeSchemaWithRows_(schema, tableRows, {
       wrapIntegers: false,
     });
-    assert.deepStrictEqual(rows, [
+    expect(rows).toEqual([
       {
         name: 'Ada Lovelace',
         row: 1,
