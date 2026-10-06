@@ -1482,6 +1482,8 @@ libraries:
       - path: google/cloud/secretmanager/v1
       - path: google/cloud/secretmanager/v1beta2
     copyright_year: "2026"
+    keep:
+      - samples/bun-quickstart.js
     nodejs:
       default_version: v1
       dependencies:

@@ -37,4 +37,15 @@ describe('Secret Manager samples', () => {
     );
     assert(stdout !== null);
   });
+
+  it('runs the bun quickstart gist when bun is available', async function () {
+    try {
+      execSync('bun --version');
+    } catch (_err) {
+      this.skip();
+      return;
+    }
+    const stdout = execSync(`bun bun-quickstart.js projects/${projectId}`);
+    assert(stdout.includes('Running Secret Manager gist under Bun'));
+  });
 });
