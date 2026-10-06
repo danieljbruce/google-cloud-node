@@ -87,7 +87,7 @@ export interface ClientConfig extends gax.GrpcClientOptions {
   emulatorMode?: boolean;
 
   servicePath?: string;
-  port?: string | number;
+  port?: number;
   sslCreds?: gax.grpc.ChannelCredentials;
 
   /**
