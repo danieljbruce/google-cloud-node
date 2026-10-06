@@ -1284,16 +1284,9 @@ export class PubSub {
    * @param {function} [callback] The callback function.
    */
   getClient_(config: GetClientConfig, callback: GetClientCallback) {
-    void (async () => {
-      let client: gax.ClientStub;
-      try {
-        client = await this.getClientAsync_(config);
-      } catch (err) {
-        callback(err as Error);
-        return;
-      }
-      callback(null, client);
-    })();
+    this.getClientAsync_(config)
+      .then(client => process.nextTick(callback, null, client))
+      .catch(err => process.nextTick(callback, err));
   }
   /**
    * Get the PubSub client object.
