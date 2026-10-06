@@ -16,28 +16,34 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 let secretmanager;
 try {
   // eslint-disable-next-line n/no-missing-require
   secretmanager = require('@google-cloud/secret-manager');
 } catch (_err) {
-  secretmanager = require('..');
+  secretmanager = require(
+    path.resolve(__dirname, '../../../packages/google-cloud-secretmanager'),
+  );
 }
 
 const {SecretManagerServiceClient} = secretmanager.v1 || secretmanager;
 
 /**
  * Small verification gist for running `@google-cloud/secret-manager` on the
- * Bun runtime.
+ * Bun runtime without modifying generated files under `packages/`.
  *
  * Usage:
- *   bun samples/bun-quickstart.js [projects/<projectId>] [--secret-version=projects/<p>/secrets/<s>/versions/<v>]
+ *   bun samples/bun-quickstart.js [projects/<projectId>] \
+ *     [--secret-version=projects/<p>/secrets/<s>/versions/<v>] \
+ *     [--verify-file=/path/to/expected-secret]
  */
 async function main(args) {
   if (typeof globalThis.Bun === 'undefined') {
     throw new Error(
-      'Expected this script to be executed with the Bun runtime (e.g. `bun bun-quickstart.js`).',
+      'Expected this script to be executed with the Bun runtime (e.g. `bun samples/bun-quickstart.js`).',
     );
   }
   console.log(
@@ -46,10 +52,13 @@ async function main(args) {
 
   let parentArg;
   let secretVersionName = process.env.BUN_TEST_SECRET_VERSION;
+  let verifyFilePath;
 
   for (const arg of args) {
     if (arg.startsWith('--secret-version=')) {
       secretVersionName = arg.slice('--secret-version='.length);
+    } else if (arg.startsWith('--verify-file=')) {
+      verifyFilePath = arg.slice('--verify-file='.length);
     } else if (!arg.startsWith('--') && !parentArg) {
       parentArg = arg;
     }
@@ -72,9 +81,23 @@ async function main(args) {
           accessResponse.payload.data.length > 0,
         'Expected non-empty payload from accessSecretVersion',
       );
+      const actualBuffer = Buffer.from(accessResponse.payload.data);
       console.log(
-        `Successfully accessed ${accessResponse.name} (${accessResponse.payload.data.length} bytes)`,
+        `Successfully accessed ${accessResponse.name} (${actualBuffer.length} bytes)`,
       );
+
+      if (verifyFilePath) {
+        const expectedBuffer = fs.readFileSync(verifyFilePath);
+        assert.strictEqual(
+          actualBuffer.equals(expectedBuffer),
+          true,
+          `Expected secret payload from ${secretVersionName} to match ${verifyFilePath}`,
+        );
+        console.log(
+          `Verified secret payload matches ${verifyFilePath} (${expectedBuffer.length} bytes)`,
+        );
+      }
+
       if (!parentArg) {
         return;
       }

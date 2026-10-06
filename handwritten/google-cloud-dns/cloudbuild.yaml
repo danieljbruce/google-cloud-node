@@ -25,9 +25,9 @@ steps:
   - '-c'
   - |
     bun --version
-    bun samples/bun-quickstart.js --secret-version=projects/cloud-devrel-kokoro-resources/secrets/long-door-651-kokoro-system-test-service-account/versions/latest
+    bun samples/bun-quickstart.js --secret-version=projects/cloud-devrel-kokoro-resources/secrets/long-door-651-kokoro-system-test-service-account/versions/latest --verify-file=/workspace/google_application_credentials.json
     GOOGLE_APPLICATION_CREDENTIALS=/workspace/google_application_credentials.json GCLOUD_PROJECT=${_GCP_PROJECT_ID} bun samples/bun-quickstart.js projects/${_GCP_PROJECT_ID} || echo "Project CRUD check exited with code $?"
-  dir: 'packages/google-cloud-secretmanager'
+  dir: 'handwritten/google-cloud-dns'
   id: 'verify-bun-secret-manager'
   waitFor: ['install-dependencies', 'get-service-account-key']
 
