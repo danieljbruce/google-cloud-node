@@ -80,15 +80,45 @@ Type       | Purpose
 
 #### Body Format
 
--   Explain *what* the change does and *why* in clear prose sentences with
-    proper punctuation.
--   If the pull request has multiple commits, note whether reviewers should
-    review commits individually or focus on the final state.
--   Reference associated issues at the end of the body:
-    -   `Fixes #{issue_number}` when the pull request fully resolves the issue.
-    -   `For #{issue_number}` when the pull request is a partial step toward the
-        issue.
-    -   Do not use aliases such as `Closes` or `Resolves`.
+Structure the pull request body using the following template:
+
+```markdown
+## Description
+
+<1 sentence describing what the pull request does>
+
+## Impact
+
+<1 sentence describing what the impact of the PR is and what problem it solves>
+
+## Changes
+
+<provide-bullet-points of what the changes are at a high level (more detailed explanation of description)>
+
+## Testing
+
+<Explain what tests were added, deleted or changed in a bullet point format. Try to limit to 10 bullet points or less>
+
+## Alternatives
+
+<Explain alternatives considered against merging the PR including the option of not merging a PR at all because of the risks it introduces>
+```
+
+-   **`## Description`**: Write 1 sentence describing what the pull request
+    does.
+-   **`## Impact`**: Write 1 sentence describing what the impact of the pull
+    request is and what problem it solves.
+-   **`## Changes`**: Provide bullet points of what the changes are at a high
+    level (a more detailed explanation of the description).
+-   **`## Testing`**: Explain what tests were added, deleted, or changed in a
+    bullet-point format. Limit this section to 10 bullet points or fewer.
+-   **`## Alternatives`**: Explain alternatives considered against merging the
+    pull request, including the option of not merging a pull request at all
+    because of the risks it introduces.
+-   **Issue References**: When referencing associated issues at the end of the
+    body, use `Fixes #{issue_number}` when the pull request fully resolves the
+    issue, or `For #{issue_number}` when it is a partial step. Do not use
+    aliases such as `Closes` or `Resolves`.
 
 ### 3. Push the Branch and Create the Draft Pull Request
 
@@ -108,14 +138,14 @@ gh pr create --draft \
 When pushing directly to a branch on `googleapis/google-cloud-node`, pass
 `--head {branch_name}` without a `{fork_owner}:` prefix.
 
-Flag      | Default | Description
---------- | ------- | -----------
-`--draft` | Enabled | Marks the pull request as a draft so reviewers are not notified early
-`--repo`  | Current | Target repository (`googleapis/google-cloud-node`)
-`--base`  | `main`  | Base branch into which changes will be merged
-`--head`  | Current | Head branch containing the commits (`{branch_name}` or `{owner}:{branch}`)
-`--title` | None    | Pull request title following `<type>({package}): {description}`
-`--body`  | None    | Pull request description explaining context and referencing issues
+Flag      | Default  | Description
+--------- | -------- | -----------
+`--draft` | Disabled | Required by this skill; marks the pull request as a draft so reviewers are not notified early
+`--repo`  | Current  | Target repository (`googleapis/google-cloud-node`)
+`--base`  | `main`   | Base branch into which changes will be merged
+`--head`  | Current  | Head branch containing the commits (`{branch_name}` or `{owner}:{branch}`)
+`--title` | None     | Pull request title following `<type>({package}): {description}`
+`--body`  | None     | Pull request description following the required section template
 
 ### 4. Verify Draft Status
 
