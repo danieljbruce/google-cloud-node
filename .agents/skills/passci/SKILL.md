@@ -4,7 +4,7 @@ description: >-
   Opt-in workflow triggered when the developer includes /passci in the prompt.
   Produces the requested code change, immediately opens a draft pull request so
   the developer can view the suggested changes, and then pushes follow-up
-  commits prefixed with [Style Maintence], [Independent review follow-ups]
+  commits prefixed with [Style Maintenance], [Independent review follow-ups]
   (after triggering "/gemini review" in the PR up to 3 times or until no
   high-priority issues come up), and [Address CI errors] so all CI checks pass
   and unit tests pass with 95% confidence even when skipped by CI. Use only when
@@ -30,7 +30,7 @@ Jetski follow this exact sequence:
 3.  **While the developer looks at the draft PR, keep adding commits** to the
     branch as separate, clearly prefixed commits (per
     [`CONTRIBUTING.md` — Addressing code review comments](../../../CONTRIBUTING.md#addressing-code-review-comments)):
-    *   **Add commits prefixed with `[Style Maintence]`**: Before doing
+    *   **Add commits prefixed with `[Style Maintenance]`**: Before doing
         independent review follow-ups, complete a step where we apply the
         principle: *"Referencing existing contributing guidelines and coding
         style documentation helps agents maintain code base quality."* Ensure
@@ -53,8 +53,8 @@ Stage | Timing | Action | Required Commit Prefix
 :--- | :--- | :--- | :---
 **1. Solve the Task** | First | Produce a code change that does what the user asked | `<type>(<package>): <description>`
 **2. Open Draft PR** | Immediately after Stage 1 (before style, reviews, and CI fixes) | Open a draft PR (`gh pr create --draft`) so the developer can view the suggested changes right away | *(Draft PR opened from initial commit)*
-**3. Style Maintenance** | While developer views draft PR, before independent reviews | *"Referencing existing contributing guidelines and coding style documentation helps agents maintain code base quality."* Audit against [`CONTRIBUTING.md`](../../../CONTRIBUTING.md), [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html), [`gts`](https://github.com/google/gts), [`.eslintrc.json`](../../../.eslintrc.json), [`.prettierrc.cjs`](../../../.prettierrc.cjs), and [`bin/linter.mjs`](../../../bin/linter.mjs) | `[Style Maintence]`
-**4. Independent Gemini Reviews** | After `[Style Maintence]`, before CI checks | Type `"/gemini review"` in the PR twice and address review comments; repeat **three times or until no high priority issues come up, whatever comes first** | `[Independent review follow-ups]`
+**3. Style Maintenance** | While developer views draft PR, before independent reviews | *"Referencing existing contributing guidelines and coding style documentation helps agents maintain code base quality."* Audit against [`CONTRIBUTING.md`](../../../CONTRIBUTING.md), [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html), [`gts`](https://github.com/google/gts), [`.eslintrc.json`](../../../.eslintrc.json), [`.prettierrc.cjs`](../../../.prettierrc.cjs), and [`bin/linter.mjs`](../../../bin/linter.mjs) | `[Style Maintenance]`
+**4. Independent Gemini Reviews** | After `[Style Maintenance]`, before CI checks | Type `"/gemini review"` in the PR twice and address review comments; repeat **three times or until no high priority issues come up, whatever comes first** | `[Independent review follow-ups]`
 **5. 95% Unit Tests & Pass CI** | After independent reviews | Verify unit tests pass with 95% confidence (even if skipped in CI) and fix any CI failures | `[Address CI errors]`
 
 --------------------------------------------------------------------------------
@@ -86,7 +86,7 @@ python3 .agents/skills/passci/scripts/passci.py \
   --mode verify-ci \
   --confidence 0.95
 
-# 4. Validate commit history prefixes ([Style Maintence], [Independent review follow-ups], [Address CI errors]):
+# 4. Validate commit history prefixes ([Style Maintenance], [Independent review follow-ups], [Address CI errors]):
 python3 .agents/skills/passci/scripts/passci.py \
   --repo-root . \
   --base-ref upstream/main \
@@ -148,7 +148,7 @@ developer can inspect the suggested changes while follow-up commits are added:
     *   Immediately continue to Stage 3, Stage 4, and Stage 5, pushing each
         additional commit to the same draft PR branch.
 
-### Stage 3: Style Maintenance & Contributing Guidelines (`[Style Maintence]`)
+### Stage 3: Style Maintenance & Contributing Guidelines (`[Style Maintenance]`)
 
 > *"Referencing existing contributing guidelines and coding style documentation
 > helps agents maintain code base quality."*
@@ -208,7 +208,7 @@ Reference and enforce each of the following documents when auditing the branch:
     *   [**`bin/linter.mjs`**](../../../bin/linter.mjs): Runs isolated ESLint
         worker threads and `tsc --noEmit` across every modified package.
 
-#### Running Style Maintenance & Committing with `[Style Maintence]`
+#### Running Style Maintenance & Committing with `[Style Maintenance]`
 
 1.  Run the style audit, package auto-fixer, and strict monorepo linter:
 
@@ -224,12 +224,12 @@ Reference and enforce each of the following documents when auditing the branch:
     GIT_DIFF_ARG="upstream/main...HEAD -- :!packages" node ./bin/linter.mjs --strict
     ```
 2.  Commit any style, formatting, comment, or contributing-guideline updates
-    with a commit message prefixed with `[Style Maintence]` and push to the
+    with a commit message prefixed with `[Style Maintenance]` and push to the
     draft PR:
 
     ```bash
     git add -A
-    git commit -m "[Style Maintence] align changes with CONTRIBUTING.md and gts coding style guidelines"
+    git commit -m "[Style Maintenance] align changes with CONTRIBUTING.md and gts coding style guidelines"
     git push
     ```
 
@@ -358,7 +358,7 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
 -   [ ] **2. Draft PR Opened Right Away**: Draft PR (`gh pr create --draft`)
     opened immediately after solving the problem, *before* style, extra review,
     and CI fix commits.
--   [ ] **3. `[Style Maintence]` Commit(s) Pushed**: Audited against
+-   [ ] **3. `[Style Maintenance]` Commit(s) Pushed**: Audited against
     [`CONTRIBUTING.md`](../../../CONTRIBUTING.md),
     [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html),
     [`gts`](https://github.com/google/gts),
@@ -366,7 +366,7 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
     [`.prettierrc.cjs`](../../../.prettierrc.cjs), and
     [`bin/linter.mjs`](../../../bin/linter.mjs) (*"Referencing existing
     contributing guidelines and coding style documentation helps agents maintain
-    code base quality."*), with commits prefixed with `[Style Maintence]`.
+    code base quality."*), with commits prefixed with `[Style Maintenance]`.
 -   [ ] **4. `[Independent review follow-ups]` Commit(s) Pushed**: Triggered
     `"/gemini review"` in the PR and addressed comments with commits prefixed
     with `[Independent review follow-ups]`, repeating up to **3 times or until

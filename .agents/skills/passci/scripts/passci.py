@@ -22,7 +22,7 @@ Enforces the `/passci` workflow for `googleapis/google-cloud-node`:
   3. Audit changes against `CONTRIBUTING.md` and coding style documentation
      ("Referencing existing contributing guidelines and coding style
      documentation helps agents maintain code base quality.") and mark style
-     commits with `[Style Maintence]`.
+     commits with `[Style Maintenance]`.
   4. Trigger independent Gemini reviews by commenting `"/gemini review"` in the
      PR and address comments with commits prefixed with
      `[Independent review follow-ups]`, repeating up to 3 times or until no
@@ -51,7 +51,7 @@ DEFAULT_CONFIDENCE = 0.95
 MAX_GEMINI_REVIEW_ROUNDS = 3
 GEMINI_REVIEW_TRIGGER_COMMAND = "/gemini review"
 
-STYLE_MAINTENANCE_PREFIX = "[Style Maintence]"
+STYLE_MAINTENANCE_PREFIX = "[Style Maintenance]"
 INDEPENDENT_REVIEW_PREFIX = "[Independent review follow-ups]"
 ADDRESS_CI_ERRORS_PREFIX = "[Address CI errors]"
 
@@ -501,7 +501,7 @@ def audit_contributing_style(
       continue
     try:
       content = full_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, ValueError):
       continue
 
     if not APACHE_HEADER_RE.search(content[:1200]):
@@ -663,17 +663,25 @@ def _fetch_pr_gemini_reviews(
     pull_proc = subprocess.run(
         pull_comments_cmd, check=False, capture_output=True, text=True
     )
-    issue_comments: Sequence[Mapping[str, Any]] = (
+    issue_json = (
         json.loads(issue_proc.stdout) if issue_proc.returncode == 0 else []
     )
-    pull_comments: Sequence[Mapping[str, Any]] = (
+    issue_comments: Sequence[Mapping[str, Any]] = (
+        issue_json if isinstance(issue_json, list) else []
+    )
+    pull_json = (
         json.loads(pull_proc.stdout) if pull_proc.returncode == 0 else []
+    )
+    pull_comments: Sequence[Mapping[str, Any]] = (
+        pull_json if isinstance(pull_json, list) else []
     )
   except (OSError, ValueError):
     return evaluate_gemini_review_round(0, ())
 
   trigger_timestamps: list[str] = []
   for item in issue_comments:
+    if not isinstance(item, Mapping):
+      continue
     body = str(item.get("body", "")).strip()
     if GEMINI_REVIEW_TRIGGER_COMMAND in body:
       trigger_timestamps.append(str(item.get("created_at", "")))
@@ -683,6 +691,8 @@ def _fetch_pr_gemini_reviews(
 
   latest_bodies: list[str] = []
   for comment in pull_comments:
+    if not isinstance(comment, Mapping):
+      continue
     created_at = str(comment.get("created_at", ""))
     if not last_trigger or created_at >= last_trigger:
       latest_bodies.append(str(comment.get("body", "")))
@@ -730,7 +740,12 @@ def build_summary_dict(
     try:
       raw_ignore = json.loads(ignore_json.read_text(encoding="utf-8"))
       if isinstance(raw_ignore, dict):
-        ignored_packages = [str(x) for x in raw_ignore.get("ignored", [])]
+        ignored_val = raw_ignore.get("ignored")
+        ignored_packages = (
+            [str(x) for x in ignored_val]
+            if isinstance(ignored_val, list)
+            else []
+        )
     except (OSError, ValueError):
       pass
 
