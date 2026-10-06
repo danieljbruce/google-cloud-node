@@ -1284,11 +1284,16 @@ export class PubSub {
    * @param {function} [callback] The callback function.
    */
   getClient_(config: GetClientConfig, callback: GetClientCallback) {
-    this.getClientAsync_(config)
-      // eslint-disable-next-line promise/no-callback-in-promise
-      .then(client => callback(null, client))
-      // eslint-disable-next-line promise/no-callback-in-promise
-      .catch(callback);
+    void (async () => {
+      let client: gax.ClientStub;
+      try {
+        client = await this.getClientAsync_(config);
+      } catch (err) {
+        callback(err as Error);
+        return;
+      }
+      callback(null, client);
+    })();
   }
   /**
    * Get the PubSub client object.
