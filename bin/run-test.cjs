@@ -99,9 +99,7 @@ for (const {flag, envIn, envOut} of SHIM_FLAGS) {
 const args = rawArgs.filter(a => a !== '--no-c8' && !shimFlagSet.has(a));
 
 const isBunRuntime = typeof Bun !== 'undefined';
-const isBunUserAgent = /^bun\//i.test(
-  process.env.npm_config_user_agent || '',
-);
+const isBunUserAgent = /^bun\//i.test(process.env.npm_config_user_agent || '');
 const wantsBunRuntime =
   isBunRuntime ||
   process.env.JS_RUNTIME === 'bun' ||
@@ -254,9 +252,7 @@ function findOnlyFiles(targets, cwd) {
   const effectiveTargets =
     targets.length > 0
       ? targets
-      : ['build/test', 'test'].filter(d =>
-          fs.existsSync(path.resolve(cwd, d)),
-        );
+      : ['build/test', 'test'].filter(d => fs.existsSync(path.resolve(cwd, d)));
   const seen = new Set();
   const onlyFiles = [];
   for (const target of effectiveTargets) {
@@ -459,4 +455,3 @@ module.exports = {
   resolveTestArgs,
   splitMochaArgs,
 };
-

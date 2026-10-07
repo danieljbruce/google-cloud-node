@@ -24,11 +24,9 @@ const {describe, it, beforeEach, afterEach} = globalThis;
 const repoRoot = path.resolve(__dirname, '../../..');
 const runTestPath = path.join(repoRoot, 'bin/run-test.cjs');
 const rootMocharc = path.join(repoRoot, '.mocharc.cjs');
-const {
-  stripCommentsAndStrings,
-  fileHasOnly,
-  resolveTestArgs,
-} = require(runTestPath);
+const {stripCommentsAndStrings, fileHasOnly, resolveTestArgs} = require(
+  runTestPath,
+);
 
 describe('bin/run-test.cjs .only support', () => {
   let tmpDir;
@@ -54,7 +52,9 @@ describe('bin/run-test.cjs .only support', () => {
       ].join('\n'),
     );
     assert.strictEqual(fileHasOnly(file), false);
-    assert.ok(!stripCommentsAndStrings('const s = "it.only()";').includes('it.only'));
+    assert.ok(
+      !stripCommentsAndStrings('const s = "it.only()";').includes('it.only'),
+    );
   });
 
   it('detects it.only, describe.only, and compiled mocha_1.it.only calls', () => {
@@ -63,7 +63,10 @@ describe('bin/run-test.cjs .only support', () => {
     assert.strictEqual(fileHasOnly(file1), true);
 
     const file2 = path.join(tmpDir, 'describe-only.js');
-    fs.writeFileSync(file2, 'mocha_1.describe.only("exclusive suite", () => {});');
+    fs.writeFileSync(
+      file2,
+      'mocha_1.describe.only("exclusive suite", () => {});',
+    );
     assert.strictEqual(fileHasOnly(file2), true);
   });
 
@@ -84,7 +87,9 @@ describe('bin/run-test.cjs .only support', () => {
       tmpDir,
     );
     assert.strictEqual(resolved.hasOnly, true);
-    assert.deepStrictEqual(resolved.onlyFiles, [path.join('build', 'test', 'b.js')]);
+    assert.deepStrictEqual(resolved.onlyFiles, [
+      path.join('build', 'test', 'b.js'),
+    ]);
     assert.ok(resolved.args.includes('--no-parallel'));
     assert.ok(!resolved.args.includes('--parallel'));
     assert.deepStrictEqual(resolved.args, [
@@ -144,7 +149,11 @@ describe('bin/run-test.cjs .only support', () => {
         env: {...process.env, JS_RUNTIME: 'node'},
       },
     );
-    assert.strictEqual(res.status, 0, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
+    assert.strictEqual(
+      res.status,
+      0,
+      `stderr: ${res.stderr}\nstdout: ${res.stdout}`,
+    );
     assert.match(res.stdout, /1 passing/);
   });
 
@@ -183,7 +192,11 @@ describe('bin/run-test.cjs .only support', () => {
         encoding: 'utf8',
       },
     );
-    assert.strictEqual(res.status, 0, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
+    assert.strictEqual(
+      res.status,
+      0,
+      `stderr: ${res.stderr}\nstdout: ${res.stdout}`,
+    );
     assert.match(res.stdout, /1 passing/);
   });
 });
