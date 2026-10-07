@@ -792,22 +792,18 @@ describe('oauth2', () => {
       const maxLifetimeSecs = 86400;
       const now = new Date().getTime() / 1000;
       const expiry = now + maxLifetimeSecs / 2;
-      const idToken =
-        '{' +
-        '"iss":"testissuer",' +
-        '"aud":"testaudience",' +
-        '"azp":"testauthorisedparty",' +
-        '"email_verified":"true",' +
-        '"id":"123456789",' +
-        '"sub":"123456789",' +
-        '"email":"test@test.com",' +
-        '"iat":' +
-        now +
-        ',' +
-        '"exp":' +
-        expiry +
-        '}';
-      const envelope = '{' + '"kid":"keyid",' + '"alg":"ES256"' + '}';
+      const idToken = JSON.stringify({
+        iss: 'testissuer',
+        aud: 'testaudience',
+        azp: 'testauthorisedparty',
+        email_verified: 'true',
+        id: '123456789',
+        sub: '123456789',
+        email: 'test@test.com',
+        iat: now,
+        exp: expiry,
+      });
+      const envelope = JSON.stringify({kid: 'keyid', alg: 'ES256'});
       let data =
         Buffer.from(envelope).toString('base64') +
         '.' +
