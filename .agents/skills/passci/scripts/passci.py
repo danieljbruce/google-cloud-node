@@ -842,7 +842,11 @@ def build_summary_dict(
 
 def main(argv: Sequence[str] | None = None) -> int:
   parser = argparse.ArgumentParser(
-      description="Audit and verify google-cloud-node PRs for the passci skill."
+      description=(
+          "Audit and verify google-cloud-node PRs for the passci skill"
+          f" ({STYLE_MAINTENANCE_PREFIX}, {INDEPENDENT_REVIEW_PREFIX},"
+          f" {ADDRESS_CI_ERRORS_PREFIX})."
+      )
   )
   parser.add_argument(
       "--repo-root",
@@ -864,7 +868,10 @@ def main(argv: Sequence[str] | None = None) -> int:
       "--pr",
       type=int,
       default=None,
-      help="Optional GitHub pull request number to inspect `/gemini review` status.",
+      help=(
+          "Optional GitHub pull request number to inspect"
+          f" `{GEMINI_REVIEW_TRIGGER_COMMAND}` status."
+      ),
   )
   parser.add_argument(
       "--mode",
@@ -879,7 +886,12 @@ def main(argv: Sequence[str] | None = None) -> int:
           "plan",
       ),
       default="audit",
-      help="Execution mode.",
+      help=(
+          "Execution mode: audit CONTRIBUTING.md style, check reviews, verify"
+          " CI test plan, or verify commit prefixes"
+          f" ({STYLE_MAINTENANCE_PREFIX}, {INDEPENDENT_REVIEW_PREFIX},"
+          f" {ADDRESS_CI_ERRORS_PREFIX})."
+      ),
   )
   args = parser.parse_args(argv)
 
