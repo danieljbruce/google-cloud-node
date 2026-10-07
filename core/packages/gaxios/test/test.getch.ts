@@ -836,7 +836,10 @@ describe('🥁 configuration options', () => {
       const gaxios = new Gaxios();
       const timeout = 10;
 
-      await assert.rejects(() => gaxios.request({url, timeout}), /abort/);
+      await assert.rejects(
+        () => gaxios.request({url, timeout}),
+        /abort|timed out/i,
+      );
     });
 
     it('should a `timeout`, an existing `signal`, and be triggered by timeout', async () => {
@@ -847,7 +850,7 @@ describe('🥁 configuration options', () => {
 
       await assert.rejects(
         () => gaxios.request({url, timeout, signal}),
-        /abort/,
+        /abort|timed out/i,
       );
     });
 

@@ -36,8 +36,6 @@ if (
     process.env.BUN_ENABLE_PROXYQUIRE_SHIM === 'true';
   const enableKeypairShim = process.env.BUN_ENABLE_KEYPAIR_SHIM === 'true';
   const enableRequireShim = process.env.BUN_ENABLE_REQUIRE_SHIM === 'true';
-  const enableAbortSignalTimeoutShim =
-    process.env.BUN_ENABLE_ABORT_SIGNAL_TIMEOUT_SHIM === 'true';
   const enablePromiseAnyShim =
     process.env.BUN_ENABLE_PROMISE_ANY_SHIM === 'true';
   const enableCryptoVerifyShim =
@@ -285,32 +283,6 @@ if (
           if (id !== sut) cache[id] = saved[id];
         }
       }
-    };
-  }
-
-  // Override Bun's native AbortSignal.timeout so its abort reason DOMException
-  // uses the exact V8 message string ('The operation was aborted due to timeout')
-  // asserted by core/packages/gcp-metadata unit tests.
-  if (
-    enableAbortSignalTimeoutShim &&
-    typeof AbortSignal !== 'undefined' &&
-    typeof AbortSignal.timeout === 'function' &&
-    typeof DOMException !== 'undefined'
-  ) {
-    AbortSignal.timeout = function (ms) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => {
-        controller.abort(
-          new DOMException(
-            'The operation was aborted due to timeout',
-            'TimeoutError',
-          ),
-        );
-      }, ms);
-      if (timer && typeof timer.unref === 'function') {
-        timer.unref();
-      }
-      return controller.signal;
     };
   }
 

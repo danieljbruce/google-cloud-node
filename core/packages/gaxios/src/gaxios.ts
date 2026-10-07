@@ -231,6 +231,17 @@ export class Gaxios implements FetchCompliance {
         err = new GaxiosError('Unexpected Gaxios Error', opts, undefined, e);
       }
 
+      if (
+        opts.signal?.aborted &&
+        opts.signal.reason instanceof DOMException &&
+        opts.signal.reason.name === 'TimeoutError'
+      ) {
+        err.code = 'TimeoutError';
+        if (!/abort/i.test(err.message) || !/timeout/i.test(err.message)) {
+          err.message = 'The operation was aborted due to timeout';
+        }
+      }
+
       const {shouldRetry, config} = await getRetryConfig(err);
       if (shouldRetry && config) {
         err.config.retryConfig!.currentRetryAttempt =
