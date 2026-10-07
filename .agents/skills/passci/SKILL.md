@@ -2,12 +2,15 @@
 name: passci
 description: >-
   Opt-in workflow triggered when the developer includes /passci in the prompt.
-  Produces the requested code change, immediately opens a draft pull request so
-  the developer can view the suggested changes, and then pushes follow-up
-  commits prefixed with [Style Maintenance], [Independent review follow-ups]
-  (after triggering "/gemini review" in the PR up to 3 times or until no
-  high-priority issues come up), and [Address CI errors] so all CI checks pass
-  and unit tests pass with 95% confidence even when skipped by CI. Use only when
+  Produces the requested code change, immediately opens a draft pull request
+  (Push #1 of 2) so the developer can view the suggested changes, creates local
+  follow-up commits prefixed with [Style Maintenance], [Independent review
+  follow-ups] (from two independent Gemini reviews per round within Jetski, up
+  to 3 rounds or until no high-priority issues come up), and [Address CI errors]
+  (verifying unit tests pass with 95% confidence even when skipped by CI),
+  pushes all subsequent commits together in a single second push (Push #2 of 2)
+  so GitHub Actions unit tests do not reach their quota, and runs 1 final
+  "/gemini review" on the PR to confirm no major issues remain. Use only when
   the prompt includes /passci.
 ---
 
@@ -17,54 +20,70 @@ This skill is **opt-in** and activates whenever a developer includes `/passci`
 in their prompt when asking Jetski to make a code change and open a pull request
 in `googleapis/google-cloud-node`.
 
-## Overview of the `/passci` Workflow
+## Overview of the `/passci` Workflow & Two-Push Quota Discipline
 
-When `/passci` is included in the prompt, future pull requests created with
-Jetski follow this exact sequence:
+Every push to a pull request branch in `googleapis/google-cloud-node` triggers a
+full matrix of GitHub Actions unit test workflows (`presubmit`, `presubmit-bun`,
+`presubmit-windows`, and lint/compile jobs). To prevent GitHub Actions unit
+tests from reaching their quota, **only 2 pushes are performed throughout the
+entire workflow**:
 
 1.  **Produce a code change that does what the user asked** on a dedicated
-    feature/fix branch and commit the initial solution.
-2.  **Produce a draft PR so that the developer can see the suggested changes**
-    immediately after the problem is solved, *before* the additional changes for
-    style, extra reviews, and addressing CI errors are done.
-3.  **While the developer looks at the draft PR, keep adding commits** to the
-    branch as separate, clearly prefixed commits (per
-    [`CONTRIBUTING.md` — Addressing code review comments](../../../CONTRIBUTING.md#addressing-code-review-comments)):
-    *   **Add commits prefixed with `[Style Maintenance]`**: Before doing
+    feature/fix branch and commit the initial solution locally.
+2.  **Push #1 of 2 — Open a draft PR so that the developer can see the suggested
+    changes** immediately after the problem is solved, *before* the additional
+    changes for style, extra reviews, and addressing CI errors are done.
+3.  **While the developer looks at the draft PR, keep adding commits locally**
+    (without pushing after each intermediate commit):
+    *   **Add local commits prefixed with `[Style Maintenance]`**: Before doing
         independent review follow-ups, complete a step where we apply the
         principle: *"Referencing existing contributing guidelines and coding
         style documentation helps agents maintain code base quality."* Ensure
         the codebase quality of the changes is maintained and the style
         pertaining to the codebase is maintained by referencing the repository's
         existing contributing guidelines and coding style documentation.
-    *   **Add commits prefixed with `[Independent review follow-ups]`**: Before
-        doing the CI checks, have Gemini independently review the code changes
-        by typing `"/gemini review"` in the PR twice and address the review
-        comments that come up with commits prefixed with
-        `[Independent review follow-ups]`. Do this **three times or until no
-        high priority issues come up, whatever comes first**.
-    *   **Add commits prefixed with `[Address CI errors]`**: Verify that all CI
-        checks pass **and** unit tests pass with **95% confidence** even if they
-        are not running in the continuous integration pipeline. If there are CI
-        or unit test failures after completing the original task, add additional
-        commits prefixed with `[Address CI errors]` until all checks pass.
+    *   **Add local commits prefixed with `[Independent review follow-ups]`**:
+        Instead of running `/gemini review` repeatedly on the PR (which would
+        require multiple pushes and CI runs), conduct **two independent Gemini
+        code reviews locally within Jetski** per round (using two separate,
+        context-isolated subagents via `invoke_subagent` with no knowledge of
+        how the changes were authored). Address the review comments that come up
+        with local commits prefixed with `[Independent review follow-ups]`. Do
+        this **three times or until no high-priority issues come up, whatever
+        comes first**.
+    *   **Verify unit tests locally with 95% confidence and add local commits
+        prefixed with `[Address CI errors]`**: Run unit tests locally with
+        $\ge 95\%$ confidence (even if they are skipped in the continuous
+        integration pipeline) along with local compile and strict lint checks.
+        If any failures occur, add local commits prefixed with
+        `[Address CI errors]`.
+4.  **Push #2 of 2 — Push all subsequent commits in a single batch**: Once all
+    `[Style Maintenance]`, `[Independent review follow-ups]`, and local
+    `[Address CI errors]` commits have been made locally, push them all at once
+    (`git push`) so GitHub unit tests only run a second time and do not reach
+    their quota.
+5.  **Final Confirmation `/gemini review` & CI Check on the PR**: After Push #2,
+    type `"/gemini review"` **once** in the PR at the very end to confirm there
+    are no outstanding major issues, and verify that all GitHub CI checks pass
+    (adding an `[Address CI errors]` commit only if an unexpected remote-only CI
+    failure occurs).
 
-Stage | Timing | Action | Required Commit Prefix
+Stage | Push Budget | Action | Required Commit Prefix
 :--- | :--- | :--- | :---
-**1. Solve the Task** | First | Produce a code change that does what the user asked | `<type>(<package>): <description>`
-**2. Open Draft PR** | Immediately after Stage 1 (before style, reviews, and CI fixes) | Open a draft PR (`gh pr create --draft`) so the developer can view the suggested changes right away | *(Draft PR opened from initial commit)*
-**3. Style Maintenance** | While developer views draft PR, before independent reviews | *"Referencing existing contributing guidelines and coding style documentation helps agents maintain code base quality."* Audit against [`CONTRIBUTING.md`](../../../CONTRIBUTING.md), [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html), [`gts`](https://github.com/google/gts), [`.eslintrc.json`](../../../.eslintrc.json), [`.prettierrc.cjs`](../../../.prettierrc.cjs), and [`bin/linter.mjs`](../../../bin/linter.mjs) | `[Style Maintenance]`
-**4. Independent Gemini Reviews** | After `[Style Maintenance]`, before CI checks | Type `"/gemini review"` in the PR twice and address review comments; repeat **three times or until no high priority issues come up, whatever comes first** | `[Independent review follow-ups]`
-**5. 95% Unit Tests & Pass CI** | After independent reviews | Verify unit tests pass with 95% confidence (even if skipped in CI) and fix any CI failures | `[Address CI errors]`
+**1. Solve the Task** | Local commit | Produce a code change that does what the user asked | `<type>(<package>): <description>`
+**2. Open Draft PR** | **Push #1 of 2** | Push initial commit and open a draft PR (`gh pr create --draft`) so the developer can view the suggested changes right away | *(Draft PR opened from initial commit)*
+**3. Style Maintenance** | Local commit (no push yet) | *"Referencing existing contributing guidelines and coding style documentation helps agents maintain code base quality."* Audit against [`CONTRIBUTING.md`](../../../CONTRIBUTING.md), [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html), [`gts`](https://github.com/google/gts), [`.eslintrc.json`](../../../.eslintrc.json), [`.prettierrc.cjs`](../../../.prettierrc.cjs), and [`bin/linter.mjs`](../../../bin/linter.mjs) | `[Style Maintenance]`
+**4. Independent Gemini Reviews (in Jetski)** | Local commits (no push yet) | Run **2 independent Gemini reviews within Jetski** (`invoke_subagent`) and address review comments locally; repeat **up to 3 times or until no high-priority issues come up, whatever comes first** | `[Independent review follow-ups]`
+**5. 95% Unit Tests, Push #2 & Final PR Confirmation** | **Push #2 of 2** | Verify unit tests pass with 95% confidence locally, commit any fixes with `[Address CI errors]`, push all follow-up commits in **one single push**, and run **1 final `"/gemini review"`** on the PR to confirm no major issues remain | `[Address CI errors]`
 
 --------------------------------------------------------------------------------
 
 ## Helper Script (`scripts/passci.py`)
 
 Use the bundled helper script [scripts/passci.py](scripts/passci.py) to audit
-contributing guidelines and style rules, inspect `/gemini review` rounds and
-high-priority issue counts on the PR, identify CI unit test blind spots, compute
-the 95% confidence unit test plan, and verify commit prefix ordering:
+contributing guidelines and style rules, inspect local and final `/gemini review`
+status, identify CI unit test blind spots, compute the 95% confidence unit test
+plan, and verify commit prefix ordering and the 2-push budget:
 
 ```bash
 # 1. Audit changed files, CI blind spots, and CONTRIBUTING.md style compliance:
@@ -73,7 +92,7 @@ python3 .agents/skills/passci/scripts/passci.py \
   --base-ref upstream/main \
   --mode audit
 
-# 2. Check "/gemini review" rounds and high-priority issue status on the PR:
+# 2. Check local review rounds and final "/gemini review" confirmation on the PR:
 python3 .agents/skills/passci/scripts/passci.py \
   --repo-root . \
   --mode check-reviews \
@@ -118,13 +137,14 @@ python3 .agents/skills/passci/scripts/passci.py \
     git commit -m "<type>(<package>): <concise summary of user request>"
     ```
 
-### Stage 2: Open a Draft Pull Request Immediately
+### Stage 2: Open a Draft Pull Request Immediately (**Push #1 of 2**)
 
 Right after solving the user's task in Stage 1 — **before** performing style
-maintenance, extra reviews, or CI error fixes — open a draft pull request so the
-developer can inspect the suggested changes while follow-up commits are added:
+maintenance, extra reviews, or CI error fixes — perform **Push #1 of 2** and
+open a draft pull request so the developer can inspect the suggested changes
+while follow-up commits are prepared locally:
 
-1.  **Push the initial branch to the remote**:
+1.  **Push #1 of 2 — Push the initial branch to the remote**:
 
     ```bash
     git push -u origin <branch_name>
@@ -141,12 +161,12 @@ developer can inspect the suggested changes while follow-up commits are added:
       --title "<type>(<package>): <description>" \
       --body "<structured PR body per .agents/skills/create-pr/SKILL.md>"
     ```
-3.  **Share the draft PR in Jetski and continue immediately**:
+3.  **Share the draft PR in Jetski and continue locally**:
     *   Surface the draft PR link (and create a `.url.json` artifact with
         `UserFacing: true`) so the developer can view the initial solution right
         away.
-    *   Immediately continue to Stage 3, Stage 4, and Stage 5, pushing each
-        additional commit to the same draft PR branch.
+    *   **Do not push again** until Stage 5 (`Push #2 of 2`), so intermediate
+        style and review commits do not trigger redundant GitHub Actions runs.
 
 ### Stage 3: Style Maintenance & Contributing Guidelines (`[Style Maintenance]`)
 
@@ -208,7 +228,7 @@ Reference and enforce each of the following documents when auditing the branch:
     *   [**`bin/linter.mjs`**](../../../bin/linter.mjs): Runs isolated ESLint
         worker threads and `tsc --noEmit` across every modified package.
 
-#### Running Style Maintenance & Committing with `[Style Maintenance]`
+#### Running Style Maintenance & Committing Locally with `[Style Maintenance]`
 
 1.  Run the style audit, package auto-fixer, and strict monorepo linter:
 
@@ -224,66 +244,53 @@ Reference and enforce each of the following documents when auditing the branch:
     GIT_DIFF_ARG="upstream/main...HEAD -- :!packages" node ./bin/linter.mjs --strict
     ```
 2.  Commit any style, formatting, comment, or contributing-guideline updates
-    with a commit message prefixed with `[Style Maintenance]` and push to the
-    draft PR:
+    **locally** with a commit message prefixed with `[Style Maintenance]` (do
+    **not** push yet — save the push for Stage 5):
 
     ```bash
     git add -A
     git commit -m "[Style Maintenance] align changes with CONTRIBUTING.md and gts coding style guidelines"
-    git push
     ```
 
-### Stage 4: Independent Gemini Code Reviews via `"/gemini review"` (`[Independent review follow-ups]`)
+### Stage 4: Two Independent Gemini Reviews per Round Within Jetski (`[Independent review follow-ups]`)
 
-Before running the CI checks, have Gemini independently review the code changes
-by typing `"/gemini review"` in the PR twice and addressing the review comments
-that come up with commits prefixed with `[Independent review follow-ups]`. Do
-this **three times or until no high priority issues come up, whatever comes
-first**:
+Instead of running `"/gemini review"` repeatedly on the PR (which would require
+pushing after every round and burning GitHub Actions unit test quota), perform
+the iterative independent reviews **within Jetski** and save a single
+`"/gemini review"` on the PR for the very end (Stage 5):
 
-1.  **Request Independent Gemini Review on the Draft PR**:
-    *   Post `"/gemini review"` as a comment on the open draft pull request so
-        `gemini-code-assist[bot]` independently reviews the code changes with no
-        prior session context:
-
-        ```bash
-        gh pr comment <pr_number> \
-          --repo googleapis/google-cloud-node \
-          --body "/gemini review"
-        ```
-2.  **Retrieve and Inspect the Review Comments**:
-    *   Wait for Gemini Code Assist to post its review and inline comments on
-        the PR, then inspect all findings:
-
-        ```bash
-        gh api repos/googleapis/google-cloud-node/pulls/<pr_number>/reviews
-        gh api repos/googleapis/google-cloud-node/pulls/<pr_number>/comments
-        python3 .agents/skills/passci/scripts/passci.py \
-          --repo-root . --mode check-reviews --pr <pr_number>
-        ```
-    *   *(If `gemini-code-assist[bot]` does not respond on a personal fork
-        within the polling window, also run an independent, context-isolated
-        Gemini review subagent via `invoke_subagent` with only the raw PR diff
-        and `CONTRIBUTING.md` so independent review comments are still generated
-        and addressed).*
-3.  **Address Review Comments with `[Independent review follow-ups]` Commits**:
-    *   Fix the issues raised in the review comments, commit the changes with a
-        commit message starting with `[Independent review follow-ups]`, and push
-        to the draft PR:
+1.  **Run Two Independent Gemini Reviews in Parallel Within Jetski**:
+    *   In each review round, invoke **two separate, context-isolated subagents**
+        (`invoke_subagent` with 2 entries using `research-google` or `self`)
+        that have **zero prior knowledge** of the conversation history or why the
+        changes were written.
+    *   Instruct both independent reviewers to inspect only `git diff
+        upstream/main...HEAD`, the touched files, and `CONTRIBUTING.md`, and to
+        classify each finding by priority (`high` / `critical` vs. `medium` /
+        `low`):
+        *   **Independent Reviewer 1**: Focus on correctness, edge cases, async
+            / Promise / callback handling, error propagation, resource leaks,
+            and backwards compatibility.
+        *   **Independent Reviewer 2**: Focus on TypeScript type safety, unit
+            test coverage and assertions, `CONTRIBUTING.md` compliance, and API
+            contract consistency.
+2.  **Address Review Comments Locally with `[Independent review follow-ups]` Commits**:
+    *   Synthesize the findings from both independent reviewers, fix the issues
+        raised, and commit the changes **locally** with a commit message
+        starting with `[Independent review follow-ups]` (do **not** push yet):
 
         ```bash
         git add -A
-        git commit -m "[Independent review follow-ups] address /gemini review comments (round <r>)"
-        git push
+        git commit -m "[Independent review follow-ups] address independent Gemini review comments (round <r>)"
         ```
-4.  **Repeat Up to Three Times or Until No High-Priority Issues Come Up**:
-    *   Check whether any high-priority issues (`![high]`, `![critical]`,
-        `High`, `Critical`, `P0`, `P1`, bugs, race conditions, or broken types)
-        were raised in the round.
-    *   Stop after **3 rounds** OR as soon as a review round produces **no high
-        priority issues**, **whichever comes first**.
+3.  **Repeat Up to Three Rounds or Until No High-Priority Issues Come Up**:
+    *   Check whether either of the two independent Gemini reviews in round `<r>`
+        surfaced any high-priority / major issues (`![high]`, `![critical]`,
+        `High`, `Critical`, `P0`, `P1`, bugs, race conditions, or broken types).
+    *   Repeat this dual-reviewer pass up to **3 rounds** OR stop as soon as a
+        round produces **no high-priority issues**, **whichever comes first**.
 
-### Stage 5: 95% Confidence Unit Test Verification & Addressing CI Errors (`[Address CI errors]`)
+### Stage 5: Local 95% Unit Test Verification, Push #2 of 2, and Final `/gemini review` (`[Address CI errors]`)
 
 #### Why Unit Tests Are Skipped in the `google-cloud-node` CI Pipeline
 
@@ -299,7 +306,7 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
 **Root Tooling (`bin/*`) & Shared Core Libraries** | `ci/run_conditional_tests.sh` only checks `git diff` on `ci/` or per-package directories; edits to `bin/run-test.cjs`, `bin/proxyquire-bun-shim.cjs`, `bin/linter.mjs`, or `core/packages/*` do not trigger downstream package tests in CI. | Run stratified sample of downstream packages ($n = 59$) for $\ge 95\%$ confidence.
 **`ignore.json` Packages** | Any directory listed in `ignore.json` is skipped by `ci/run_conditional_tests.sh`. | Run `pnpm --dir <pkg_dir> test` directly.
 
-#### Verifying Unit Tests at $\ge 95\%$ Confidence & Passing All CI Checks
+#### Step 5.1: Verify Unit Tests Locally at $\ge 95\%$ Confidence & Run Local CI Suite
 
 1.  **Direct Multi-Runtime Unit Test Execution on All Touched Packages**:
     *   For every modified package directory (even when skipped by
@@ -320,8 +327,9 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
         / \ln(0.95) \rceil = 59$), run unit tests across a stratified sample of
         $n = 59$ downstream packages with **0 failures** to establish with
         **95% confidence** that at least 95% of monorepo packages pass.
-3.  **Run Local CI Checks & Monitor GitHub Actions Workflow Runs**:
-    *   Execute the local CI suite:
+3.  **Run Local CI Checks Before Pushing**:
+    *   Execute the local CI suite and commit any fixes **locally** with the
+        prefix `[Address CI errors]`:
 
         ```bash
         pnpm install --frozen-lockfile --ignore-scripts
@@ -330,24 +338,46 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
         RUN_TESTS_MODE=RUN_UNIT_TESTS BUILD_TYPE=presubmit TEST_TYPE=units \
           SHARD_TOTAL=1 SHARD_INDEX=0 GIT_DIFF_ARG="upstream/main...HEAD" \
           bash ci/run_conditional_tests.sh --strict
-        ```
-    *   Monitor all GitHub Actions checks on the draft pull request:
 
-        ```bash
-        gh pr checks <pr_number> --repo googleapis/google-cloud-node
-        ```
-4.  **Commit Any CI Fixes with `[Address CI errors]`**:
-    *   If any local or remote CI check fails after the original task was
-        completed, fix the failure, commit with the prefix
-        `[Address CI errors]`, and push to the draft PR:
-
-        ```bash
+        # If any local CI or unit test check needed a fix, commit locally before Push #2:
         git add -A
         git commit -m "[Address CI errors] <description of CI or unit test fix>"
-        git push
         ```
-    *   Repeat until every CI check on the draft pull request passes and unit
-        tests pass with $\ge 95\%$ confidence.
+
+#### Step 5.2: Push #2 of 2 — Single Batch Push of All Subsequent Commits
+
+Once all `[Style Maintenance]`, `[Independent review follow-ups]`, and local
+`[Address CI errors]` commits are recorded on your local branch, perform **Push
+#2 of 2** so GitHub Actions only runs a second time for the entire follow-up
+series:
+
+```bash
+git push
+```
+
+#### Step 5.3: Run 1 Final `"/gemini review"` on the PR & Confirm CI Passes
+
+1.  **Trigger 1 Final `"/gemini review"` on the PR**:
+    *   Comment `"/gemini review"` **once** at the very end to confirm there are
+        no outstanding major issues on the pull request:
+
+        ```bash
+        gh pr comment <pr_number> \
+          --repo googleapis/google-cloud-node \
+          --body "/gemini review"
+        ```
+2.  **Confirm No Major Issues & All GitHub CI Checks Pass**:
+    *   Inspect the final PR review and monitor the GitHub Actions run triggered
+        by Push #2:
+
+        ```bash
+        python3 .agents/skills/passci/scripts/passci.py \
+          --repo-root . --mode check-reviews --pr <pr_number>
+        gh pr checks <pr_number> --repo googleapis/google-cloud-node
+        ```
+    *   *(Only if the final PR review or remote CI run surfaces a remaining
+        major issue or remote-only CI failure, add a final `[Independent review
+        follow-ups]` or `[Address CI errors]` commit and push to resolve it).*
 
 --------------------------------------------------------------------------------
 
@@ -355,10 +385,10 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
 
 -   [ ] **1. Code Change Committed**: Initial commit solves the user's request
     and follows `<type>(<package>): <description>`.
--   [ ] **2. Draft PR Opened Right Away**: Draft PR (`gh pr create --draft`)
-    opened immediately after solving the problem, *before* style, extra review,
-    and CI fix commits.
--   [ ] **3. `[Style Maintenance]` Commit(s) Pushed**: Audited against
+-   [ ] **2. Draft PR Opened Immediately (Push #1 of 2)**: Draft PR (`gh pr
+    create --draft`) opened right after solving the problem, *before* style,
+    extra review, and CI fix commits.
+-   [ ] **3. `[Style Maintenance]` Commit(s) Created Locally**: Audited against
     [`CONTRIBUTING.md`](../../../CONTRIBUTING.md),
     [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html),
     [`gts`](https://github.com/google/gts),
@@ -367,11 +397,14 @@ CI Blind Spot | Root Cause in [`ci/run_conditional_tests.sh`](../../../ci/run_co
     [`bin/linter.mjs`](../../../bin/linter.mjs) (*"Referencing existing
     contributing guidelines and coding style documentation helps agents maintain
     code base quality."*), with commits prefixed with `[Style Maintenance]`.
--   [ ] **4. `[Independent review follow-ups]` Commit(s) Pushed**: Triggered
-    `"/gemini review"` in the PR and addressed comments with commits prefixed
-    with `[Independent review follow-ups]`, repeating up to **3 times or until
-    no high priority issues come up, whatever comes first**.
--   [ ] **5. `[Address CI errors]` Commit(s) & 95% Unit Test Confidence**: Unit
-    tests verified with $\ge 95\%$ confidence (even if skipped in CI), any CI
-    failures resolved in commits prefixed with `[Address CI errors]`, and all
-    draft PR CI checks pass.
+-   [ ] **4. `[Independent review follow-ups]` Commit(s) Created Locally**:
+    Conducted **2 independent Gemini reviews per round within Jetski**
+    (`invoke_subagent`) with no prior context and addressed comments with local
+    commits prefixed with `[Independent review follow-ups]`, repeating up to
+    **3 times or until no high-priority issues come up, whatever comes first**.
+-   [ ] **5. 95% Unit Test Confidence, Single Batch Push (Push #2 of 2) & 1
+    Final `/gemini review`**: Unit tests verified locally with $\ge 95\%$
+    confidence (even if skipped in CI), any CI fixes committed with `[Address CI
+    errors]`, all subsequent commits pushed together in **Push #2 of 2** so
+    GitHub unit tests do not reach their quota, and **1 final `"/gemini
+    review"`** run on the PR confirming no major issues remain.

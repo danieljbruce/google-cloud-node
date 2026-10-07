@@ -15,21 +15,25 @@
 
 """Helper script for the passci (/passci) skill in googleapis/google-cloud-node.
 
-Enforces the `/passci` workflow for `googleapis/google-cloud-node`:
+Enforces the `/passci` workflow for `googleapis/google-cloud-node` while
+requiring only 2 `git push` invocations so GitHub Actions unit tests do not
+reach their quota:
   1. Produce the code change requested by the developer.
-  2. Open a draft PR immediately so the developer can view the suggested changes
-     before style, review, and CI follow-up commits are added.
-  3. Audit changes against `CONTRIBUTING.md` and coding style documentation
-     ("Referencing existing contributing guidelines and coding style
-     documentation helps agents maintain code base quality.") and mark style
-     commits with `[Style Maintenance]`.
-  4. Trigger independent Gemini reviews by commenting `"/gemini review"` in the
-     PR and address comments with commits prefixed with
-     `[Independent review follow-ups]`, repeating up to 3 times or until no
-     high-priority issues come up, whatever comes first.
-  5. Verify unit tests pass with >= 95% confidence (including packages skipped
-     by `ci/run_conditional_tests.sh`) and all CI checks pass, marking CI fix
-     commits with `[Address CI errors]`.
+  2. Push #1 of 2: Open a draft PR immediately so the developer can view the
+     suggested changes before style, review, and CI follow-up commits are added.
+  3. Audit changes locally against `CONTRIBUTING.md` and coding style
+     documentation ("Referencing existing contributing guidelines and coding
+     style documentation helps agents maintain code base quality.") and mark
+     local style commits with `[Style Maintenance]`.
+  4. Conduct 2 independent Gemini reviews per round within Jetski (using
+     context-isolated subagents) and address comments with local commits
+     prefixed with `[Independent review follow-ups]`, repeating up to 3 times or
+     until no high-priority issues come up, whatever comes first.
+  5. Verify unit tests pass locally with >= 95% confidence (including packages
+     skipped by `ci/run_conditional_tests.sh`), mark any CI/test fix commits
+     with `[Address CI errors]`, perform Push #2 of 2 to push all follow-up
+     commits in a single batch, and run 1 final `"/gemini review"` on the PR to
+     confirm no outstanding major issues remain.
 """
 
 from __future__ import annotations
@@ -49,6 +53,9 @@ DEFAULT_REPO = "googleapis/google-cloud-node"
 DEFAULT_BASE_REF = "upstream/main"
 DEFAULT_CONFIDENCE = 0.95
 MAX_GEMINI_REVIEW_ROUNDS = 3
+INDEPENDENT_REVIEWERS_PER_ROUND = 2
+FINAL_PR_GEMINI_REVIEWS = 1
+MAX_GIT_PUSHES = 2
 GEMINI_REVIEW_TRIGGER_COMMAND = "/gemini review"
 
 STYLE_MAINTENANCE_PREFIX = "[Style Maintenance]"
@@ -158,7 +165,7 @@ class StyleAuditReport:
 
 @dataclasses.dataclass(frozen=True)
 class GeminiReviewLoopStatus:
-  """State of the iterative `/gemini review` PR review loop."""
+  """State of the iterative Jetski independent reviews and final PR `/gemini review`."""
 
   trigger_command: str
   rounds_completed: int
@@ -167,6 +174,9 @@ class GeminiReviewLoopStatus:
   total_comments_in_latest_round: int
   should_continue_reviewing: bool
   stop_reason: str
+  independent_reviewers_per_round: int = INDEPENDENT_REVIEWERS_PER_ROUND
+  final_pr_gemini_reviews: int = FINAL_PR_GEMINI_REVIEWS
+  max_git_pushes: int = MAX_GIT_PUSHES
 
 
 @dataclasses.dataclass(frozen=True)
@@ -225,7 +235,7 @@ def evaluate_gemini_review_round(
     latest_round_comment_bodies: Sequence[str],
     max_rounds: int = MAX_GEMINI_REVIEW_ROUNDS,
 ) -> GeminiReviewLoopStatus:
-  """Evaluates whether another `/gemini review` round is required on the PR."""
+  """Evaluates whether another independent Gemini review round is required."""
   high_priority_count = sum(
       1
       for body in latest_round_comment_bodies
@@ -241,7 +251,9 @@ def evaluate_gemini_review_round(
         high_priority_issues_in_latest_round=high_priority_count,
         total_comments_in_latest_round=total_comments,
         should_continue_reviewing=True,
-        stop_reason="No `/gemini review` rounds have been executed yet.",
+        stop_reason=(
+            "No independent Gemini review rounds have been executed yet."
+        ),
     )
 
   if rounds_completed >= max_rounds:
@@ -252,7 +264,10 @@ def evaluate_gemini_review_round(
         high_priority_issues_in_latest_round=high_priority_count,
         total_comments_in_latest_round=total_comments,
         should_continue_reviewing=False,
-        stop_reason=f"Reached maximum of {max_rounds} `/gemini review` rounds.",
+        stop_reason=(
+            f"Reached maximum of {max_rounds} independent Gemini review rounds;"
+            " ready for Push #2 and 1 final `/gemini review` on the PR."
+        ),
     )
 
   if high_priority_count == 0:
@@ -264,8 +279,8 @@ def evaluate_gemini_review_round(
         total_comments_in_latest_round=total_comments,
         should_continue_reviewing=False,
         stop_reason=(
-            "No high-priority issues came up in the latest `/gemini review`"
-            " round."
+            "No high-priority issues came up in the latest review round;"
+            " ready for Push #2 and 1 final `/gemini review` on the PR."
         ),
     )
 
@@ -278,7 +293,8 @@ def evaluate_gemini_review_round(
       should_continue_reviewing=True,
       stop_reason=(
           f"{high_priority_count} high-priority issue(s) found in round"
-          f" {rounds_completed}; continue up to {max_rounds} rounds."
+          f" {rounds_completed}; continue local independent review up to"
+          f" {max_rounds} rounds."
       ),
   )
 
@@ -591,7 +607,7 @@ def validate_passci_commits(
   if not review_commits:
     messages.append(
         f"Missing commit prefixed with {INDEPENDENT_REVIEW_PREFIX} addressing"
-        " `/gemini review` comments."
+        " independent Gemini review comments."
     )
   if len(review_commits) > MAX_GEMINI_REVIEW_ROUNDS:
     messages.append(
@@ -772,23 +788,50 @@ def build_summary_dict(
   return {
       "workflow_stages": [
           "1. Produce a code change that does what the user asked",
-          "2. Produce a draft PR so the developer can see the suggested changes",
           (
-              f"3. Add commits prefixed with {STYLE_MAINTENANCE_PREFIX}"
+              "2. Push #1 of 2: Produce a draft PR so the developer can see the"
+              " suggested changes"
+          ),
+          (
+              "3. Add local commits prefixed with"
+              f" {STYLE_MAINTENANCE_PREFIX}"
               f" ({CONTRIBUTING_GUIDELINES_PRINCIPLE})"
           ),
           (
-              f"4. Comment '{GEMINI_REVIEW_TRIGGER_COMMAND}' in the PR and add"
-              f" commits prefixed with {INDEPENDENT_REVIEW_PREFIX} (up to"
+              f"4. Conduct {INDEPENDENT_REVIEWERS_PER_ROUND} independent Gemini"
+              " reviews per round within Jetski and add local commits prefixed"
+              f" with {INDEPENDENT_REVIEW_PREFIX} (up to"
               f" {MAX_GEMINI_REVIEW_ROUNDS} times or until no high-priority"
               " issues come up, whatever comes first)"
           ),
           (
-              f"5. Verify unit tests pass with >= {int(confidence * 100)}%"
-              " confidence and add commits prefixed with"
-              f" {ADDRESS_CI_ERRORS_PREFIX} for any CI failures"
+              f"5. Verify unit tests pass locally with >= {int(confidence * 100)}%"
+              " confidence, add local commits prefixed with"
+              f" {ADDRESS_CI_ERRORS_PREFIX} for any CI/test failures, perform"
+              f" Push #2 of {MAX_GIT_PUSHES} to push all follow-up commits in a"
+              f" single batch, and run {FINAL_PR_GEMINI_REVIEWS} final"
+              f" '{GEMINI_REVIEW_TRIGGER_COMMAND}' on the PR to confirm no"
+              " outstanding major issues"
           ),
       ],
+      "push_budget": {
+          "max_pushes": MAX_GIT_PUSHES,
+          "push_1": (
+              "Initial commit when creating the draft PR (`git push -u origin"
+              " <branch>`)"
+          ),
+          "push_2": (
+              "Single batch push after all local"
+              f" {STYLE_MAINTENANCE_PREFIX}, {INDEPENDENT_REVIEW_PREFIX}, and"
+              f" local {ADDRESS_CI_ERRORS_PREFIX} commits are complete (`git"
+              " push`) so GitHub unit tests do not reach their quota"
+          ),
+          "final_pr_gemini_review": (
+              f"Run `{GEMINI_REVIEW_TRIGGER_COMMAND}`"
+              f" {FINAL_PR_GEMINI_REVIEWS} time on the PR at the very end to"
+              " confirm no outstanding major issues"
+          ),
+      },
       "analysis": dataclasses.asdict(analysis),
       "style_audit": dataclasses.asdict(style_report),
       "gemini_review_loop": dataclasses.asdict(review_status),
