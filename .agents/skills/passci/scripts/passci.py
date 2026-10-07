@@ -27,7 +27,7 @@ reach their quota:
      local style commits with `[Style Maintenance]`.
   4. Conduct 2 independent Gemini reviews per round within Jetski (using
      context-isolated subagents) and address comments with local commits
-     prefixed with `[Independent review follow-ups]`, repeating up to 3 times or
+     prefixed with `[Independent review follow-ups]`, repeating up to 5 times or
      until no high-priority issues come up, whatever comes first.
   5. Verify unit tests pass locally with >= 95% confidence (including packages
      skipped by `ci/run_conditional_tests.sh`), mark any CI/test fix commits
@@ -52,7 +52,7 @@ from typing import Any
 DEFAULT_REPO = "googleapis/google-cloud-node"
 DEFAULT_BASE_REF = "upstream/main"
 DEFAULT_CONFIDENCE = 0.95
-MAX_GEMINI_REVIEW_ROUNDS = 3
+MAX_GEMINI_REVIEW_ROUNDS = 5
 INDEPENDENT_REVIEWERS_PER_ROUND = 2
 FINAL_PR_GEMINI_REVIEWS = 1
 MAX_GIT_PUSHES = 2

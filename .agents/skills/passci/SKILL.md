@@ -6,7 +6,7 @@ description: >-
   (Push #1 of 2) so the developer can view the suggested changes, creates local
   follow-up commits prefixed with [Style Maintenance], [Independent review
   follow-ups] (from two independent Gemini reviews per round within Jetski, up
-  to 3 rounds or until no high-priority issues come up), and [Address CI errors]
+  to 5 rounds or until no high-priority issues come up), and [Address CI errors]
   (verifying unit tests pass with 95% confidence even when skipped by CI),
   pushes all subsequent commits together in a single second push (Push #2 of 2)
   so GitHub Actions unit tests do not reach their quota, and runs 1 final
@@ -49,7 +49,7 @@ entire workflow**:
         context-isolated subagents via `invoke_subagent` with no knowledge of
         how the changes were authored). Address the review comments that come up
         with local commits prefixed with `[Independent review follow-ups]`. Do
-        this **three times or until no high-priority issues come up, whatever
+        this **five times or until no high-priority issues come up, whatever
         comes first**.
     *   **Verify unit tests locally with 95% confidence and add local commits
         prefixed with `[Address CI errors]`**: Run unit tests locally with
@@ -73,7 +73,7 @@ Stage | Push Budget | Action | Required Commit Prefix
 **1. Solve the Task** | Local commit | Produce a code change that does what the user asked | `<type>(<package>): <description>`
 **2. Open Draft PR** | **Push #1 of 2** | Push initial commit and open a draft PR (`gh pr create --draft`) so the developer can view the suggested changes right away | *(Draft PR opened from initial commit)*
 **3. Style Maintenance** | Local commit (no push yet) | *"Referencing existing contributing guidelines and coding style documentation helps agents maintain code base quality."* Audit against [`CONTRIBUTING.md`](../../../CONTRIBUTING.md), [Google TypeScript Style Guide](https://google.github.io/styleguide/tsguide.html), [`gts`](https://github.com/google/gts), [`.eslintrc.json`](../../../.eslintrc.json), [`.prettierrc.cjs`](../../../.prettierrc.cjs), and [`bin/linter.mjs`](../../../bin/linter.mjs) | `[Style Maintenance]`
-**4. Independent Gemini Reviews (in Jetski)** | Local commits (no push yet) | Run **2 independent Gemini reviews within Jetski** (`invoke_subagent`) and address review comments locally; repeat **up to 3 times or until no high-priority issues come up, whatever comes first** | `[Independent review follow-ups]`
+**4. Independent Gemini Reviews (in Jetski)** | Local commits (no push yet) | Run **2 independent Gemini reviews within Jetski** (`invoke_subagent`) and address review comments locally; repeat **up to 5 times or until no high-priority issues come up, whatever comes first** | `[Independent review follow-ups]`
 **5. 95% Unit Tests, Push #2 & Final PR Confirmation** | **Push #2 of 2** | Verify unit tests pass with 95% confidence locally, commit any fixes with `[Address CI errors]`, push all follow-up commits in **one single push**, and run **1 final `"/gemini review"`** on the PR to confirm no major issues remain | `[Address CI errors]`
 
 --------------------------------------------------------------------------------
@@ -283,11 +283,11 @@ the iterative independent reviews **within Jetski** and save a single
         git add -A
         git commit -m "[Independent review follow-ups] address independent Gemini review comments (round <r>)"
         ```
-3.  **Repeat Up to Three Rounds or Until No High-Priority Issues Come Up**:
+3.  **Repeat Up to Five Rounds or Until No High-Priority Issues Come Up**:
     *   Check whether either of the two independent Gemini reviews in round `<r>`
         surfaced any high-priority / major issues (`![high]`, `![critical]`,
         `High`, `Critical`, `P0`, `P1`, bugs, race conditions, or broken types).
-    *   Repeat this dual-reviewer pass up to **3 rounds** OR stop as soon as a
+    *   Repeat this dual-reviewer pass up to **5 rounds** OR stop as soon as a
         round produces **no high-priority issues**, **whichever comes first**.
 
 ### Stage 5: Local 95% Unit Test Verification, Push #2 of 2, and Final `/gemini review` (`[Address CI errors]`)
@@ -401,7 +401,7 @@ git push
     Conducted **2 independent Gemini reviews per round within Jetski**
     (`invoke_subagent`) with no prior context and addressed comments with local
     commits prefixed with `[Independent review follow-ups]`, repeating up to
-    **3 times or until no high-priority issues come up, whatever comes first**.
+    **5 times or until no high-priority issues come up, whatever comes first**.
 -   [ ] **5. 95% Unit Test Confidence, Single Batch Push (Push #2 of 2) & 1
     Final `/gemini review`**: Unit tests verified locally with $\ge 95\%$
     confidence (even if skipped in CI), any CI fixes committed with `[Address CI
