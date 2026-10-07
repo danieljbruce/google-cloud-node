@@ -26,7 +26,7 @@ import {
   defaultErrorRedactor,
 } from './common.js';
 import {getRetryConfig} from './retry.js';
-import {Readable} from 'stream';
+import {PassThrough, Readable} from 'stream';
 import {GaxiosInterceptorManager} from './interceptor.js';
 
 const randomUUID = async () =>
@@ -669,12 +669,84 @@ export class Gaxios implements FetchCompliance {
     return this.#proxyAgent;
   }
 
+  static #createBunFetch(): typeof fetch {
+    return async (input, init) => {
+      const bunFetch = (globalThis as {__googleCloudBunFetch?: typeof fetch})
+        .__googleCloudBunFetch;
+      if (typeof bunFetch === 'function') {
+        return bunFetch(input, init);
+      }
+
+      let fetchInit = init as
+        | (Omit<RequestInit, 'body'> & {body?: unknown})
+        | undefined;
+      if (
+        fetchInit?.body &&
+        typeof fetchInit.body === 'object' &&
+        typeof (fetchInit.body as Readable).pipe === 'function' &&
+        typeof Readable.toWeb === 'function' &&
+        (typeof ReadableStream === 'undefined' ||
+          !(fetchInit.body instanceof ReadableStream))
+      ) {
+        const stream =
+          fetchInit.body instanceof Readable
+            ? fetchInit.body
+            : (fetchInit.body as Readable).pipe(new PassThrough());
+        fetchInit = {
+          ...fetchInit,
+          body: Readable.toWeb(stream) as unknown as RequestInit['body'],
+        };
+      }
+
+      const res = await globalThis.fetch(
+        input,
+        fetchInit as RequestInit | undefined,
+      );
+      if (
+        res?.body &&
+        typeof Readable.fromWeb === 'function' &&
+        !(res.body instanceof Readable)
+      ) {
+        let nodeStream: Readable | undefined;
+        const rawBody =
+          res.body as unknown as import('stream/web').ReadableStream;
+        const origText = res.text.bind(res);
+        const origJson = res.json.bind(res);
+        Object.defineProperty(res, 'body', {
+          get() {
+            nodeStream ||= Readable.fromWeb(rawBody);
+            return nodeStream;
+          },
+          configurable: true,
+          enumerable: true,
+        });
+        res.text = async () => {
+          if (!nodeStream) return origText();
+          const chunks: Buffer[] = [];
+          for await (const chunk of nodeStream) {
+            chunks.push(
+              Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array),
+            );
+          }
+          return Buffer.concat(chunks).toString('utf8');
+        };
+        res.json = async () => {
+          if (!nodeStream) return origJson();
+          return JSON.parse(await res.text());
+        };
+      }
+      return res;
+    };
+  }
+
   static async #getFetch() {
     const hasWindow = typeof window !== 'undefined' && !!window;
 
     this.#fetch ||= hasWindow
       ? window.fetch
-      : (await import('node-fetch')).default;
+      : 'Bun' in globalThis && typeof globalThis.fetch === 'function'
+        ? this.#createBunFetch()
+        : (await import('node-fetch')).default;
 
     return this.#fetch;
   }
