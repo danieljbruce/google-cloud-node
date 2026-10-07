@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import * as assert from 'assert';
+import * as crypto from 'crypto';
 import {describe, it, beforeEach, afterEach} from 'mocha';
 import * as fs from 'fs';
 import * as jws from 'jws';
@@ -28,7 +29,14 @@ function removeBearerFromAuthorizationHeader(headers: Headers): string {
 }
 
 describe('jwt', () => {
-  const keypair = require('keypair');
+  function keypair(bits = 2048): {public: string; private: string} {
+    const {publicKey, privateKey} = crypto.generateKeyPairSync('rsa', {
+      modulusLength: Math.max(bits, 512),
+      publicKeyEncoding: {type: 'pkcs1', format: 'pem'},
+      privateKeyEncoding: {type: 'pkcs1', format: 'pem'},
+    });
+    return {public: publicKey, private: privateKey};
+  }
   const PEM_PATH = './test/fixtures/private.pem';
   const PEM_CONTENTS = fs.readFileSync(PEM_PATH, 'utf8');
 
