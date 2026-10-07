@@ -678,8 +678,7 @@ export class Gaxios implements FetchCompliance {
       }
 
       let fetchInit = init as
-        | (Omit<RequestInit, 'body'> & {body?: unknown})
-        | undefined;
+        (Omit<RequestInit, 'body'> & {body?: unknown}) | undefined;
       if (
         fetchInit?.body &&
         typeof fetchInit.body === 'object' &&
