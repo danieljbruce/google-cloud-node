@@ -16,13 +16,13 @@
 
 import assert from 'assert';
 
+import {GaxiosError} from 'gaxios';
 import {beforeEach, afterEach, describe, it} from 'mocha';
 import nock from 'nock';
 import {SinonSandbox, createSandbox} from 'sinon';
 
 import * as gcp from '../src';
 import {GCPResidencyUtil} from './utils/gcp-residency';
-import {GaxiosError} from 'gaxios';
 
 // the metadata IP entry:
 const HOST = gcp.HOST_ADDRESS;
