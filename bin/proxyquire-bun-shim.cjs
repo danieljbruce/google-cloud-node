@@ -38,8 +38,6 @@ if (
   const enableRequireShim = process.env.BUN_ENABLE_REQUIRE_SHIM === 'true';
   const enableAbortSignalTimeoutShim =
     process.env.BUN_ENABLE_ABORT_SIGNAL_TIMEOUT_SHIM === 'true';
-  const enablePromiseAnyShim =
-    process.env.BUN_ENABLE_PROMISE_ANY_SHIM === 'true';
   const enableCryptoVerifyShim =
     process.env.BUN_ENABLE_CRYPTO_VERIFY_SHIM === 'true';
   const enableAssertDeepEqualShim =
@@ -312,20 +310,6 @@ if (
       }
       return controller.signal;
     };
-  }
-
-  if (enablePromiseAnyShim) {
-    const origPromiseAny = Promise.any;
-    if (typeof origPromiseAny === 'function') {
-      Promise.any = function (iterable) {
-        return origPromiseAny.call(this, iterable).catch(err => {
-          if (err instanceof AggregateError && !err.message) {
-            err.message = 'All promises were rejected';
-          }
-          throw err;
-        });
-      };
-    }
   }
 
   if (enableCryptoVerifyShim) {
