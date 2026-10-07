@@ -24,7 +24,7 @@ function loadFreshUtil(): typeof import('../src/util.js') {
 }
 
 describe('util lazy imports', () => {
-  let originalRequire: NodeRequire;
+  let originalRequire: typeof Module.prototype.require;
   let originalUtilCacheEntry: NodeModule | undefined;
 
   before(() => {
