@@ -31,7 +31,6 @@ if (
 
   const enableFetchShim = process.env.BUN_ENABLE_FETCH_SHIM === 'true';
   const enableBunPluginShim = process.env.BUN_ENABLE_BUN_PLUGIN_SHIM === 'true';
-  const enableGaxiosShim = process.env.BUN_ENABLE_GAXIOS_SHIM === 'true';
   const enableProxyquireShim =
     process.env.BUN_ENABLE_PROXYQUIRE_SHIM === 'true';
   const enableKeypairShim = process.env.BUN_ENABLE_KEYPAIR_SHIM === 'true';
@@ -747,40 +746,7 @@ if (
     });
   }
 
-  function patchGaxiosIfPresent(res) {
-    if (
-      enableGaxiosShim &&
-      res &&
-      typeof res === 'object' &&
-      typeof res.Gaxios === 'function' &&
-      !res.Gaxios.__bunPatched
-    ) {
-      res.Gaxios.__bunPatched = true;
-      const origAdapter = res.Gaxios.prototype._defaultAdapter;
-      if (typeof origAdapter === 'function') {
-        res.Gaxios.prototype._defaultAdapter = function (config) {
-          if (
-            config &&
-            !config.fetchImplementation &&
-            !this.defaults?.fetchImplementation &&
-            typeof window === 'undefined'
-          ) {
-            config.fetchImplementation = (...a) =>
-              globalThis.__googleCloudBunFetch(...a);
-          }
-          return origAdapter.call(this, config);
-        };
-      }
-    }
-    return res;
-  }
-
-  if (
-    enableRequireShim ||
-    enableProxyquireShim ||
-    enableKeypairShim ||
-    enableGaxiosShim
-  ) {
+  if (enableRequireShim || enableProxyquireShim || enableKeypairShim) {
     Module.prototype.require = function (id) {
       if (enableProxyquireShim && id === 'proxyquire') {
         return makeProxyquire(this);
@@ -817,9 +783,7 @@ if (
               }
             }
             if (found && (isSut || isGlobalStub(stub))) {
-              return patchGaxiosIfPresent(
-                applyStub(this, id, stub, fr.noCallThru),
-              );
+              return applyStub(this, id, stub, fr.noCallThru);
             }
           }
         }
@@ -832,11 +796,9 @@ if (
         typeof Module._load === 'function' &&
         Module._load !== defaultModuleLoad
       ) {
-        return patchGaxiosIfPresent(
-          Module._load(id, this, /* isMain */ false),
-        );
+        return Module._load(id, this, /* isMain */ false);
       }
-      return patchGaxiosIfPresent(origRequire.apply(this, arguments));
+      return origRequire.apply(this, arguments);
     };
   }
 

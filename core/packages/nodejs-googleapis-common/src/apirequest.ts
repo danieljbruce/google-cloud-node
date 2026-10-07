@@ -23,7 +23,13 @@ import {isBrowser} from './isbrowser';
 import {SchemaParameters} from './schema';
 import * as h2 from './http2';
 import {GaxiosResponseWithHTTP2} from './http2';
-import {headersToClassicHeaders, marshallGaxiosResponse} from './util';
+import {
+  ensureBunGaxiosFetch,
+  headersToClassicHeaders,
+  marshallGaxiosResponse,
+} from './util';
+
+ensureBunGaxiosFetch(Gaxios);
 import {validateAndEncodeParams} from './transcoding';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

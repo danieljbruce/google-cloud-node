@@ -19,6 +19,9 @@ import {GlobalOptions, ServiceOptions, APIRequestParams} from './api';
 import {createAPIRequest} from './apirequest';
 import {Endpoint} from './endpoint';
 import {Schema, Schemas} from './schema';
+import {ensureBunGaxiosFetch} from './util';
+
+ensureBunGaxiosFetch(Gaxios);
 
 export type EndpointCreator = (options: GlobalOptions, google: {}) => Endpoint;
 

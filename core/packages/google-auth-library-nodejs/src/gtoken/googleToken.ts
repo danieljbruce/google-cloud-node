@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {request} from 'gaxios';
+import {Gaxios, request} from 'gaxios';
+import {ensureBunGaxiosFetch} from '../util';
 import {TokenOptions, Transporter} from './tokenOptions';
 import {TokenHandler} from './tokenHandler';
 import {revokeToken} from './revokeToken';
 import {TokenData} from './getToken';
+
+ensureBunGaxiosFetch(Gaxios);
 
 /**
  * Options for fetching an access token.

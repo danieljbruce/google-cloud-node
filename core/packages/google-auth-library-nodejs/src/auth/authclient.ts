@@ -16,10 +16,16 @@ import {EventEmitter} from 'events';
 import {Gaxios, GaxiosOptions, GaxiosPromise, GaxiosResponse} from 'gaxios';
 
 import {Credentials} from './credentials';
-import {OriginalAndCamel, originalOrCamelOptions} from '../util';
+import {
+  ensureBunGaxiosFetch,
+  OriginalAndCamel,
+  originalOrCamelOptions,
+} from '../util';
 import {log as makeLog} from 'google-logging-utils';
 
 import {PRODUCT_NAME, USER_AGENT} from '../shared.cjs';
+
+ensureBunGaxiosFetch(Gaxios);
 
 /**
  * An interface for enforcing `fetch`-type compliance.
