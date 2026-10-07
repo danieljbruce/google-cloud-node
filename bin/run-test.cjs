@@ -99,10 +99,254 @@ for (const {flag, envIn, envOut} of SHIM_FLAGS) {
 const args = rawArgs.filter(a => a !== '--no-c8' && !shimFlagSet.has(a));
 
 const isBunRuntime = typeof Bun !== 'undefined';
-const wantsBunRuntime = isBunRuntime || process.env.JS_RUNTIME === 'bun';
+const isBunUserAgent = /^bun\//i.test(
+  process.env.npm_config_user_agent || '',
+);
+const wantsBunRuntime =
+  isBunRuntime ||
+  process.env.JS_RUNTIME === 'bun' ||
+  (process.env.JS_RUNTIME !== 'node' && isBunUserAgent);
 
 const repoRoot = path.resolve(__dirname, '..');
 const searchPaths = [process.cwd(), repoRoot];
+
+const VALUE_FLAGS = new Set([
+  '--config',
+  '-c',
+  '--package',
+  '--opt',
+  '--grep',
+  '-g',
+  '--fgrep',
+  '-f',
+  '--reporter',
+  '-R',
+  '--reporter-option',
+  '--reporter-options',
+  '-O',
+  '--slow',
+  '-s',
+  '--timeout',
+  '-t',
+  '--timeouts',
+  '--ui',
+  '-u',
+  '--require',
+  '-r',
+  '--file',
+  '--ignore',
+  '--exclude',
+  '--extension',
+  '--watch-files',
+  '--watch-ignore',
+  '--jobs',
+  '-j',
+  '--node-option',
+  '-n',
+]);
+
+const IGNORED_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'fixtures',
+  'testdata',
+  'test-fixtures',
+]);
+
+const ONLY_PATTERN = /\b(?:it|describe|context|suite|test)\.only\s*\(/;
+
+function stripCommentsAndStrings(code) {
+  return code.replace(
+    /\/\*[\s\S]*?\*\/|\/\/.*$|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/gm,
+    match => (match.startsWith('//') || match.startsWith('/*') ? '' : '""'),
+  );
+}
+
+function fileHasOnly(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return ONLY_PATTERN.test(stripCommentsAndStrings(content));
+  } catch {
+    return false;
+  }
+}
+
+function isTestFileName(name) {
+  return /\.(?:[cm]?js|[cm]?ts)$/.test(name) && !name.endsWith('.d.ts');
+}
+
+function collectFilesFromDir(dirPath, out = []) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, {withFileTypes: true});
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (IGNORED_DIRS.has(entry.name)) continue;
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      collectFilesFromDir(fullPath, out);
+    } else if (entry.isFile() && isTestFileName(entry.name)) {
+      out.push(fullPath);
+    }
+  }
+  return out;
+}
+
+function expandTargetFiles(rawTarget, cwd) {
+  const target = rawTarget.replace(/^(['"])(.*)\1$/, '$2');
+  const absTarget = path.resolve(cwd, target);
+  if (fs.existsSync(absTarget)) {
+    const stat = fs.statSync(absTarget);
+    if (stat.isFile()) {
+      return [absTarget];
+    }
+    if (stat.isDirectory()) {
+      return collectFilesFromDir(absTarget);
+    }
+  }
+  const base = path.basename(target);
+  if (/[*?]/.test(base)) {
+    const dir = path.resolve(cwd, path.dirname(target));
+    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+      const pattern = new RegExp(
+        '^' +
+          base
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.') +
+          '$',
+      );
+      return fs
+        .readdirSync(dir, {withFileTypes: true})
+        .filter(e => e.isFile() && pattern.test(e.name))
+        .map(e => path.join(dir, e.name));
+    }
+  }
+  return [];
+}
+
+function splitMochaArgs(inputArgs) {
+  const optionArgs = [];
+  const positionalArgs = [];
+  for (let i = 0; i < inputArgs.length; i++) {
+    const arg = inputArgs[i];
+    if (arg === '--') {
+      positionalArgs.push(...inputArgs.slice(i + 1));
+      break;
+    }
+    if (VALUE_FLAGS.has(arg)) {
+      optionArgs.push(arg);
+      if (i + 1 < inputArgs.length) {
+        optionArgs.push(inputArgs[++i]);
+      }
+    } else if (arg.startsWith('-')) {
+      optionArgs.push(arg);
+    } else {
+      positionalArgs.push(arg);
+    }
+  }
+  return {optionArgs, positionalArgs};
+}
+
+function findOnlyFiles(targets, cwd) {
+  const effectiveTargets =
+    targets.length > 0
+      ? targets
+      : ['build/test', 'test'].filter(d =>
+          fs.existsSync(path.resolve(cwd, d)),
+        );
+  const seen = new Set();
+  const onlyFiles = [];
+  for (const target of effectiveTargets) {
+    for (const filePath of expandTargetFiles(target, cwd)) {
+      if (seen.has(filePath)) continue;
+      seen.add(filePath);
+      if (fileHasOnly(filePath)) {
+        onlyFiles.push(filePath);
+      }
+    }
+  }
+  return onlyFiles;
+}
+
+function maybeCompileStaleSourceOnly(targets, onlyFiles, cwd) {
+  if (process.env.RUN_TEST_SKIP_COMPILE === 'true') {
+    return onlyFiles;
+  }
+  const sourceDirs = [
+    'test',
+    'system-test',
+    'conformance-test',
+    'observability-test',
+    'dev/test',
+  ];
+  const sourceOnlyFiles = [];
+  for (const dir of sourceDirs) {
+    const absDir = path.resolve(cwd, dir);
+    if (!fs.existsSync(absDir)) continue;
+    for (const filePath of collectFilesFromDir(absDir)) {
+      if (/\.[cm]?ts$/.test(filePath) && fileHasOnly(filePath)) {
+        sourceOnlyFiles.push(filePath);
+      }
+    }
+  }
+  if (sourceOnlyFiles.length === 0) {
+    return onlyFiles;
+  }
+  const maxSourceMtime = Math.max(
+    ...sourceOnlyFiles.map(f => fs.statSync(f).mtimeMs),
+  );
+  const minTargetMtime =
+    onlyFiles.length > 0
+      ? Math.min(...onlyFiles.map(f => fs.statSync(f).mtimeMs))
+      : 0;
+  if (onlyFiles.length > 0 && minTargetMtime >= maxSourceMtime) {
+    return onlyFiles;
+  }
+  const pkgJsonPath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(pkgJsonPath)) {
+    return onlyFiles;
+  }
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+    if (pkg.scripts && pkg.scripts.compile) {
+      const compileRes = spawnSync('npm', ['run', 'compile'], {
+        cwd,
+        stdio: 'inherit',
+        env: {...process.env, RUN_TEST_SKIP_COMPILE: 'true'},
+      });
+      if (compileRes.status === 0) {
+        return findOnlyFiles(targets, cwd);
+      }
+    }
+  } catch {
+    // Ignore compilation fallback errors and proceed with existing files.
+  }
+  return onlyFiles;
+}
+
+function resolveTestArgs(inputArgs, cwd = process.cwd()) {
+  const {optionArgs, positionalArgs} = splitMochaArgs(inputArgs);
+  let onlyFiles = findOnlyFiles(positionalArgs, cwd);
+  onlyFiles = maybeCompileStaleSourceOnly(positionalArgs, onlyFiles, cwd);
+  if (onlyFiles.length === 0) {
+    return {args: [...inputArgs], hasOnly: false, onlyFiles: []};
+  }
+  const filteredOptions = optionArgs.filter(
+    a => a !== '--parallel' && a !== '-p',
+  );
+  if (!filteredOptions.includes('--no-parallel')) {
+    filteredOptions.push('--no-parallel');
+  }
+  const relOnlyFiles = onlyFiles.map(f => path.relative(cwd, f) || f);
+  return {
+    args: [...filteredOptions, ...relOnlyFiles],
+    hasOnly: true,
+    onlyFiles: relOnlyFiles,
+  };
+}
 
 function resolveBin(pkgBin) {
   for (const base of searchPaths) {
@@ -111,69 +355,108 @@ function resolveBin(pkgBin) {
       return candidate;
     }
   }
-  return require.resolve(pkgBin, {paths: searchPaths});
+  try {
+    return require.resolve(pkgBin, {paths: searchPaths});
+  } catch (err) {
+    const pkgName = pkgBin.split('/')[0];
+    const pnpmDir = path.join(repoRoot, 'node_modules', '.pnpm');
+    if (fs.existsSync(pnpmDir)) {
+      const entry = fs
+        .readdirSync(pnpmDir)
+        .find(d => d.startsWith(`${pkgName}@`));
+      if (entry) {
+        const pnpmCandidate = path.join(pnpmDir, entry, 'node_modules', pkgBin);
+        if (fs.existsSync(pnpmCandidate)) {
+          return pnpmCandidate;
+        }
+      }
+    }
+    throw err;
+  }
 }
 
-if (wantsBunRuntime) {
-  process.env.MOCHA_PARALLEL = 'false';
-  Object.assign(process.env, shimEnvVars);
+if (require.main === module) {
+  if (wantsBunRuntime) {
+    process.env.MOCHA_PARALLEL = 'false';
+    Object.assign(process.env, shimEnvVars);
 
-  // If JS_RUNTIME=bun was requested but this script was launched via Node.js
-  // (e.g., `pnpm test` without `bun --bun`), re-exec under the `bun` binary.
-  if (!isBunRuntime) {
-    const res = spawnSync('bun', [__filename, ...rawArgs], {
+    // If Bun was requested (via JS_RUNTIME=bun or `bun run test`) but this
+    // script was launched via Node.js, re-exec under the `bun` binary.
+    if (!isBunRuntime) {
+      const res = spawnSync('bun', [__filename, ...rawArgs], {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          MOCHA_PARALLEL: 'false',
+          ...shimEnvVars,
+        },
+      });
+      if (res.error) {
+        console.error('[run-test] Failed to launch bun:', res.error.message);
+        process.exit(1);
+      }
+      process.exit(res.status ?? 1);
+    }
+
+    const {args: resolvedArgs} = resolveTestArgs(args);
+
+    // Running inside Bun: preload the proxyquire shim and also pass --require
+    // so if mocha/bin/mocha.js spawns a child `lib/cli/cli.js` for node flags
+    // (--enable-source-maps, --throw-deprecation), the child loads the shim too.
+    const shimPath = path.resolve(__dirname, 'proxyquire-bun-shim.cjs');
+    require(shimPath);
+
+    const mochaBin = resolveBin('mocha/bin/mocha.js');
+    const mochaArgs = resolvedArgs.filter(
+      a => a !== '--parallel' && a !== '-p',
+    );
+    if (!mochaArgs.includes('--no-parallel')) {
+      mochaArgs.unshift('--no-parallel');
+    }
+    if (!mochaArgs.includes(shimPath)) {
+      mochaArgs.unshift('--require', shimPath);
+    }
+    if (!mochaArgs.includes('--exit')) {
+      mochaArgs.unshift('--exit');
+    }
+
+    process.argv = [process.execPath, mochaBin, ...mochaArgs];
+    require(mochaBin);
+  } else {
+    // Running inside Node.js: preserve `c8 mocha <args>` behavior, but if any
+    // test file contains `.only`, disable parallel mode and run only the
+    // exclusive test file(s) so `.only` is respected without throwing
+    // "`.only` is not supported in parallel mode".
+    const {args: resolvedArgs, hasOnly} = resolveTestArgs(args);
+    if (hasOnly) {
+      process.env.MOCHA_PARALLEL = 'false';
+    }
+    const mochaBin = resolveBin('mocha/bin/mocha.js');
+    let cmdArgs;
+    if (noC8) {
+      cmdArgs = [mochaBin, ...resolvedArgs];
+    } else {
+      const c8Bin = resolveBin('c8/bin/c8.js');
+      cmdArgs = [c8Bin, mochaBin, ...resolvedArgs];
+    }
+
+    const res = spawnSync(process.execPath, cmdArgs, {
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        MOCHA_PARALLEL: 'false',
-        ...shimEnvVars,
-      },
+      env: process.env,
     });
     if (res.error) {
-      console.error('[run-test] Failed to launch bun:', res.error.message);
+      console.error('[run-test] Failed to run tests:', res.error.message);
       process.exit(1);
     }
     process.exit(res.status ?? 1);
   }
-
-  // Running inside Bun: preload the proxyquire shim and also pass --require
-  // so if mocha/bin/mocha.js spawns a child `lib/cli/cli.js` for node flags
-  // (--enable-source-maps, --throw-deprecation), the child loads the shim too.
-  const shimPath = path.resolve(__dirname, 'proxyquire-bun-shim.cjs');
-  require(shimPath);
-
-  const mochaBin = resolveBin('mocha/bin/mocha.js');
-  const mochaArgs = [...args];
-  if (!mochaArgs.includes('--no-parallel')) {
-    mochaArgs.unshift('--no-parallel');
-  }
-  if (!mochaArgs.includes(shimPath)) {
-    mochaArgs.unshift('--require', shimPath);
-  }
-  if (!mochaArgs.includes('--exit')) {
-    mochaArgs.unshift('--exit');
-  }
-
-  process.argv = [process.execPath, mochaBin, ...mochaArgs];
-  require(mochaBin);
-} else {
-  // Running inside Node.js: preserve `c8 mocha <args>` behavior.
-  const mochaBin = resolveBin('mocha/bin/mocha.js');
-  let cmdArgs;
-  if (noC8) {
-    cmdArgs = [mochaBin, ...args];
-  } else {
-    const c8Bin = resolveBin('c8/bin/c8.js');
-    cmdArgs = [c8Bin, mochaBin, ...args];
-  }
-
-  const res = spawnSync(process.execPath, cmdArgs, {
-    stdio: 'inherit',
-    env: process.env,
-  });
-  if (res.error) {
-    console.error('[run-test] Failed to run tests:', res.error.message);
-    process.exit(1);
-  }
-  process.exit(res.status ?? 1);
 }
+
+module.exports = {
+  stripCommentsAndStrings,
+  fileHasOnly,
+  findOnlyFiles,
+  resolveTestArgs,
+  splitMochaArgs,
+};
+
