@@ -815,12 +815,13 @@ describe('oauth2', () => {
         'ES256',
       );
       data += '.' + signature;
-      await client.verifySignedJwtWithCertsAsync(
+      const login = await client.verifySignedJwtWithCertsAsync(
         data,
         {keyid: publicKeyEcdsa},
         'testaudience',
         ['testissuer'],
       );
+      assert.strictEqual(login.getUserId(), '123456789');
     });
 
     it('should be able to retrieve a list of Google certificates', done => {
