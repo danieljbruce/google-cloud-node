@@ -581,12 +581,13 @@ describe('🥁 configuration options', () => {
       nock.cleanAll();
       const globalRecord = globalThis as Record<string, unknown>;
       const hadBun = 'Bun' in globalRecord;
-      const origBun = globalRecord.Bun;
       const origBunFetch = globalRecord.__googleCloudBunFetch;
       const origFetch = globalThis.fetch;
       let capturedBody: unknown;
       try {
-        globalRecord.Bun = origBun || {};
+        if (!hadBun) {
+          globalRecord.Bun = {};
+        }
         delete globalRecord.__googleCloudBunFetch;
         globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
           capturedBody = init?.body;
@@ -614,9 +615,7 @@ describe('🥁 configuration options', () => {
         } else {
           delete globalRecord.__googleCloudBunFetch;
         }
-        if (hadBun) {
-          globalRecord.Bun = origBun;
-        } else {
+        if (!hadBun) {
           delete globalRecord.Bun;
         }
       }
