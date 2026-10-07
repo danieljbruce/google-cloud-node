@@ -45,7 +45,7 @@ if (
     process.env.BUN_ENABLE_ASSERT_DEEP_EQUAL_SHIM === 'true';
 
   // ---------------------------------------------------------------------------
-  // 2. Generational Module Cache Snapshots (Module._cache & require.cache)
+  // 1. Generational Module Cache Snapshots (Module._cache & require.cache)
   // ---------------------------------------------------------------------------
   // Test isolation libraries (such as `mockery` and `proxyquire`) frequently swap
   // the module cache using the following idiom:
@@ -392,7 +392,7 @@ if (
   const {Readable, PassThrough} = require('stream');
 
   // ---------------------------------------------------------------------------
-  // 3. Nock-Compatible HTTP/HTTPS Fetch Transport (__googleCloudBunFetch)
+  // 2. Nock-Compatible HTTP/HTTPS Fetch Transport (__googleCloudBunFetch)
   // ---------------------------------------------------------------------------
   // Libraries such as `gaxios` and `teeny-request` use Fetch API calls when
   // running in modern runtimes. In Bun, native `globalThis.fetch` is written
