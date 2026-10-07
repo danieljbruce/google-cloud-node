@@ -13,17 +13,35 @@
 // limitations under the License.
 
 import assert from 'assert';
-import {describe, it, afterEach} from 'mocha';
+import {describe, it, before, after, beforeEach, afterEach} from 'mocha';
 import Module from 'module';
 
+const utilPath = require.resolve('../src/util.js');
+
 function loadFreshUtil(): typeof import('../src/util.js') {
-  const utilPath = require.resolve('../src/util.js');
   delete require.cache[utilPath];
   return module.require(utilPath);
 }
 
 describe('util lazy imports', () => {
-  const originalRequire = Module.prototype.require;
+  let originalRequire: NodeRequire;
+  let originalUtilCacheEntry: NodeModule | undefined;
+
+  before(() => {
+    originalUtilCacheEntry = require.cache[utilPath];
+  });
+
+  after(() => {
+    if (originalUtilCacheEntry) {
+      require.cache[utilPath] = originalUtilCacheEntry;
+    } else {
+      delete require.cache[utilPath];
+    }
+  });
+
+  beforeEach(() => {
+    originalRequire = Module.prototype.require;
+  });
 
   afterEach(() => {
     Module.prototype.require = originalRequire;
