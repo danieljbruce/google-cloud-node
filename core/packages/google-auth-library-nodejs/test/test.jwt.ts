@@ -14,9 +14,9 @@
 
 import * as assert from 'assert';
 import * as crypto from 'crypto';
-import {describe, it, beforeEach, afterEach} from 'mocha';
 import * as fs from 'fs';
 import * as jws from 'jws';
+import {describe, it, beforeEach, afterEach} from 'mocha';
 import * as nock from 'nock';
 import * as sinon from 'sinon';
 
