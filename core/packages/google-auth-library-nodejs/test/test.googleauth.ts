@@ -340,7 +340,7 @@ describe('googleauth', () => {
         }
 
         async getRequestHeaders() {
-          return Gaxios.mergeHeaders(customRequestHeaders);
+          return Gaxios.mergeHeaders(new Headers(), customRequestHeaders);
         }
 
         request = OAuth2Client.prototype.request.bind(this);
