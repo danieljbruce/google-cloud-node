@@ -110,7 +110,6 @@ const searchPaths = [process.cwd(), repoRoot];
 
 const VALUE_FLAGS = new Set([
   '--config',
-  '-c',
   '--package',
   '--opt',
   '--grep',
@@ -126,7 +125,6 @@ const VALUE_FLAGS = new Set([
   '-s',
   '--timeout',
   '-t',
-  '--timeouts',
   '--ui',
   '-u',
   '--require',
@@ -141,6 +139,9 @@ const VALUE_FLAGS = new Set([
   '-j',
   '--node-option',
   '-n',
+  '--retries',
+  '--global',
+  '--globals',
 ]);
 
 const IGNORED_DIRS = new Set([
@@ -151,18 +152,38 @@ const IGNORED_DIRS = new Set([
   'test-fixtures',
 ]);
 
-const ONLY_PATTERN = /\b(?:it|describe|context|suite|test)\.only\s*\(/;
+const DEFAULT_TEST_DIRS = [
+  'build/test',
+  'build/cjs/test',
+  'build/esm/test',
+  'test',
+];
+
+const FALLBACK_SOURCE_DIRS = [
+  'test',
+  'system-test',
+  'conformance-test',
+  'observability-test',
+  'dev/test',
+  'dev/system-test',
+  'dev/conformance',
+];
+
+const ONLY_PATTERN = /\b(?:it|describe|context|suite|test|specify)\.only\s*\(/;
 
 function stripCommentsAndStrings(code) {
   return code.replace(
-    /\/\*[\s\S]*?\*\/|\/\/.*$|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/gm,
-    match => (match.startsWith('//') || match.startsWith('/*') ? '' : '""'),
+    /\/\*[\s\S]*?\*\/|\/\/.*$|'(?:\\[\s\S]|[^'\\\r\n])*'|"(?:\\[\s\S]|[^"\\\r\n])*"|`(?:\\[\s\S]|[^`\\])*`/gm,
+    match => (match.startsWith('//') || match.startsWith('/*') ? ' ' : '""'),
   );
 }
 
 function fileHasOnly(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
+    if (!ONLY_PATTERN.test(content)) {
+      return false;
+    }
     return ONLY_PATTERN.test(stripCommentsAndStrings(content));
   } catch {
     return false;
@@ -192,6 +213,34 @@ function collectFilesFromDir(dirPath, out = []) {
   return out;
 }
 
+function globToRegExp(globPattern) {
+  let regexStr = '^';
+  for (let i = 0; i < globPattern.length; i++) {
+    const ch = globPattern[i];
+    if (ch === '*') {
+      if (globPattern[i + 1] === '*') {
+        if (globPattern[i + 2] === '/') {
+          regexStr += '(?:.+/)?';
+          i += 2;
+        } else {
+          regexStr += '.*';
+          i += 1;
+        }
+      } else {
+        regexStr += '[^/]*';
+      }
+    } else if (ch === '?') {
+      regexStr += '[^/]';
+    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+      regexStr += '\\' + ch;
+    } else {
+      regexStr += ch;
+    }
+  }
+  regexStr += '$';
+  return new RegExp(regexStr);
+}
+
 function expandTargetFiles(rawTarget, cwd) {
   const target = rawTarget.replace(/^(['"])(.*)\1$/, '$2');
   const absTarget = path.resolve(cwd, target);
@@ -204,22 +253,31 @@ function expandTargetFiles(rawTarget, cwd) {
       return collectFilesFromDir(absTarget);
     }
   }
-  const base = path.basename(target);
-  if (/[*?]/.test(base)) {
-    const dir = path.resolve(cwd, path.dirname(target));
-    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-      const pattern = new RegExp(
-        '^' +
-          base
-            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-            .replace(/\*/g, '.*')
-            .replace(/\?/g, '.') +
-          '$',
-      );
+  if (/[*?]/.test(target)) {
+    const normalized = target.replace(/\\/g, '/');
+    const segments = normalized.split('/');
+    const firstGlobIdx = segments.findIndex(s => /[*?]/.test(s));
+    const baseRel =
+      firstGlobIdx > 0 ? segments.slice(0, firstGlobIdx).join('/') : '.';
+    const globRemainder = segments.slice(Math.max(0, firstGlobIdx)).join('/');
+    const baseDir = path.resolve(cwd, baseRel);
+    if (fs.existsSync(baseDir) && fs.statSync(baseDir).isDirectory()) {
+      const pattern = globToRegExp(globRemainder);
+      if (globRemainder.includes('/') || globRemainder.includes('**')) {
+        return collectFilesFromDir(baseDir).filter(filePath => {
+          const relPath = path
+            .relative(baseDir, filePath)
+            .split(path.sep)
+            .join('/');
+          return pattern.test(relPath);
+        });
+      }
       return fs
-        .readdirSync(dir, {withFileTypes: true})
-        .filter(e => e.isFile() && pattern.test(e.name))
-        .map(e => path.join(dir, e.name));
+        .readdirSync(baseDir, {withFileTypes: true})
+        .filter(
+          e => e.isFile() && isTestFileName(e.name) && pattern.test(e.name),
+        )
+        .map(e => path.join(baseDir, e.name));
     }
   }
   return [];
@@ -248,11 +306,18 @@ function splitMochaArgs(inputArgs) {
   return {optionArgs, positionalArgs};
 }
 
+function getEffectiveTargets(targets, cwd) {
+  if (targets.length > 0) {
+    return targets;
+  }
+  const defaultDir = DEFAULT_TEST_DIRS.find(d =>
+    fs.existsSync(path.resolve(cwd, d)),
+  );
+  return defaultDir ? [defaultDir] : [];
+}
+
 function findOnlyFiles(targets, cwd) {
-  const effectiveTargets =
-    targets.length > 0
-      ? targets
-      : ['build/test', 'test'].filter(d => fs.existsSync(path.resolve(cwd, d)));
+  const effectiveTargets = getEffectiveTargets(targets, cwd);
   const seen = new Set();
   const onlyFiles = [];
   for (const target of effectiveTargets) {
@@ -267,38 +332,75 @@ function findOnlyFiles(targets, cwd) {
   return onlyFiles;
 }
 
+function getCandidateSourceDirs(targets, cwd) {
+  const effectiveTargets = getEffectiveTargets(targets, cwd);
+  const derived = new Set();
+  for (const rawTarget of effectiveTargets) {
+    const clean = rawTarget
+      .replace(/^(['"])(.*)\1$/, '$2')
+      .split(path.sep)
+      .join('/');
+    const nonGlobPrefix = clean
+      .split('/')
+      .filter(s => !/[*?]/.test(s))
+      .join('/');
+    const rel = path
+      .relative(cwd, path.resolve(cwd, nonGlobPrefix || '.'))
+      .split(path.sep)
+      .join('/');
+    if (/^build\/(?:cjs\/|esm\/)?/.test(rel)) {
+      let sub = rel.replace(/^build\/(?:cjs\/|esm\/)?/, '');
+      if (/\.[cm]?[jt]s$/.test(sub)) {
+        sub = path.posix.dirname(sub);
+      }
+      if (sub && sub !== '.') {
+        derived.add(sub);
+        derived.add(path.posix.join('dev', sub));
+      }
+    }
+  }
+  return derived.size > 0 ? [...derived] : FALLBACK_SOURCE_DIRS;
+}
+
 function maybeCompileStaleSourceOnly(targets, onlyFiles, cwd) {
   if (process.env.RUN_TEST_SKIP_COMPILE === 'true') {
     return onlyFiles;
   }
-  const sourceDirs = [
-    'test',
-    'system-test',
-    'conformance-test',
-    'observability-test',
-    'dev/test',
-  ];
+  if (onlyFiles.length > 0 && onlyFiles.every(f => /\.[cm]?ts$/.test(f))) {
+    return onlyFiles;
+  }
+  const sourceDirs = getCandidateSourceDirs(targets, cwd);
+  const tsFiles = [];
   const sourceOnlyFiles = [];
   for (const dir of sourceDirs) {
     const absDir = path.resolve(cwd, dir);
     if (!fs.existsSync(absDir)) continue;
     for (const filePath of collectFilesFromDir(absDir)) {
-      if (/\.[cm]?ts$/.test(filePath) && fileHasOnly(filePath)) {
-        sourceOnlyFiles.push(filePath);
+      if (/\.[cm]?ts$/.test(filePath)) {
+        tsFiles.push(filePath);
+        if (fileHasOnly(filePath)) {
+          sourceOnlyFiles.push(filePath);
+        }
       }
     }
   }
-  if (sourceOnlyFiles.length === 0) {
+  if (
+    tsFiles.length === 0 ||
+    (sourceOnlyFiles.length === 0 && onlyFiles.length === 0)
+  ) {
     return onlyFiles;
   }
-  const maxSourceMtime = Math.max(
-    ...sourceOnlyFiles.map(f => fs.statSync(f).mtimeMs),
+  const maxAllSourceMtime = Math.max(
+    ...tsFiles.map(f => fs.statSync(f).mtimeMs),
   );
   const minTargetMtime =
     onlyFiles.length > 0
       ? Math.min(...onlyFiles.map(f => fs.statSync(f).mtimeMs))
       : 0;
-  if (onlyFiles.length > 0 && minTargetMtime >= maxSourceMtime) {
+  const isInSync =
+    onlyFiles.length === sourceOnlyFiles.length &&
+    (onlyFiles.length === 0 || minTargetMtime >= maxAllSourceMtime);
+  if (isInSync) {
     return onlyFiles;
   }
   const pkgJsonPath = path.join(cwd, 'package.json');
@@ -452,6 +554,7 @@ module.exports = {
   stripCommentsAndStrings,
   fileHasOnly,
   findOnlyFiles,
+  expandTargetFiles,
   resolveTestArgs,
   splitMochaArgs,
 };

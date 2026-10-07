@@ -24,9 +24,13 @@ const {describe, it, beforeEach, afterEach} = globalThis;
 const repoRoot = path.resolve(__dirname, '../../..');
 const runTestPath = path.join(repoRoot, 'bin/run-test.cjs');
 const rootMocharc = path.join(repoRoot, '.mocharc.cjs');
-const {stripCommentsAndStrings, fileHasOnly, resolveTestArgs} = require(
-  runTestPath,
-);
+const {
+  stripCommentsAndStrings,
+  fileHasOnly,
+  findOnlyFiles,
+  expandTargetFiles,
+  resolveTestArgs,
+} = require(runTestPath);
 
 describe('bin/run-test.cjs .only support', () => {
   let tmpDir;
@@ -57,7 +61,7 @@ describe('bin/run-test.cjs .only support', () => {
     );
   });
 
-  it('detects it.only, describe.only, and compiled mocha_1.it.only calls', () => {
+  it('detects it.only, describe.only, specify.only, and regex-preceded calls', () => {
     const file1 = path.join(tmpDir, 'it-only.js');
     fs.writeFileSync(file1, 'it.only("exclusive", () => {});');
     assert.strictEqual(fileHasOnly(file1), true);
@@ -68,9 +72,19 @@ describe('bin/run-test.cjs .only support', () => {
       'mocha_1.describe.only("exclusive suite", () => {});',
     );
     assert.strictEqual(fileHasOnly(file2), true);
+
+    const file3 = path.join(tmpDir, 'regex-quote-before-only.js');
+    fs.writeFileSync(
+      file3,
+      [
+        "const rx = /can't match/;",
+        '/* inline comment */specify.only("still detected after single quote in regex", () => {});',
+      ].join('\n'),
+    );
+    assert.strictEqual(fileHasOnly(file3), true);
   });
 
-  it('narrows target files and adds --no-parallel when .only is present', () => {
+  it('narrows target files, preserves Mocha flags (--retries, -c), and adds --no-parallel', () => {
     const testDir = path.join(tmpDir, 'build/test');
     fs.mkdirSync(testDir, {recursive: true});
     fs.writeFileSync(
@@ -83,21 +97,99 @@ describe('bin/run-test.cjs .only support', () => {
     );
 
     const resolved = resolveTestArgs(
-      ['--config', '../../.mocharc.cjs', '--parallel', 'build/test'],
+      [
+        '--config',
+        '../../.mocharc.cjs',
+        '--retries',
+        '3',
+        '-c',
+        '--timeouts',
+        '--parallel',
+        'build/test',
+      ],
       tmpDir,
     );
     assert.strictEqual(resolved.hasOnly, true);
     assert.deepStrictEqual(resolved.onlyFiles, [
       path.join('build', 'test', 'b.js'),
     ]);
-    assert.ok(resolved.args.includes('--no-parallel'));
-    assert.ok(!resolved.args.includes('--parallel'));
     assert.deepStrictEqual(resolved.args, [
       '--config',
       '../../.mocharc.cjs',
+      '--retries',
+      '3',
+      '-c',
+      '--timeouts',
       '--no-parallel',
       path.join('build', 'test', 'b.js'),
     ]);
+  });
+
+  it('expands recursive globs and selects only build/test by default when both build/test and test exist', () => {
+    const nestedBuildDir = path.join(tmpDir, 'build/test/unit');
+    const srcTestDir = path.join(tmpDir, 'test/unit');
+    fs.mkdirSync(nestedBuildDir, {recursive: true});
+    fs.mkdirSync(srcTestDir, {recursive: true});
+
+    const compiledFile = path.join(nestedBuildDir, 'nested.js');
+    const sourceFile = path.join(srcTestDir, 'nested.ts');
+    fs.writeFileSync(sourceFile, 'it.only("ts source", () => {});');
+    fs.writeFileSync(compiledFile, 'it.only("js build", () => {});');
+
+    const expanded = expandTargetFiles('build/test/**/*.js', tmpDir);
+    assert.deepStrictEqual(expanded, [compiledFile]);
+
+    const defaultOnly = findOnlyFiles([], tmpDir);
+    assert.deepStrictEqual(defaultOnly, [compiledFile]);
+  });
+
+  it('auto-compiles when .only is added to or removed from a .ts source file', () => {
+    const buildTestDir = path.join(tmpDir, 'build/test');
+    const srcTestDir = path.join(tmpDir, 'test');
+    fs.mkdirSync(buildTestDir, {recursive: true});
+    fs.mkdirSync(srcTestDir, {recursive: true});
+
+    const srcFile = path.join(srcTestDir, 'sample.ts');
+    const outFile = path.join(buildTestDir, 'sample.js');
+    const compileMarker = path.join(tmpDir, 'compile-count.txt');
+
+    // Simple compile script that copies test/sample.ts -> build/test/sample.js
+    fs.writeFileSync(
+      path.join(tmpDir, 'compile.cjs'),
+      [
+        "const fs = require('fs');",
+        "const path = require('path');",
+        "fs.copyFileSync(path.join(__dirname, 'test/sample.ts'), path.join(__dirname, 'build/test/sample.js'));",
+        "const countFile = path.join(__dirname, 'compile-count.txt');",
+        "const prev = fs.existsSync(countFile) ? Number(fs.readFileSync(countFile, 'utf8')) : 0;",
+        'fs.writeFileSync(countFile, String(prev + 1));',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: 'temp-pkg',
+        scripts: {compile: 'node compile.cjs'},
+      }),
+    );
+
+    // 1. Initial state: build/test/sample.js has no .only, test/sample.ts adds .only
+    fs.writeFileSync(outFile, 'it("normal", () => {});');
+    fs.writeFileSync(srcFile, 'it.only("exclusive", () => {});');
+
+    const addedResolved = resolveTestArgs(['build/test'], tmpDir);
+    assert.strictEqual(addedResolved.hasOnly, true);
+    assert.deepStrictEqual(addedResolved.onlyFiles, [
+      path.join('build', 'test', 'sample.js'),
+    ]);
+    assert.strictEqual(fs.readFileSync(compileMarker, 'utf8'), '1');
+
+    // 2. Removing .only from test/sample.ts triggers recompile so stale .only in build/ is cleared
+    fs.writeFileSync(srcFile, 'it("normal again", () => {});');
+    const removedResolved = resolveTestArgs(['build/test'], tmpDir);
+    assert.strictEqual(removedResolved.hasOnly, false);
+    assert.deepStrictEqual(removedResolved.onlyFiles, []);
+    assert.strictEqual(fs.readFileSync(compileMarker, 'utf8'), '2');
   });
 
   it('preserves original arguments when no test file contains .only', () => {
@@ -157,7 +249,7 @@ describe('bin/run-test.cjs .only support', () => {
     assert.match(res.stdout, /1 passing/);
   });
 
-  it('executes only the .only test under Bun when bun is available', function () {
+  it('executes only the .only test under Bun (including via npm_config_user_agent=bun/*)', function () {
     const bunCheck = spawnSync('bun', ['--version'], {encoding: 'utf8'});
     if (bunCheck.status !== 0) {
       this.skip();
@@ -176,7 +268,7 @@ describe('bin/run-test.cjs .only support', () => {
       path.join(testDir, 'exclusive.js'),
       `
       describe('exclusive bun suite', () => {
-        it.only('runs exclusively in bun', () => {});
+        it.only('runs exclusively in bun under ' + (typeof Bun !== 'undefined' ? 'bun' : 'node'), () => {});
         it('sibling test should not run', () => {
           throw new Error('sibling test should not run');
         });
@@ -185,11 +277,16 @@ describe('bin/run-test.cjs .only support', () => {
     );
 
     const res = spawnSync(
-      'bun',
-      ['--bun', runTestPath, '--config', rootMocharc, testDir],
+      process.execPath,
+      [runTestPath, '--config', rootMocharc, testDir],
       {
         cwd: repoRoot,
         encoding: 'utf8',
+        env: {
+          ...process.env,
+          JS_RUNTIME: '',
+          npm_config_user_agent: 'bun/1.2.0 npm/? node/v22.0.0',
+        },
       },
     );
     assert.strictEqual(
@@ -197,6 +294,7 @@ describe('bin/run-test.cjs .only support', () => {
       0,
       `stderr: ${res.stderr}\nstdout: ${res.stdout}`,
     );
+    assert.match(res.stdout, /runs exclusively in bun under bun/);
     assert.match(res.stdout, /1 passing/);
   });
 });
