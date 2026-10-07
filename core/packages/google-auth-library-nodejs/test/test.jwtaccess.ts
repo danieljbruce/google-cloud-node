@@ -21,7 +21,11 @@ import * as sinon from 'sinon';
 
 import {JWTAccess} from '../src';
 
-function keypair(bits = 2048): {public: string; private: string} {
+function keypair(opts: number | {bits?: number} = 2048): {
+  public: string;
+  private: string;
+} {
+  const bits = typeof opts === 'number' ? opts : (opts.bits ?? 2048);
   const {publicKey, privateKey} = crypto.generateKeyPairSync('rsa', {
     modulusLength: Math.max(bits, 512),
     publicKeyEncoding: {type: 'pkcs1', format: 'pem'},
