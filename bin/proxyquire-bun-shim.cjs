@@ -459,7 +459,8 @@ if (
       }
 
       if (
-        globalThis.fetch === origFetch &&
+        (globalThis.fetch === origFetch ||
+          globalThis.fetch === globalThis.__googleCloudBunFetch) &&
         parsedUrl &&
         (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
       ) {
@@ -563,12 +564,16 @@ if (
                   }),
                 );
               }
-              init.signal.addEventListener('abort', () => {
+              const abortHandler = () => {
                 req.destroy(
                   Object.assign(new Error('The user aborted a request.'), {
                     name: 'AbortError',
                   }),
                 );
+              };
+              init.signal.addEventListener('abort', abortHandler, {once: true});
+              req.on('close', () => {
+                init.signal.removeEventListener('abort', abortHandler);
               });
             }
 
@@ -668,7 +673,11 @@ if (
         init = {...init, body: Readable.toWeb(stream)};
       }
       try {
-        const res = await globalThis.fetch(url, init);
+        const res = await (
+          globalThis.fetch === globalThis.__googleCloudBunFetch
+            ? origFetch
+            : globalThis.fetch
+        )(url, init);
         if (
           res &&
           res.body &&
