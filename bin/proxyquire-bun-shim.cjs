@@ -35,7 +35,6 @@ if (
   const enableProxyquireShim =
     process.env.BUN_ENABLE_PROXYQUIRE_SHIM === 'true';
   const enableKeypairShim = process.env.BUN_ENABLE_KEYPAIR_SHIM === 'true';
-  const enableRequireShim = process.env.BUN_ENABLE_REQUIRE_SHIM === 'true';
   const enableAbortSignalTimeoutShim =
     process.env.BUN_ENABLE_ABORT_SIGNAL_TIMEOUT_SHIM === 'true';
   const enablePromiseAnyShim =
@@ -44,26 +43,6 @@ if (
     process.env.BUN_ENABLE_CRYPTO_VERIFY_SHIM === 'true';
   const enableAssertDeepEqualShim =
     process.env.BUN_ENABLE_ASSERT_DEEP_EQUAL_SHIM === 'true';
-
-  // ---------------------------------------------------------------------------
-  // 1. Module._load Delegation
-  // ---------------------------------------------------------------------------
-  // In Node.js, `require()` internally delegates to `Module._load(request, parent, isMain)`.
-  // Several test suites (such as lazy import error-recovery tests in Storage `test/util.ts`)
-  // temporarily monkeypatch `Module._load` to simulate import failures or intercept requires.
-  // In Bun, `require()` is implemented natively in C++ and bypasses `Module._load` entirely.
-  //
-  // To preserve compatibility, we register a default `Module._load` stub and inspect it
-  // inside our `Module.prototype.require` hook. Whenever a test replaces `Module._load`
-  // with a custom implementation, we delegate to that custom loader.
-  const defaultModuleLoad = function (request, parent) {
-    const ctx =
-      parent && typeof parent.require === 'function' ? parent : module;
-    return origRequire.call(ctx, request);
-  };
-  if (enableRequireShim) {
-    Module._load = defaultModuleLoad;
-  }
 
   // ---------------------------------------------------------------------------
   // 2. Generational Module Cache Snapshots (Module._cache & require.cache)
@@ -775,12 +754,7 @@ if (
     return res;
   }
 
-  if (
-    enableRequireShim ||
-    enableProxyquireShim ||
-    enableKeypairShim ||
-    enableGaxiosShim
-  ) {
+  if (enableProxyquireShim || enableKeypairShim || enableGaxiosShim) {
     Module.prototype.require = function (id) {
       if (enableProxyquireShim && id === 'proxyquire') {
         return makeProxyquire(this);
@@ -823,18 +797,6 @@ if (
             }
           }
         }
-      }
-      // If a test suite has monkeypatched Module._load (e.g. testing dynamic import
-      // error recovery in test/util.ts), route the require through Module._load so
-      // the monkeypatched behavior takes effect under Bun.
-      if (
-        enableRequireShim &&
-        typeof Module._load === 'function' &&
-        Module._load !== defaultModuleLoad
-      ) {
-        return patchGaxiosIfPresent(
-          Module._load(id, this, /* isMain */ false),
-        );
       }
       return patchGaxiosIfPresent(origRequire.apply(this, arguments));
     };
