@@ -297,4 +297,17 @@ describe('bin/run-test.cjs .only support', () => {
     assert.match(res.stdout, /runs exclusively in bun under bun/);
     assert.match(res.stdout, /1 passing/);
   });
+
+  it('exits 0 when invoked with build/test in a package without test directories', () => {
+    const res = spawnSync(
+      process.execPath,
+      [runTestPath, '--no-c8', 'build/test'],
+      {
+        cwd: tmpDir,
+        encoding: 'utf8',
+        env: {...process.env, JS_RUNTIME: 'node'},
+      },
+    );
+    assert.strictEqual(res.status, 0);
+  });
 });

@@ -161,6 +161,7 @@ const DEFAULT_TEST_DIRS = [
 
 const FALLBACK_SOURCE_DIRS = [
   'test',
+  'esm/test',
   'system-test',
   'conformance-test',
   'observability-test',
@@ -192,6 +193,10 @@ function fileHasOnly(filePath) {
 
 function isTestFileName(name) {
   return /\.(?:[cm]?js|[cm]?ts)$/.test(name) && !name.endsWith('.d.ts');
+}
+
+function getTestStem(filePath) {
+  return path.basename(filePath).replace(/\.[cm]?[jt]s$/, '');
 }
 
 function collectFilesFromDir(dirPath, out = []) {
@@ -336,10 +341,7 @@ function getCandidateSourceDirs(targets, cwd) {
   const effectiveTargets = getEffectiveTargets(targets, cwd);
   const derived = new Set();
   for (const rawTarget of effectiveTargets) {
-    const clean = rawTarget
-      .replace(/^(['"])(.*)\1$/, '$2')
-      .split(path.sep)
-      .join('/');
+    const clean = rawTarget.replace(/^(['"])(.*)\1$/, '$2').replace(/\\/g, '/');
     const nonGlobPrefix = clean
       .split('/')
       .filter(s => !/[*?]/.test(s))
@@ -355,6 +357,7 @@ function getCandidateSourceDirs(targets, cwd) {
       }
       if (sub && sub !== '.') {
         derived.add(sub);
+        derived.add(path.posix.join('esm', sub));
         derived.add(path.posix.join('dev', sub));
       }
     }
@@ -370,36 +373,36 @@ function maybeCompileStaleSourceOnly(targets, onlyFiles, cwd) {
     return onlyFiles;
   }
   const sourceDirs = getCandidateSourceDirs(targets, cwd);
-  const tsFiles = [];
+  let hasTsFiles = false;
   const sourceOnlyFiles = [];
   for (const dir of sourceDirs) {
     const absDir = path.resolve(cwd, dir);
     if (!fs.existsSync(absDir)) continue;
     for (const filePath of collectFilesFromDir(absDir)) {
       if (/\.[cm]?ts$/.test(filePath)) {
-        tsFiles.push(filePath);
+        hasTsFiles = true;
         if (fileHasOnly(filePath)) {
           sourceOnlyFiles.push(filePath);
         }
       }
     }
   }
-  if (
-    tsFiles.length === 0 ||
-    (sourceOnlyFiles.length === 0 && onlyFiles.length === 0)
-  ) {
+  if (!hasTsFiles || (sourceOnlyFiles.length === 0 && onlyFiles.length === 0)) {
     return onlyFiles;
   }
-  const maxAllSourceMtime = Math.max(
-    ...tsFiles.map(f => fs.statSync(f).mtimeMs),
-  );
+  const onlyStems = onlyFiles.map(getTestStem).sort().join('\0');
+  const sourceOnlyStems = sourceOnlyFiles.map(getTestStem).sort().join('\0');
+  const maxSourceOnlyMtime =
+    sourceOnlyFiles.length > 0
+      ? Math.max(...sourceOnlyFiles.map(f => fs.statSync(f).mtimeMs))
+      : 0;
   const minTargetMtime =
     onlyFiles.length > 0
       ? Math.min(...onlyFiles.map(f => fs.statSync(f).mtimeMs))
       : 0;
   const isInSync =
-    onlyFiles.length === sourceOnlyFiles.length &&
-    (onlyFiles.length === 0 || minTargetMtime >= maxAllSourceMtime);
+    onlyStems === sourceOnlyStems &&
+    (onlyFiles.length === 0 || minTargetMtime >= maxSourceOnlyMtime);
   if (isInSync) {
     return onlyFiles;
   }
@@ -474,6 +477,25 @@ function resolveBin(pkgBin) {
 }
 
 if (require.main === module) {
+  // Exit 0 if a package has no unit tests (e.g., single-service packages where
+  // the service is marked deprecated and no test directory was generated).
+  if (
+    (args.includes('build/test') &&
+      !fs.existsSync('build/test') &&
+      !fs.existsSync('test') &&
+      !fs.existsSync('dev/test')) ||
+    (args.includes('build/esm/test') &&
+      !fs.existsSync('build/esm/test') &&
+      !fs.existsSync('esm/test') &&
+      !fs.existsSync('test')) ||
+    (args.includes('build/cjs/test') &&
+      !fs.existsSync('build/cjs/test') &&
+      !fs.existsSync('esm/test') &&
+      !fs.existsSync('test'))
+  ) {
+    process.exit(0);
+  }
+
   if (wantsBunRuntime) {
     process.env.MOCHA_PARALLEL = 'false';
     Object.assign(process.env, shimEnvVars);
