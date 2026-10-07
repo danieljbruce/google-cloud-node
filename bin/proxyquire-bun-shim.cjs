@@ -528,7 +528,7 @@ if (
             });
           }
 
-          if (init.timeout) {
+          if (init.timeout && !init.signal) {
             req.setTimeout(init.timeout, () => {
               req.destroy(
                 Object.assign(
@@ -582,7 +582,11 @@ if (
         return res;
       } catch (err) {
         const msg = String(err?.message || err || '');
-        if (err?.name === 'TimeoutError' || /timed out/i.test(msg)) {
+        if (
+          err?.name === 'TimeoutError' ||
+          err?.code === 'ETIMEDOUT' ||
+          /timeout|timed out/i.test(msg)
+        ) {
           throw Object.assign(
             new Error('The operation was aborted due to timeout'),
             {name: 'AbortError', type: 'aborted', code: 'ETIMEDOUT'},
@@ -656,7 +660,11 @@ if (
       return res;
     } catch (err) {
       const msg = String(err?.message || err || '');
-      if (err?.name === 'TimeoutError' || /timed out/i.test(msg)) {
+      if (
+        err?.name === 'TimeoutError' ||
+        err?.code === 'ETIMEDOUT' ||
+        /timeout|timed out/i.test(msg)
+      ) {
         throw Object.assign(
           new Error('The operation was aborted due to timeout'),
           {name: 'AbortError', type: 'aborted', code: 'ETIMEDOUT'},

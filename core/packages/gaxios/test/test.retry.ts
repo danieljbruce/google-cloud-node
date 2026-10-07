@@ -408,6 +408,7 @@ describe('🛸 retry & exponential backoff', () => {
       assert(err.config.signal?.reason instanceof DOMException);
       assert.equal(err.config.signal.reason.name, 'TimeoutError');
       assert.equal(err.code, 'TimeoutError');
+      assert.match(err.message, /timeout|timed out/i);
       err.config.timeout = 10000;
     }
 
