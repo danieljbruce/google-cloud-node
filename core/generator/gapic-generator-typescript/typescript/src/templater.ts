@@ -146,13 +146,6 @@ async function processOneTemplate(
     }
   } else if (outputFilename.match(/\$service/)) {
     for (const service of api.services) {
-      // Do not generate tests for deprecated services
-      if (
-        service.options.deprecated === true &&
-        outputFilename.match('test/')
-      ) {
-        continue;
-      }
       result.push(
         await renderFile(
           outputFilename.replace(/\$service/, service.name!.toSnakeCase()),
