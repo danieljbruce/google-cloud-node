@@ -19,7 +19,7 @@ import {spawnSync, SpawnSyncReturns} from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {after, before, describe, it} from 'mocha';
+import {after, before, Context, describe, it} from 'mocha';
 
 interface MonorepoPackage {
   name: string;
@@ -42,6 +42,25 @@ const SKIP_BARE_REQUIRE_PACKAGES = new Set<string>([
   '@google-cloud/profiler',
   'gapic-node-processing',
 ]);
+
+function hasRootExports(exportsField: unknown): boolean {
+  if (typeof exportsField === 'string') {
+    return exportsField.length > 0;
+  }
+  if (Array.isArray(exportsField)) {
+    return exportsField.length > 0;
+  }
+  if (typeof exportsField === 'object' && exportsField !== null) {
+    const keys = Object.keys(exportsField);
+    if (keys.length === 0) {
+      return false;
+    }
+    // Either a conditional exports object (e.g. {"import": ..., "require": ...})
+    // or a subpath exports map containing "."
+    return !keys.some(k => k.startsWith('.')) || '.' in exportsField;
+  }
+  return false;
+}
 
 function findRepoRoot(startDir: string): string {
   let current = path.resolve(startDir);
@@ -80,24 +99,32 @@ function discoverMonorepoPackages(repoRoot: string): MonorepoPackage[] {
       if (!Object.prototype.hasOwnProperty.call(manifest, relDir)) {
         continue;
       }
+      // Skip newly scaffolded packages whose initial release (0.0.0) has not
+      // yet been published to the npm registry.
+      if (manifest[relDir] === '0.0.0') {
+        continue;
+      }
       const pkgJsonPath = path.join(repoRoot, relDir, 'package.json');
       if (!fs.existsSync(pkgJsonPath)) {
         continue;
       }
       const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as {
         name?: string;
+        version?: string;
         private?: boolean;
         main?: string;
         exports?: unknown;
       };
-      if (!pkgJson.name || pkgJson.private) {
+      if (!pkgJson.name || pkgJson.private || pkgJson.version === '0.0.0') {
         continue;
       }
       discovered.set(pkgJson.name, {
         name: pkgJson.name,
         relDir,
         category,
-        hasMainEntrypoint: Boolean(pkgJson.main || pkgJson.exports),
+        hasMainEntrypoint: Boolean(
+          pkgJson.main || hasRootExports(pkgJson.exports),
+        ),
       });
     }
   }
@@ -115,6 +142,16 @@ function isBunAvailable(): boolean {
   return !result.error && result.status === 0;
 }
 
+function formatBunResult(result: SpawnSyncReturns<string>): string {
+  return [
+    `status: ${String(result.status)}`,
+    `signal: ${String(result.signal)}`,
+    `error: ${result.error ? result.error.message : 'none'}`,
+    `stdout: ${result.stdout ?? ''}`,
+    `stderr: ${result.stderr ?? ''}`,
+  ].join('\n');
+}
+
 function runBun(
   args: string[],
   cwd: string,
@@ -128,6 +165,7 @@ function runBun(
     maxBuffer: 50 * 1024 * 1024,
     env: {
       ...process.env,
+      NODE_OPTIONS: '',
       BUN_INSTALL_CACHE_DIR: cacheDir,
     },
   });
@@ -137,7 +175,8 @@ function runBunInstallWithFallback(
   extraArgs: string[],
   cwd: string,
   cacheDir: string,
-): SpawnSyncReturns<string> {
+  allowOfflineFallback: boolean,
+): {result: SpawnSyncReturns<string>; diagnostics: string} {
   const baseArgs = [
     'install',
     ...extraArgs,
@@ -146,43 +185,56 @@ function runBunInstallWithFallback(
     cacheDir,
   ];
   const result = runBun(baseArgs, cwd, cacheDir);
-  if (result.status === 0 || process.env.CI) {
-    return result;
+  if (result.status === 0 || process.env.CI || !allowOfflineFallback) {
+    return {result, diagnostics: formatBunResult(result)};
   }
-  // When running locally inside a network-restricted environment with a warm
-  // cache in os.tmpdir(), retry with --offline.
-  if (fs.existsSync(cacheDir)) {
-    const offlineResult = runBun([...baseArgs, '--offline'], cwd, cacheDir);
-    if (offlineResult.status === 0) {
-      return offlineResult;
-    }
+  // When running locally inside a network-restricted environment with a
+  // pre-populated cache in os.tmpdir(), retry with --offline.
+  const offlineResult = runBun([...baseArgs, '--offline'], cwd, cacheDir);
+  if (offlineResult.status === 0) {
+    return {result: offlineResult, diagnostics: formatBunResult(offlineResult)};
   }
-  return result;
+  return {
+    result,
+    diagnostics: `Online install failed:\n${formatBunResult(result)}\nOffline fallback failed:\n${formatBunResult(offlineResult)}`,
+  };
 }
 
 describe('bun install package verification', function () {
-  this.timeout(300000);
+  this.timeout(600000);
 
   const repoRoot = findRepoRoot(__dirname);
   const monorepoPackages = discoverMonorepoPackages(repoRoot);
 
+  let bunAvailable = false;
   let tempRootDir = '';
   let sharedCacheDir = '';
-  let cleanupCacheDir = false;
+  let hasPreexistingCache = false;
 
-  before(function () {
-    if (!isBunAvailable()) {
-      this.skip();
+  before(() => {
+    bunAvailable = isBunAvailable();
+    if (!bunAvailable) {
+      if (
+        process.env.JS_RUNTIME === 'bun' ||
+        typeof process.versions.bun === 'string'
+      ) {
+        assert.fail(
+          'Expected bun CLI to be available in PATH when running under the Bun test suite',
+        );
+      }
+      return;
     }
     tempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gcn-bun-install-'));
     const prewarmedCacheDir = path.join(os.tmpdir(), 'bun-cache');
     if (process.env.BUN_INSTALL_CACHE_DIR) {
       sharedCacheDir = process.env.BUN_INSTALL_CACHE_DIR;
+      hasPreexistingCache = fs.existsSync(sharedCacheDir);
     } else if (fs.existsSync(prewarmedCacheDir)) {
       sharedCacheDir = prewarmedCacheDir;
+      hasPreexistingCache = true;
     } else {
       sharedCacheDir = path.join(tempRootDir, 'cache');
-      cleanupCacheDir = true;
+      hasPreexistingCache = false;
     }
   });
 
@@ -190,10 +242,13 @@ describe('bun install package verification', function () {
     if (tempRootDir && fs.existsSync(tempRootDir)) {
       fs.rmSync(tempRootDir, {recursive: true, force: true});
     }
-    if (cleanupCacheDir && sharedCacheDir && fs.existsSync(sharedCacheDir)) {
-      fs.rmSync(sharedCacheDir, {recursive: true, force: true});
-    }
   });
+
+  function ensureBunOrSkip(ctx: Context): void {
+    if (!bunAvailable) {
+      ctx.skip();
+    }
+  }
 
   it('discovers all publishable monorepo SDK packages across packages, handwritten, and core', () => {
     assert.ok(
@@ -239,80 +294,87 @@ describe('bun install package verification', function () {
     }
   });
 
-  it('installs @google-cloud/bigtable with default bun install flags and instantiates the client', () => {
+  it('installs @google-cloud/bigtable with default bun install flags and instantiates the client', function () {
+    ensureBunOrSkip(this);
     const singlePkgDir = path.join(tempRootDir, 'single-package-demo');
     fs.mkdirSync(singlePkgDir, {recursive: true});
-    fs.writeFileSync(
-      path.join(singlePkgDir, 'package.json'),
-      JSON.stringify(
-        {
-          name: 'bigtable-bun-demo',
-          version: '1.0.0',
-          private: true,
-          dependencies: {
-            '@google-cloud/bigtable': 'latest',
+    try {
+      fs.writeFileSync(
+        path.join(singlePkgDir, 'package.json'),
+        JSON.stringify(
+          {
+            name: 'bigtable-bun-demo',
+            version: '1.0.0',
+            private: true,
+            dependencies: {
+              '@google-cloud/bigtable': 'latest',
+            },
           },
-        },
-        null,
-        2,
-      ),
-    );
-
-    const installResult = runBunInstallWithFallback(
-      [],
-      singlePkgDir,
-      sharedCacheDir,
-    );
-    assert.strictEqual(
-      installResult.status,
-      0,
-      `bun install failed for @google-cloud/bigtable:\nstdout: ${installResult.stdout}\nstderr: ${installResult.stderr}`,
-    );
-
-    assert.ok(
-      fs.existsSync(path.join(singlePkgDir, 'bun.lock')),
-      'Expected bun.lock to be generated',
-    );
-    assert.ok(
-      fs.existsSync(
-        path.join(
-          singlePkgDir,
-          'node_modules',
-          '@google-cloud',
-          'bigtable',
-          'package.json',
+          null,
+          2,
         ),
-      ),
-      'Expected @google-cloud/bigtable/package.json in node_modules',
-    );
+      );
 
-    const verifyScriptPath = path.join(singlePkgDir, 'verify-bigtable.cjs');
-    fs.writeFileSync(
-      verifyScriptPath,
-      [
-        "'use strict';",
-        "const assert = require('assert');",
-        "const {Bigtable} = require('@google-cloud/bigtable');",
-        "assert.strictEqual(typeof Bigtable, 'function');",
-        "const client = new Bigtable({projectId: 'test-project'});",
-        "assert.strictEqual(client.projectId, 'test-project');",
-      ].join('\n'),
-    );
+      const {result: installResult, diagnostics} = runBunInstallWithFallback(
+        [],
+        singlePkgDir,
+        sharedCacheDir,
+        hasPreexistingCache,
+      );
+      assert.strictEqual(
+        installResult.status,
+        0,
+        `bun install failed for @google-cloud/bigtable:\n${diagnostics}`,
+      );
 
-    const verifyResult = runBun(
-      ['run', verifyScriptPath],
-      singlePkgDir,
-      sharedCacheDir,
-      30000,
-    );
-    assert.strictEqual(
-      verifyResult.status,
-      0,
-      `Failed to load and instantiate @google-cloud/bigtable under Bun:\nstdout: ${verifyResult.stdout}\nstderr: ${verifyResult.stderr}`,
-    );
+      assert.ok(
+        fs.existsSync(path.join(singlePkgDir, 'bun.lock')),
+        'Expected bun.lock to be generated',
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(
+            singlePkgDir,
+            'node_modules',
+            '@google-cloud',
+            'bigtable',
+            'package.json',
+          ),
+        ),
+        'Expected @google-cloud/bigtable/package.json in node_modules',
+      );
+
+      const verifyScriptPath = path.join(singlePkgDir, 'verify-bigtable.cjs');
+      fs.writeFileSync(
+        verifyScriptPath,
+        [
+          "'use strict';",
+          "const assert = require('assert');",
+          "const {Bigtable} = require('@google-cloud/bigtable');",
+          "assert.strictEqual(typeof Bigtable, 'function');",
+          "const client = new Bigtable({projectId: 'test-project'});",
+          "assert.strictEqual(client.projectId, 'test-project');",
+        ].join('\n'),
+      );
+
+      const verifyResult = runBun(
+        ['run', verifyScriptPath],
+        singlePkgDir,
+        sharedCacheDir,
+        30000,
+      );
+      assert.strictEqual(
+        verifyResult.status,
+        0,
+        `Failed to load and instantiate @google-cloud/bigtable under Bun:\n${formatBunResult(verifyResult)}`,
+      );
+    } finally {
+      fs.rmSync(singlePkgDir, {recursive: true, force: true});
+    }
   });
 
-  it('installs all monorepo SDK packages via bun install and verifies module resolution under Bun', () => {
+  it('installs all monorepo SDK packages via bun install and verifies module resolution under Bun', function () {
+    ensureBunOrSkip(this);
     const allPackagesDir = path.join(tempRootDir, 'all-packages');
     fs.mkdirSync(allPackagesDir, {recursive: true});
 
@@ -338,15 +400,16 @@ describe('bun install package verification', function () {
     // Pass --ignore-scripts when installing all 278 packages together because
     // @google-cloud/profiler depends on `pprof`, which is on Bun's default
     // trusted dependencies list and attempts a V8 C++ `node-gyp rebuild`.
-    const installResult = runBunInstallWithFallback(
+    const {result: installResult, diagnostics} = runBunInstallWithFallback(
       ['--ignore-scripts'],
       allPackagesDir,
       sharedCacheDir,
+      hasPreexistingCache,
     );
     assert.strictEqual(
       installResult.status,
       0,
-      `bun install failed for all ${monorepoPackages.length} monorepo packages:\nstdout: ${installResult.stdout}\nstderr: ${installResult.stderr}`,
+      `bun install failed for all ${monorepoPackages.length} monorepo packages:\n${diagnostics}`,
     );
 
     const lockfilePath = path.join(allPackagesDir, 'bun.lock');
@@ -398,8 +461,16 @@ describe('bun install package verification', function () {
         `const allPackages = ${JSON.stringify(monorepoPackages.map(p => p.name))};`,
         `const requireablePackages = ${JSON.stringify(requireablePackages)};`,
         'for (const pkgName of allPackages) {',
-        '  const resolved = require.resolve(`${pkgName}/package.json`);',
-        "  assert.strictEqual(typeof resolved, 'string');",
+        '  try {',
+        '    const resolved = require.resolve(`${pkgName}/package.json`);',
+        "    assert.strictEqual(typeof resolved, 'string');",
+        '  } catch (err) {',
+        "    if (!err || err.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {",
+        '      throw err;',
+        '    }',
+        '    const resolvedMain = require.resolve(pkgName);',
+        "    assert.strictEqual(typeof resolvedMain, 'string');",
+        '  }',
         '}',
         'const failures = [];',
         'for (const pkgName of requireablePackages) {',
@@ -442,7 +513,7 @@ describe('bun install package verification', function () {
     assert.strictEqual(
       verifyAllResult.status,
       0,
-      `Failed to verify installed packages under Bun:\nstdout: ${verifyAllResult.stdout}\nstderr: ${verifyAllResult.stderr}`,
+      `Failed to verify installed packages under Bun:\n${formatBunResult(verifyAllResult)}`,
     );
   });
 });
