@@ -102,14 +102,17 @@ const args = rawArgs.filter(a => a !== '--no-c8' && !shimFlagSet.has(a));
 // the service is marked deprecated and no test directory was generated). Both
 // the compiled test directory and the corresponding source test directory must
 // be absent so running `pnpm test` before `pnpm run compile` still fails.
+const normalizedArgs = new Set(
+  args.map(a => a.replace(/^\.\//, '').replace(/\/+$/, '')),
+);
 if (
-  (args.includes('build/test') &&
+  (normalizedArgs.has('build/test') &&
     !fs.existsSync('build/test') &&
     !fs.existsSync('test')) ||
-  (args.includes('build/esm/test') &&
+  (normalizedArgs.has('build/esm/test') &&
     !fs.existsSync('build/esm/test') &&
     !fs.existsSync('esm/test')) ||
-  (args.includes('build/cjs/test') &&
+  (normalizedArgs.has('build/cjs/test') &&
     !fs.existsSync('build/cjs/test') &&
     !fs.existsSync('esm/test') &&
     !fs.existsSync('cjs/test') &&
