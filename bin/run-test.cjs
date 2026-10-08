@@ -98,6 +98,8 @@ for (const {flag, envIn, envOut} of SHIM_FLAGS) {
 
 const args = rawArgs.filter(a => a !== '--no-c8' && !shimFlagSet.has(a));
 
+// Skip single-service packages whose sole service is marked deprecated in
+// googleapis, causing gapic-generator-typescript to omit generating unit tests.
 const SKIPPED_TEST_PACKAGES = [
   'google-cloud-beyondcorp-appconnections',
   'google-cloud-beyondcorp-appconnectors',
