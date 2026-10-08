@@ -40,17 +40,13 @@ import retryRequest from 'retry-request';
 import {Duplex, DuplexOptions, Readable, Transform, Writable} from 'stream';
 import {Interceptor} from './service-object.js';
 import * as crypto from 'crypto';
-import {Gaxios} from 'gaxios';
 import {DEFAULT_PROJECT_ID_TOKEN} from './service.js';
 import {
-  ensureBunGaxiosFetch,
   getModuleFormat,
   getRuntimeTrackingString,
   getUserAgentString,
 } from '../util.js';
 import duplexify from 'duplexify';
-
-ensureBunGaxiosFetch(Gaxios);
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import {getPackageJSON} from '../package-json-helper.cjs';

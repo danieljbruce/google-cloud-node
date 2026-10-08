@@ -31,9 +31,6 @@ import * as crypto from 'crypto';
 import {GCCL_GCS_CMD_KEY, decorateHeaders} from './nodejs-common/util.js';
 import {FileExceptionMessages, FileMetadata, RequestError} from './file.js';
 import {HashStreamValidator} from './hash-stream-validator.js';
-import {ensureBunGaxiosFetch} from './util.js';
-
-ensureBunGaxiosFetch(gaxios.Gaxios);
 
 const NOT_FOUND_STATUS_CODE = 404;
 const RESUMABLE_INCOMPLETE_STATUS_CODE = 308;

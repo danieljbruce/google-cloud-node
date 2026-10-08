@@ -13,12 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import {
-  Gaxios,
-  type GaxiosOptions,
-  type GaxiosResponse,
-  request,
-} from 'gaxios';
+import {Gaxios, type GaxiosOptions, type GaxiosResponse, request} from 'gaxios';
 import jsonBigint = require('json-bigint');
 import {PassThrough, Readable} from 'stream';
 import {detectGCPResidency} from './gcp-residency';
