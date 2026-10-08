@@ -902,8 +902,15 @@ apis:
       const calledOnceCount = (
         content.match(/assert\(stub\.calledOnce\);/g) || []
       ).length;
+      const calledCount = (
+        content.match(/const stub = sinon\.stub\(process, 'emitWarning'\);/g) ||
+        []
+      ).length;
+      const totalCalledCount = (content.match(/assert\(stub\.called\);/g) || [])
+        .length;
       assert.strictEqual(stubCount, 4);
       assert.strictEqual(calledOnceCount, 4);
+      assert.strictEqual(totalCalledCount, calledCount);
     });
   });
 
