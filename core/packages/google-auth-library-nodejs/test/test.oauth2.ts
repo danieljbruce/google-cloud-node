@@ -800,8 +800,8 @@ describe('oauth2', () => {
         id: '123456789',
         sub: '123456789',
         email: 'test@test.com',
-        iat: now,
-        exp: expiry,
+        iat: Math.floor(now),
+        exp: Math.floor(expiry),
       });
       const envelope = JSON.stringify({kid: 'keyid', alg: 'ES256'});
       let data =
