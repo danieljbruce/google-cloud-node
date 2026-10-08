@@ -218,6 +218,8 @@ async function fastFailMetadataRequest<T>(
   try {
     return await Promise.any([r1, r2]);
   } catch (err) {
+    // Backfill the error message in case it is empty (e.g., in Bun/JavaScriptCore
+    // where Promise.any initializes AggregateError with an empty message).
     if (err instanceof AggregateError && !err.message) {
       err.message = 'All promises were rejected';
     }
@@ -482,9 +484,8 @@ export async function isAvailable() {
 
           if (!isExpected) {
             const code = [...new Set(codes)].join(', ');
-            const message = e.message || e.name || 'Unknown Error';
             process.emitWarning(
-              `received unexpected error = ${message} code = ${code}`,
+              `received unexpected error = ${e.message} code = ${code}`,
               'MetadataLookupWarning',
             );
           }
