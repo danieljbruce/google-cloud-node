@@ -47,6 +47,8 @@ describe('oauth2', () => {
     __dirname,
     '../../test/fixtures/oauthcertspem.json',
   );
+  // Encoded with the standard RFC 5480 prime256v1 named-curve OID so both
+  // OpenSSL (Node.js) and BoringSSL (Bun) parse the keypair natively.
   const publicKeyEcdsa = fs.readFileSync(
     './test/fixtures/fake-ecdsa-public.pem',
     'utf-8',
@@ -792,6 +794,9 @@ describe('oauth2', () => {
       const maxLifetimeSecs = 86400;
       const now = new Date().getTime() / 1000;
       const expiry = now + maxLifetimeSecs / 2;
+      // Construct the payload with JSON.stringify instead of manual string
+      // concatenation, and floor `iat`/`exp` so RFC 7519 NumericDate claims
+      // are serialized as integers rather than floating-point seconds.
       const idToken = JSON.stringify({
         iss: 'testissuer',
         aud: 'testaudience',
