@@ -99,7 +99,9 @@ for (const {flag, envIn, envOut} of SHIM_FLAGS) {
 const args = rawArgs.filter(a => a !== '--no-c8' && !shimFlagSet.has(a));
 
 // Exit 0 if a package has no unit tests (e.g., single-service packages where
-// the service is marked deprecated and no test directory was generated).
+// the service is marked deprecated and no test directory was generated). Both
+// the compiled test directory and the corresponding source test directory must
+// be absent so running `pnpm test` before `pnpm run compile` still fails.
 if (
   (args.includes('build/test') &&
     !fs.existsSync('build/test') &&
