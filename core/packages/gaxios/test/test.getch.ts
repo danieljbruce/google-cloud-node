@@ -13,7 +13,7 @@
 
 import assert from 'assert';
 import nock from 'nock';
-import sinon from 'sinon';
+import * as sinon from 'sinon';
 import stream, {Readable} from 'stream';
 import {describe, it, beforeEach, afterEach} from 'mocha';
 import {HttpsProxyAgent} from 'https-proxy-agent';

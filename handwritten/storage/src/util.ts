@@ -577,11 +577,7 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
         const resolvedAgent =
           typeof fetchInit?.agent === 'function'
             ? fetchInit.agent(parsedUrl)
-            : (fetchInit?.agent as
-                | http.Agent
-                | https.Agent
-                | boolean
-                | undefined);
+            : (fetchInit?.agent as http.Agent | https.Agent | boolean | undefined);
         const reqOptions: https.RequestOptions & {proto?: string} = {
           protocol: parsedUrl.protocol,
           proto: isHttps ? 'https' : 'http',

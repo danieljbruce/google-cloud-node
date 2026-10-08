@@ -311,7 +311,9 @@ describe('util lazy imports', () => {
 
         const scope2 = nock('https://example.com')
           .post('/stream', 'stream-data')
-          .reply(200, 'raw-bytes', {'content-type': 'application/octet-stream'});
+          .reply(200, 'raw-bytes', {
+            'content-type': 'application/octet-stream',
+          });
         const httpRes2 = (await client._defaultAdapter({
           url: new URL('https://example.com/stream'),
           method: 'POST',

@@ -347,6 +347,7 @@ function createMultipartStream(boundary: string, multipart: RequestPart[]) {
 
 function teenyRequest(reqOpts: Options): Request;
 function teenyRequest(reqOpts: Options, callback: RequestCallback): void;
+/* eslint-disable promise/catch-or-return, promise/always-return, promise/no-callback-in-promise */
 function teenyRequest(
   reqOpts: Options,
   callback?: RequestCallback,
