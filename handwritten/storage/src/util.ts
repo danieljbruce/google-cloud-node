@@ -568,6 +568,16 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
             for (const [k, v] of fetchInit.headers) {
               headers[k] = v;
             }
+          } else if (
+            typeof (
+              fetchInit.headers as {entries?: () => Iterable<[string, string]>}
+            ).entries === 'function'
+          ) {
+            for (const [k, v] of (
+              fetchInit.headers as {entries: () => Iterable<[string, string]>}
+            ).entries()) {
+              headers[k] = v;
+            }
           } else {
             for (const [k, v] of Object.entries(fetchInit.headers)) {
               if (v !== undefined) headers[k] = String(v);
@@ -630,18 +640,28 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
               resolve(wrapResponseBody(response));
             });
 
+            const failReq = (err: Error) => {
+              activePassThrough?.destroy(err);
+              req.destroy();
+              reject(err);
+            };
+
+            req.on('error', err => {
+              activePassThrough?.destroy(err);
+              reject(err);
+            });
+
             if (fetchInit?.signal) {
               if (fetchInit.signal.aborted) {
                 const abortErr = Object.assign(
                   new Error('The user aborted a request.'),
                   {name: 'AbortError'}
                 );
-                req.destroy(abortErr);
-                return reject(abortErr);
+                return failReq(abortErr);
               }
               const signal = fetchInit.signal;
               const onAbort = () => {
-                req.destroy(
+                failReq(
                   Object.assign(new Error('The user aborted a request.'), {
                     name: 'AbortError',
                   })
@@ -655,7 +675,7 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
 
             if (fetchInit?.timeout) {
               req.setTimeout(fetchInit.timeout, () => {
-                req.destroy(
+                failReq(
                   Object.assign(
                     new Error('The operation was aborted due to timeout'),
                     {name: 'AbortError', type: 'aborted', code: 'ETIMEDOUT'}
@@ -664,18 +684,13 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
               });
             }
 
-            req.on('error', err => {
-              activePassThrough?.destroy(err);
-              reject(err);
-            });
-
             const body = fetchInit?.body;
             if (body) {
               if (
                 typeof body === 'object' &&
                 typeof (body as Readable).pipe === 'function'
               ) {
-                (body as Readable).on('error', err => req.destroy(err));
+                (body as Readable).on('error', failReq);
                 (body as Readable).pipe(req);
               } else if (
                 typeof body === 'string' ||
@@ -703,7 +718,7 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
                 const bodyStream = Readable.fromWeb(
                   body as unknown as import('stream/web').ReadableStream
                 );
-                bodyStream.on('error', err => req.destroy(err));
+                bodyStream.on('error', failReq);
                 bodyStream.pipe(req);
               } else if (body instanceof URLSearchParams) {
                 req.write(body.toString());

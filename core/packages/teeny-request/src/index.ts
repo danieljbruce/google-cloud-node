@@ -39,7 +39,7 @@ function bunFetch(
   const isHttps = parsedUrl.protocol === 'https:';
   const transport = isHttps ? https : http;
 
-  const headers: Headers = {};
+  const headers: Record<string, string> = {};
   if (init.headers) {
     if (
       typeof globalThis.Headers !== 'undefined' &&
@@ -50,6 +50,15 @@ function bunFetch(
       }
     } else if (Array.isArray(init.headers)) {
       for (const [k, v] of init.headers) {
+        headers[k] = v;
+      }
+    } else if (
+      typeof (init.headers as {entries?: () => Iterable<[string, string]>})
+        .entries === 'function'
+    ) {
+      for (const [k, v] of (
+        init.headers as {entries: () => Iterable<[string, string]>}
+      ).entries()) {
         headers[k] = v;
       }
     } else {
@@ -83,7 +92,16 @@ function bunFetch(
 
   return new Promise<f.Response>((resolve, reject) => {
     let activeResponseStream: PassThrough | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const clearReqTimeout = () => {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+    };
     const req = transport.request(reqOptions, incoming => {
+      incoming.on('end', clearReqTimeout);
+      incoming.on('close', clearReqTimeout);
       const responseStream = new PassThrough();
       activeResponseStream = responseStream;
       incoming.on('error', err => responseStream.destroy(err));
@@ -154,18 +172,26 @@ function bunFetch(
     });
 
     if (init.timeout) {
-      req.setTimeout(init.timeout, () => {
-        req.destroy(
-          Object.assign(new Error(`network timeout at: ${urlStr}`), {
+      const onTimeout = () => {
+        clearReqTimeout();
+        const timeoutErr = Object.assign(
+          new Error(`network timeout at: ${urlStr}`),
+          {
             name: 'AbortError',
             type: 'request-timeout',
             code: 'ETIMEDOUT',
-          }),
+          },
         );
-      });
+        activeResponseStream?.destroy(timeoutErr);
+        req.destroy();
+        reject(timeoutErr);
+      };
+      req.setTimeout(init.timeout, onTimeout);
+      timeoutId = setTimeout(onTimeout, init.timeout);
     }
 
     req.on('error', err => {
+      clearReqTimeout();
       activeResponseStream?.destroy(err);
       reject(err);
     });
@@ -175,7 +201,12 @@ function bunFetch(
         typeof init.body === 'object' &&
         typeof (init.body as Readable).pipe === 'function'
       ) {
-        (init.body as Readable).on('error', err => req.destroy(err));
+        (init.body as Readable).on('error', err => {
+          clearReqTimeout();
+          activeResponseStream?.destroy(err);
+          req.destroy();
+          reject(err);
+        });
         (init.body as Readable).pipe(req);
       } else if (
         typeof init.body === 'string' ||

@@ -490,21 +490,32 @@ describe('teeny', () => {
         });
       }
 
-      const jsonScope = nock(uri)
+      const jsonScope = nock(uri, {reqheaders: {'x-custom-entry': 'val'}})
         .post('/')
         .reply(200, {ok: true}, {'set-cookie': ['a=1', 'b=2']});
       await new Promise<void>((resolve, reject) => {
-        teenyRequest({uri, method: 'POST', json: {hi: 1}}, (err, res, body) => {
-          if (err) return reject(err);
-          try {
-            assert.strictEqual(res.statusCode, 200);
-            assert.deepStrictEqual(body, {ok: true});
-            jsonScope.done();
-            resolve();
-          } catch (e) {
-            reject(e);
-          }
+        const customHeaders = Object.defineProperty({}, 'entries', {
+          value: () =>
+            [
+              ['x-custom-entry', 'val'],
+              ['content-type', 'application/json'],
+            ][Symbol.iterator](),
+          enumerable: false,
         });
+        teenyRequest(
+          {uri, method: 'POST', json: {hi: 1}, headers: customHeaders},
+          (err, res, body) => {
+            if (err) return reject(err);
+            try {
+              assert.strictEqual(res.statusCode, 200);
+              assert.deepStrictEqual(body, {ok: true});
+              jsonScope.done();
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
+          },
+        );
       });
 
       const badJsonScope = nock(uri)

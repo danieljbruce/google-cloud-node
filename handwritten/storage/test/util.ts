@@ -319,13 +319,22 @@ describe('util lazy imports', () => {
         assert.ok(httpRes2.body instanceof Readable);
         assert.strictEqual((await httpRes2.arrayBuffer()).byteLength, 9);
 
-        const scope3 = nock('https://example.com')
+        const scope3 = nock('https://example.com', {
+          reqheaders: {'x-custom-entry': '1'},
+        })
           .post('/params', 'a=1')
           .reply(204);
+        const polyfillHeaders = {
+          entries: () =>
+            [
+              ['content-type', 'application/x-www-form-urlencoded'],
+              ['x-custom-entry', '1'],
+            ][Symbol.iterator](),
+        };
         const httpRes3 = (await client._defaultAdapter({
           url: 'https://example.com/params',
           method: 'POST',
-          headers: {'content-type': 'application/x-www-form-urlencoded'},
+          headers: polyfillHeaders,
           body: new URLSearchParams({a: '1'}),
         })) as Response;
         scope3.done();
