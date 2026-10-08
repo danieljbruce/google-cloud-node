@@ -98,6 +98,24 @@ for (const {flag, envIn, envOut} of SHIM_FLAGS) {
 
 const args = rawArgs.filter(a => a !== '--no-c8' && !shimFlagSet.has(a));
 
+// Exit 0 if a package has no unit tests (e.g., single-service packages where
+// the service is marked deprecated and no test directory was generated).
+if (
+  (args.includes('build/test') &&
+    !fs.existsSync('build/test') &&
+    !fs.existsSync('test')) ||
+  (args.includes('build/esm/test') &&
+    !fs.existsSync('build/esm/test') &&
+    !fs.existsSync('esm/test')) ||
+  (args.includes('build/cjs/test') &&
+    !fs.existsSync('build/cjs/test') &&
+    !fs.existsSync('esm/test') &&
+    !fs.existsSync('cjs/test') &&
+    !fs.existsSync('test'))
+) {
+  process.exit(0);
+}
+
 const isBunRuntime = typeof Bun !== 'undefined';
 const wantsBunRuntime = isBunRuntime || process.env.JS_RUNTIME === 'bun';
 
