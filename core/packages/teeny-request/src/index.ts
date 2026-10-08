@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
+import * as https from 'https';
 import {Agent, AgentOptions as HttpsAgentOptions} from 'https';
+import * as http from 'http';
 import {AgentOptions as HttpAgentOptions} from 'http';
 import type * as f from 'node-fetch' with {'resolution-mode': 'import'};
 import {PassThrough, Readable, pipeline} from 'stream';
@@ -27,8 +29,141 @@ const streamEvents = require('stream-events');
 
 import type nodeFetch from 'node-fetch' with {'resolution-mode': 'import'};
 
+function bunFetch(
+  url: URL | f.RequestInfo,
+  init: f.RequestInit & {timeout?: number} = {},
+): Promise<f.Response> {
+  const urlStr = String(url);
+  const parsedUrl = new URL(urlStr);
+  const isHttps = parsedUrl.protocol === 'https:';
+  const transport = isHttps ? https : http;
+
+  const headers: Headers = {};
+  if (init.headers) {
+    if (
+      typeof globalThis.Headers !== 'undefined' &&
+      init.headers instanceof globalThis.Headers
+    ) {
+      for (const [k, v] of init.headers.entries()) {
+        headers[k] = v;
+      }
+    } else if (Array.isArray(init.headers)) {
+      for (const [k, v] of init.headers) {
+        headers[k] = v;
+      }
+    } else {
+      Object.assign(headers, init.headers);
+    }
+  }
+
+  if (init.compress !== false) {
+    const hasAcceptEncoding = Object.keys(headers).some(
+      k => k.toLowerCase() === 'accept-encoding',
+    );
+    if (!hasAcceptEncoding) {
+      headers['Accept-Encoding'] = 'gzip,deflate';
+    }
+  }
+
+  const reqOptions: https.RequestOptions & {proto?: string} = {
+    protocol: parsedUrl.protocol,
+    proto: isHttps ? 'https' : 'http',
+    method: init.method || 'GET',
+    hostname: parsedUrl.hostname,
+    port: parsedUrl.port || (isHttps ? 443 : 80),
+    path: (parsedUrl.pathname || '/') + parsedUrl.search,
+    headers,
+    agent: init.agent as Agent | http.Agent | boolean | undefined,
+  };
+
+  return new Promise<f.Response>((resolve, reject) => {
+    const req = transport.request(reqOptions, incoming => {
+      const responseStream = new PassThrough();
+      incoming.on('error', err => responseStream.destroy(err));
+      incoming.pipe(responseStream);
+
+      const fetchHeaders = new globalThis.Headers();
+      for (const [k, v] of Object.entries(incoming.headers)) {
+        if (Array.isArray(v)) {
+          v.forEach(val => fetchHeaders.append(k, val));
+        } else if (v !== undefined) {
+          fetchHeaders.set(k, v);
+        }
+      }
+
+      const readText = async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of responseStream) {
+          chunks.push(
+            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array),
+          );
+        }
+        return Buffer.concat(chunks).toString('utf8');
+      };
+
+      const res = {
+        url: urlStr,
+        status: incoming.statusCode || 200,
+        statusText: incoming.statusMessage || '',
+        headers: fetchHeaders,
+        body: responseStream,
+        text: readText,
+        json: async () => {
+          const text = await readText();
+          try {
+            return JSON.parse(text);
+          } catch (err) {
+            throw new Error(
+              `invalid json response body at ${urlStr} reason: ${(err as Error).message}`,
+            );
+          }
+        },
+      } as unknown as f.Response;
+
+      resolve(res);
+    });
+
+    if (init.timeout) {
+      req.setTimeout(init.timeout, () => {
+        req.destroy(
+          Object.assign(new Error(`network timeout at: ${urlStr}`), {
+            name: 'AbortError',
+            type: 'request-timeout',
+            code: 'ETIMEDOUT',
+          }),
+        );
+      });
+    }
+
+    req.on('error', reject);
+
+    if (init.body) {
+      if (
+        typeof init.body === 'object' &&
+        typeof (init.body as Readable).pipe === 'function'
+      ) {
+        (init.body as Readable).on('error', err => req.destroy(err));
+        (init.body as Readable).pipe(req);
+      } else if (
+        typeof init.body === 'string' ||
+        Buffer.isBuffer(init.body) ||
+        init.body instanceof Uint8Array
+      ) {
+        req.write(init.body);
+        req.end();
+      } else {
+        req.end();
+      }
+    } else {
+      req.end();
+    }
+  });
+}
+
 const fetch = (...args: Parameters<typeof nodeFetch>) =>
-  import('node-fetch').then(({default: fetch}) => fetch(...args));
+  'Bun' in globalThis
+    ? bunFetch(args[0], args[1])
+    : import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 export interface CoreOptions {
   method?: string;
