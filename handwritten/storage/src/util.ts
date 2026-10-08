@@ -401,18 +401,24 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
   ) {
     return;
   }
-  const ctor = GaxiosClass as typeof Gaxios & {__bunPatched?: boolean};
-  if (ctor.__bunPatched) {
+  const ctor = GaxiosClass as typeof Gaxios & {
+    __bunPatched?: boolean;
+    __bunStoragePatched?: boolean;
+    __bunOrigAdapter?: (this: Gaxios, config: GaxiosOptions) => unknown;
+  };
+  if (ctor.__bunStoragePatched) {
     return;
   }
   const proto = GaxiosClass.prototype as unknown as {
     _defaultAdapter?: (this: Gaxios, config: GaxiosOptions) => unknown;
   };
-  const origAdapter = proto._defaultAdapter;
+  const origAdapter = ctor.__bunOrigAdapter || proto._defaultAdapter;
   if (typeof origAdapter !== 'function') {
     return;
   }
+  ctor.__bunOrigAdapter = origAdapter;
   ctor.__bunPatched = true;
+  ctor.__bunStoragePatched = true;
 
   const wrapResponseBody = (res: Response): Response => {
     if (
@@ -510,13 +516,6 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
       return bunFetchImpl;
     }
     bunFetchImpl = async (input, init) => {
-      const globalBunFetch = (
-        globalThis as {__googleCloudBunFetch?: typeof fetch}
-      ).__googleCloudBunFetch;
-      if (typeof globalBunFetch === 'function') {
-        return globalBunFetch(input, init);
-      }
-
       let fetchInit = init as
         | (Omit<RequestInit, 'body'> & {
             body?: unknown;
@@ -549,6 +548,7 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
       }
 
       if (
+        http.ClientRequest.name === 'OverriddenClientRequest' &&
         globalThis.fetch === initialGlobalFetch &&
         parsedUrl &&
         (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
@@ -577,7 +577,8 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
         const resolvedAgent =
           typeof fetchInit?.agent === 'function'
             ? fetchInit.agent(parsedUrl)
-            : (fetchInit?.agent as http.Agent | https.Agent | boolean | undefined);
+            : (fetchInit?.agent as
+                http.Agent | https.Agent | boolean | undefined);
         const reqOptions: https.RequestOptions & {proto?: string} = {
           protocol: parsedUrl.protocol,
           proto: isHttps ? 'https' : 'http',
@@ -587,12 +588,16 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
           path: (parsedUrl.pathname || '/') + parsedUrl.search,
           headers,
           agent: resolvedAgent,
+          cert: fetchInit?.cert,
+          key: fetchInit?.key,
         };
 
         try {
           const res = await new Promise<Response>((resolve, reject) => {
+            let activePassThrough: PassThrough | undefined;
             const req = transport.request(reqOptions, incoming => {
               const passThrough = new PassThrough();
+              activePassThrough = passThrough;
               incoming.on('error', err => passThrough.destroy(err));
               incoming.pipe(passThrough);
 
@@ -634,17 +639,18 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
                 req.destroy(abortErr);
                 return reject(abortErr);
               }
-              fetchInit.signal.addEventListener(
-                'abort',
-                () => {
-                  req.destroy(
-                    Object.assign(new Error('The user aborted a request.'), {
-                      name: 'AbortError',
-                    })
-                  );
-                },
-                {once: true}
-              );
+              const signal = fetchInit.signal;
+              const onAbort = () => {
+                req.destroy(
+                  Object.assign(new Error('The user aborted a request.'), {
+                    name: 'AbortError',
+                  })
+                );
+              };
+              signal.addEventListener('abort', onAbort, {once: true});
+              req.on('close', () => {
+                signal.removeEventListener('abort', onAbort);
+              });
             }
 
             if (fetchInit?.timeout) {
@@ -658,7 +664,10 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
               });
             }
 
-            req.on('error', reject);
+            req.on('error', err => {
+              activePassThrough?.destroy(err);
+              reject(err);
+            });
 
             const body = fetchInit?.body;
             if (body) {
@@ -691,9 +700,11 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
                 typeof ReadableStream !== 'undefined' &&
                 body instanceof ReadableStream
               ) {
-                Readable.fromWeb(
+                const bodyStream = Readable.fromWeb(
                   body as unknown as import('stream/web').ReadableStream
-                ).pipe(req);
+                );
+                bodyStream.on('error', err => req.destroy(err));
+                bodyStream.pipe(req);
               } else if (body instanceof URLSearchParams) {
                 req.write(body.toString());
                 req.end();
@@ -765,6 +776,7 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
 
   proto._defaultAdapter = function (this: Gaxios, config: GaxiosOptions) {
     if (
+      'Bun' in globalThis &&
       config &&
       !config.fetchImplementation &&
       !this.defaults?.fetchImplementation &&

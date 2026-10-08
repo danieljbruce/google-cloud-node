@@ -28,17 +28,21 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
   ) {
     return;
   }
-  const ctor = GaxiosClass as typeof Gaxios & {__bunPatched?: boolean};
+  const ctor = GaxiosClass as typeof Gaxios & {
+    __bunPatched?: boolean;
+    __bunOrigAdapter?: (this: Gaxios, config: GaxiosOptions) => unknown;
+  };
   if (ctor.__bunPatched) {
     return;
   }
   const proto = GaxiosClass.prototype as unknown as {
     _defaultAdapter?: (this: Gaxios, config: GaxiosOptions) => unknown;
   };
-  const origAdapter = proto._defaultAdapter;
+  const origAdapter = ctor.__bunOrigAdapter || proto._defaultAdapter;
   if (typeof origAdapter !== 'function') {
     return;
   }
+  ctor.__bunOrigAdapter = origAdapter;
   ctor.__bunPatched = true;
 
   let bunFetchImpl: typeof fetch | undefined;
@@ -53,13 +57,6 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
       return bunFetchImpl;
     }
     bunFetchImpl = async (input, init) => {
-      const globalBunFetch = (
-        globalThis as {__googleCloudBunFetch?: typeof fetch}
-      ).__googleCloudBunFetch;
-      if (typeof globalBunFetch === 'function') {
-        return globalBunFetch(input, init);
-      }
-
       streamMod ||= await import('stream');
       const {PassThrough, Readable} = streamMod;
 
@@ -214,6 +211,7 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
 
   proto._defaultAdapter = function (this: Gaxios, config: GaxiosOptions) {
     if (
+      'Bun' in globalThis &&
       config &&
       !config.fetchImplementation &&
       !this.defaults?.fetchImplementation &&

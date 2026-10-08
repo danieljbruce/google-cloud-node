@@ -545,6 +545,42 @@ describe('teeny', () => {
           },
         );
       });
+
+      const zlib = await import('zlib');
+      const gzipped = zlib.gzipSync(
+        Buffer.from(JSON.stringify({zipped: true})),
+      );
+      const gzipScope = nock(uri).get('/').reply(200, gzipped, {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+      });
+      await new Promise<void>((resolve, reject) => {
+        teenyRequest({uri, gzip: true}, (err, res, body) => {
+          if (err) return reject(err);
+          try {
+            assert.strictEqual(res.statusCode, 200);
+            assert.deepStrictEqual(body, {zipped: true});
+            gzipScope.done();
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      const timeoutScope = nock(uri).get('/').delayConnection(100).reply(200);
+      await new Promise<void>((resolve, reject) => {
+        teenyRequest({uri, timeout: 10}, err => {
+          try {
+            assert.ok(err);
+            assert.strictEqual((err as {code?: string}).code, 'ETIMEDOUT');
+            timeoutScope.done();
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
     } finally {
       if (!hadBun) {
         delete globalRecord.Bun;

@@ -62,11 +62,7 @@ describe('ensureBunGaxiosFetch', () => {
   it('patches Gaxios _defaultAdapter under Bun and wraps streams/options', async () => {
     const hadBun = 'Bun' in globalThis;
     const origFetch = globalThis.fetch;
-    const g = globalThis as {
-      Bun?: unknown;
-      __googleCloudBunFetch?: typeof fetch;
-    };
-    const origBunFetch = g.__googleCloudBunFetch;
+    const g = globalThis as {Bun?: unknown};
     if (!hadBun) {
       Object.defineProperty(globalThis, 'Bun', {
         value: {},
@@ -74,7 +70,6 @@ describe('ensureBunGaxiosFetch', () => {
         writable: true,
       });
     }
-    g.__googleCloudBunFetch = undefined;
 
     try {
       let capturedInit: Record<string, unknown> | undefined;
@@ -178,7 +173,6 @@ describe('ensureBunGaxiosFetch', () => {
       );
     } finally {
       globalThis.fetch = origFetch;
-      g.__googleCloudBunFetch = origBunFetch;
       if (!hadBun) {
         delete g.Bun;
       }

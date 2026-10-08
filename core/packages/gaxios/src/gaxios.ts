@@ -692,12 +692,6 @@ export class Gaxios implements FetchCompliance {
 
   static #createBunFetch(): typeof fetch {
     return async (input, init) => {
-      const bunFetch = (globalThis as {__googleCloudBunFetch?: typeof fetch})
-        .__googleCloudBunFetch;
-      if (typeof bunFetch === 'function') {
-        return bunFetch(input, init);
-      }
-
       let fetchInit = init as
         (Omit<RequestInit, 'body'> & {body?: unknown}) | undefined;
       if (
@@ -813,7 +807,8 @@ export class Gaxios implements FetchCompliance {
         res.blob = async () => {
           if (!nodeStream) return origBlob();
           const buf = await readBuffer();
-          return new Blob([buf]);
+          const contentType = res.headers?.get?.('content-type') ?? '';
+          return new Blob([buf], contentType ? {type: contentType} : undefined);
         };
       }
       return res;

@@ -21,6 +21,7 @@ import * as http from 'http';
 import {AgentOptions as HttpAgentOptions} from 'http';
 import type * as f from 'node-fetch' with {'resolution-mode': 'import'};
 import {PassThrough, Readable, pipeline} from 'stream';
+import * as zlib from 'zlib';
 import {getAgent} from './agents';
 import {TeenyStatistics} from './TeenyStatistics';
 import {randomUUID} from 'crypto';
@@ -52,7 +53,11 @@ function bunFetch(
         headers[k] = v;
       }
     } else {
-      Object.assign(headers, init.headers);
+      for (const [k, v] of Object.entries(init.headers)) {
+        if (v !== undefined) {
+          headers[k] = String(v);
+        }
+      }
     }
   }
 
@@ -77,10 +82,35 @@ function bunFetch(
   };
 
   return new Promise<f.Response>((resolve, reject) => {
+    let activeResponseStream: PassThrough | undefined;
     const req = transport.request(reqOptions, incoming => {
       const responseStream = new PassThrough();
+      activeResponseStream = responseStream;
       incoming.on('error', err => responseStream.destroy(err));
-      incoming.pipe(responseStream);
+      const status = incoming.statusCode || 200;
+      const encoding = (
+        incoming.headers['content-encoding'] || ''
+      ).toLowerCase();
+      if (
+        init.compress !== false &&
+        status !== 204 &&
+        status !== 304 &&
+        (reqOptions.method || 'GET').toUpperCase() !== 'HEAD' &&
+        (encoding === 'gzip' ||
+          encoding === 'x-gzip' ||
+          encoding === 'deflate' ||
+          encoding === 'br')
+      ) {
+        const decompressor =
+          encoding === 'br'
+            ? zlib.createBrotliDecompress()
+            : zlib.createUnzip();
+        incoming.on('error', err => decompressor.destroy(err));
+        decompressor.on('error', err => responseStream.destroy(err));
+        incoming.pipe(decompressor).pipe(responseStream);
+      } else {
+        incoming.pipe(responseStream);
+      }
 
       const fetchHeaders = new globalThis.Headers();
       for (const [k, v] of Object.entries(incoming.headers)) {
@@ -103,7 +133,7 @@ function bunFetch(
 
       const res = {
         url: urlStr,
-        status: incoming.statusCode || 200,
+        status,
         statusText: incoming.statusMessage || '',
         headers: fetchHeaders,
         body: responseStream,
@@ -135,7 +165,10 @@ function bunFetch(
       });
     }
 
-    req.on('error', reject);
+    req.on('error', err => {
+      activeResponseStream?.destroy(err);
+      reject(err);
+    });
 
     if (init.body) {
       if (
