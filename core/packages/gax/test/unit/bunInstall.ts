@@ -45,10 +45,7 @@ const SKIP_BARE_REQUIRE_PACKAGES = new Set<string>([
 
 function findRepoRoot(startDir: string): string {
   let current = path.resolve(startDir);
-  while (true) {
-    if (fs.existsSync(path.join(current, '.release-please-manifest.json'))) {
-      return current;
-    }
+  while (!fs.existsSync(path.join(current, '.release-please-manifest.json'))) {
     const parent = path.dirname(current);
     if (parent === current) {
       throw new Error(
@@ -57,13 +54,15 @@ function findRepoRoot(startDir: string): string {
     }
     current = parent;
   }
+  return current;
 }
 
 function discoverMonorepoPackages(repoRoot: string): MonorepoPackage[] {
   const manifestPath = path.join(repoRoot, '.release-please-manifest.json');
-  const manifest = JSON.parse(
-    fs.readFileSync(manifestPath, 'utf8'),
-  ) as Record<string, string>;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<
+    string,
+    string
+  >;
 
   const discovered = new Map<string, MonorepoPackage>();
 
@@ -74,7 +73,7 @@ function discoverMonorepoPackages(repoRoot: string): MonorepoPackage[] {
     }
     const entries = fs.readdirSync(categoryDir, {withFileTypes: true});
     for (const entry of entries) {
-      if (!entry.isDirectory()) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) {
         continue;
       }
       const relDir = path.posix.join(category, entry.name);
