@@ -13,26 +13,13 @@
 // limitations under the License.
 
 import * as assert from 'assert';
-import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as jws from 'jws';
 import {describe, it, beforeEach, afterEach} from 'mocha';
 import * as sinon from 'sinon';
 
 import {JWTAccess} from '../src';
-
-function keypair(opts: number | {bits?: number} = 2048): {
-  public: string;
-  private: string;
-} {
-  const bits = typeof opts === 'number' ? opts : (opts.bits ?? 2048);
-  const {publicKey, privateKey} = crypto.generateKeyPairSync('rsa', {
-    modulusLength: Math.max(bits, 512),
-    publicKeyEncoding: {type: 'pkcs1', format: 'pem'},
-    privateKeyEncoding: {type: 'pkcs1', format: 'pem'},
-  });
-  return {public: publicKey, private: privateKey};
-}
+import {keypair} from './utils';
 
 describe('jwtaccess', () => {
   // Creates a standard JSON credentials object for testing.

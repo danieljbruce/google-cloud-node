@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import * as assert from 'assert';
-import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as jws from 'jws';
 import {describe, it, beforeEach, afterEach} from 'mocha';
@@ -23,24 +22,13 @@ import * as sinon from 'sinon';
 import {GoogleAuth, JWT} from '../src';
 import {CredentialRequest, JWTInput} from '../src/auth/credentials';
 import * as jwtaccess from '../src/auth/jwtaccess';
+import {keypair} from './utils';
 
 function removeBearerFromAuthorizationHeader(headers: Headers): string {
   return (headers.get('authorization') || '').replace('Bearer ', '');
 }
 
 describe('jwt', () => {
-  function keypair(opts: number | {bits?: number} = 2048): {
-    public: string;
-    private: string;
-  } {
-    const bits = typeof opts === 'number' ? opts : (opts.bits ?? 2048);
-    const {publicKey, privateKey} = crypto.generateKeyPairSync('rsa', {
-      modulusLength: Math.max(bits, 512),
-      publicKeyEncoding: {type: 'pkcs1', format: 'pem'},
-      privateKeyEncoding: {type: 'pkcs1', format: 'pem'},
-    });
-    return {public: publicKey, private: privateKey};
-  }
   const PEM_PATH = './test/fixtures/private.pem';
   const PEM_CONTENTS = fs.readFileSync(PEM_PATH, 'utf8');
 
