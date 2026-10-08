@@ -105,7 +105,11 @@ const SKIPPED_TEST_PACKAGES = [
   'google-cloud-beyondcorp-appconnectors',
   'google-cloud-beyondcorp-appgateways',
 ];
-if (SKIPPED_TEST_PACKAGES.includes(path.basename(process.cwd()))) {
+const currentPkg = path.basename(process.cwd());
+if (SKIPPED_TEST_PACKAGES.includes(currentPkg)) {
+  console.warn(
+    `[run-test] Skipping ${currentPkg} (deprecated service package)`,
+  );
   process.exit(0);
 }
 
