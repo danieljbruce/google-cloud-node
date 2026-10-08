@@ -29,20 +29,33 @@ if (
 
   const origRequire = Module.prototype.require;
 
-  const enableBunPluginShim = process.env.BUN_ENABLE_BUN_PLUGIN_SHIM === 'true';
-  const enableGaxiosShim = process.env.BUN_ENABLE_GAXIOS_SHIM === 'true';
+  const enableBunPluginShim =
+    process.env.BUN_ENABLE_BUN_PLUGIN_SHIM === 'true' ||
+    process.env.BUN_PLUGIN_SHIM === 'true';
+  const enableGaxiosShim =
+    process.env.BUN_ENABLE_GAXIOS_SHIM === 'true' ||
+    process.env.BUN_GAXIOS_SHIM === 'true';
   const enableProxyquireShim =
-    process.env.BUN_ENABLE_PROXYQUIRE_SHIM === 'true';
-  const enableKeypairShim = process.env.BUN_ENABLE_KEYPAIR_SHIM === 'true';
-  const enableRequireShim = process.env.BUN_ENABLE_REQUIRE_SHIM === 'true';
+    process.env.BUN_ENABLE_PROXYQUIRE_SHIM === 'true' ||
+    process.env.BUN_PROXYQUIRE_SHIM === 'true';
+  const enableKeypairShim =
+    process.env.BUN_ENABLE_KEYPAIR_SHIM === 'true' ||
+    process.env.BUN_KEYPAIR_SHIM === 'true';
+  const enableRequireShim =
+    process.env.BUN_ENABLE_REQUIRE_SHIM === 'true' ||
+    process.env.BUN_REQUIRE_SHIM === 'true';
   const enableAbortSignalTimeoutShim =
-    process.env.BUN_ENABLE_ABORT_SIGNAL_TIMEOUT_SHIM === 'true';
+    process.env.BUN_ENABLE_ABORT_SIGNAL_TIMEOUT_SHIM === 'true' ||
+    process.env.BUN_ABORT_SIGNAL_TIMEOUT_SHIM === 'true';
   const enablePromiseAnyShim =
-    process.env.BUN_ENABLE_PROMISE_ANY_SHIM === 'true';
+    process.env.BUN_ENABLE_PROMISE_ANY_SHIM === 'true' ||
+    process.env.BUN_PROMISE_ANY_SHIM === 'true';
   const enableCryptoVerifyShim =
-    process.env.BUN_ENABLE_CRYPTO_VERIFY_SHIM === 'true';
+    process.env.BUN_ENABLE_CRYPTO_VERIFY_SHIM === 'true' ||
+    process.env.BUN_CRYPTO_VERIFY_SHIM === 'true';
   const enableAssertDeepEqualShim =
-    process.env.BUN_ENABLE_ASSERT_DEEP_EQUAL_SHIM === 'true';
+    process.env.BUN_ENABLE_ASSERT_DEEP_EQUAL_SHIM === 'true' ||
+    process.env.BUN_ASSERT_DEEP_EQUAL_SHIM === 'true';
 
   // ---------------------------------------------------------------------------
   // 1. Module._load Delegation
@@ -67,7 +80,7 @@ if (
   // ---------------------------------------------------------------------------
   // 2. Generational Module Cache Snapshots (Module._cache & require.cache)
   // ---------------------------------------------------------------------------
-  // Test isolation libraries (such as `mockery` and `proxyquire`) frequently swap
+  // Test isolation libraries (such as `mockery` in `handwritten/storage`) swap
   // the module cache using the following idiom:
   //
   //   const originalCache = Module._cache; // or `require.cache`
@@ -78,12 +91,12 @@ if (
   // In Bun, `require.cache` and `Module._cache` are native proxies to the C++ runtime's
   // internal module table (`bunNativeCache`). If we simply delete keys from `bunNativeCache`
   // in-place on assignment, `originalCache` (which holds a direct reference to that same object)
-  // has its properties deleted too. Consequently, when `mockery` or `proxyquire` attempts to
+  // has its properties deleted too. Consequently, when `mockery` attempts to
   // restore `Module._cache = originalCache`, the saved cache is already empty. This caused
   // previously loaded singletons/classes (like `Bucket` in Storage) to be re-required as distinct
   // instances, breaking `instanceof` checks across subsequent test files.
   //
-  // To solve this in Bun, we implement generational cache management:
+  // To solve this in Bun, we implement generational cache management under `enableRequireShim`:
   // - `createCacheGeneration`: Wraps the active cache state in a Proxy. While active, reads and
   //   writes reflect directly into Bun's native C++ cache (`bunNativeCache`) so Bun's native loader
   //   sees newly required modules.
@@ -94,7 +107,7 @@ if (
   // - `bunNativeCache` is then synchronized to match `newCache` (clearing deleted entries and
   //   repopulating new ones so Bun's native loader sees the clean or restored state).
   // - A new active generation is created and bound to both `Module._cache` and `require.cache`.
-  if (enableProxyquireShim) {
+  if (enableRequireShim) {
     const bunNativeCache = require.cache;
 
     function createCacheGeneration(initialEntries = {}) {
@@ -289,7 +302,7 @@ if (
 
   // Override Bun's native AbortSignal.timeout so its abort reason DOMException
   // uses the exact V8 message string ('The operation was aborted due to timeout')
-  // asserted by core/packages/gcp-metadata unit tests.
+  // asserted by core/packages/gaxios unit tests.
   if (
     enableAbortSignalTimeoutShim &&
     typeof AbortSignal !== 'undefined' &&
