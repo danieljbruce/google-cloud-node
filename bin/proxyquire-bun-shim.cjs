@@ -582,6 +582,11 @@ if (
         return res;
       } catch (err) {
         const msg = String(err?.message || err || '');
+        // Check `ETIMEDOUT` in addition to `TimeoutError` and message text so
+        // socket timeouts (`req.setTimeout`) and nock/network errors with
+        // `code: 'ETIMEDOUT'` preserve their timeout code instead of falling
+        // through to the generic `AbortError` branch below when a signal is
+        // also present.
         if (
           err?.name === 'TimeoutError' ||
           err?.code === 'ETIMEDOUT' ||
@@ -660,6 +665,11 @@ if (
       return res;
     } catch (err) {
       const msg = String(err?.message || err || '');
+      // Check `ETIMEDOUT` in addition to `TimeoutError` and message text so
+      // underlying fetch/socket errors that already carry `code: 'ETIMEDOUT'`
+      // (even without `'timed out'` in the message or when `name` is
+      // `'AbortError'`) retain `code: 'ETIMEDOUT'` rather than being rewritten
+      // as a user-initiated abort by the `AbortError` check below.
       if (
         err?.name === 'TimeoutError' ||
         err?.code === 'ETIMEDOUT' ||

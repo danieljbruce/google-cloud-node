@@ -231,14 +231,26 @@ export class Gaxios implements FetchCompliance {
         err = new GaxiosError('Unexpected Gaxios Error', opts, undefined, e);
       }
 
+      // When `opts.timeout` is configured, `#appendTimeoutToSignal` attaches
+      // `AbortSignal.timeout(opts.timeout)` to `opts.signal`, which sets
+      // `opts.signal.reason` to a `TimeoutError` `DOMException` when it fires.
+      // However, `node-fetch` (and Bun's fetch/http shim when `nock` intercepts
+      // requests) rejects an aborted signal with a generic `AbortError`
+      // ('The user aborted a request.') rather than `opts.signal.reason`, and
+      // Bun's native `AbortSignal.timeout` uses the message 'The operation
+      // timed out.' instead of V8's 'The operation was aborted due to timeout'.
+      // Normalizing `err.code = 'TimeoutError'` and ensuring `err.message`
+      // describes the timeout allows `getRetryConfig` / `shouldRetryRequest`
+      // to recognize the error as a retriable timeout (retrying up to the
+      // configured retry limit, e.g. 3 attempts / `noResponseRetries`) rather
+      // than treating the aborted signal as a non-retriable user abort.
       if (
         !err.response &&
         opts.signal?.aborted &&
-        opts.signal.reason instanceof DOMException &&
-        opts.signal.reason.name === 'TimeoutError'
+        opts.signal.reason?.name === 'TimeoutError'
       ) {
         err.code = 'TimeoutError';
-        if (!/abort/i.test(err.message) || !/timeout/i.test(err.message)) {
+        if (!/timeout|timed out/i.test(err.message)) {
           err.message = 'The operation was aborted due to timeout';
         }
       }
