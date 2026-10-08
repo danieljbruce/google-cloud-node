@@ -12,17 +12,17 @@
 // limitations under the License.
 
 import {Gaxios, GaxiosOptions, GaxiosResponse} from 'gaxios';
-import {PassThrough, Readable} from 'stream';
+import type {Readable} from 'stream';
 import {GaxiosResponseWithHTTP2} from './http2';
 
 /**
- * Ensures that Gaxios uses a Bun-compatible fetch implementation when running
- * under the Bun runtime.
+ * Ensures that Gaxios v7 uses a Bun-compatible fetch implementation when
+ * running under the Bun runtime. Can be removed once upgraded to Gaxios v8+.
  * @internal
  */
 export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
   if (
-    'window' in globalThis ||
+    (globalThis as {window?: unknown}).window ||
     !('Bun' in globalThis) ||
     typeof GaxiosClass !== 'function'
   ) {
@@ -32,7 +32,6 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
   if (ctor.__bunPatched) {
     return;
   }
-  ctor.__bunPatched = true;
   const proto = GaxiosClass.prototype as unknown as {
     _defaultAdapter?: (this: Gaxios, config: GaxiosOptions) => unknown;
   };
@@ -40,8 +39,15 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
   if (typeof origAdapter !== 'function') {
     return;
   }
+  ctor.__bunPatched = true;
 
   let bunFetchImpl: typeof fetch | undefined;
+  let streamMod:
+    | {
+        PassThrough: typeof import('stream').PassThrough;
+        Readable: typeof import('stream').Readable;
+      }
+    | undefined;
   const getBunFetch = (): typeof fetch => {
     if (bunFetchImpl) {
       return bunFetchImpl;
@@ -54,6 +60,9 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
         return globalBunFetch(input, init);
       }
 
+      streamMod ||= await import('stream');
+      const {PassThrough, Readable} = streamMod;
+
       let fetchInit = init as
         | (Omit<RequestInit, 'body'> & {
             body?: unknown;
@@ -62,10 +71,12 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
             cert?: string;
             key?: string;
             tls?: {cert: string; key: string};
+            fetchImplementation?: unknown;
           })
         | undefined;
       if (fetchInit) {
         fetchInit = {...fetchInit};
+        delete fetchInit.fetchImplementation;
         if (fetchInit.agent?.proxy) {
           fetchInit.proxy = fetchInit.agent.proxy.toString();
         } else {
@@ -155,7 +166,11 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
           blob: async () => {
             if (!nodeStream) return origBlob();
             const buf = await readBuffer();
-            return new Blob([buf]);
+            const contentType = res.headers?.get?.('content-type') ?? '';
+            return new Blob(
+              [buf],
+              contentType ? {type: contentType} : undefined,
+            );
           },
         });
       }
@@ -169,9 +184,14 @@ export function ensureBunGaxiosFetch(GaxiosClass: typeof Gaxios): void {
       config &&
       !config.fetchImplementation &&
       !this.defaults?.fetchImplementation &&
-      !('window' in globalThis)
+      !(globalThis as {window?: unknown}).window
     ) {
       config.fetchImplementation = getBunFetch();
+      try {
+        return origAdapter.call(this, config);
+      } finally {
+        delete config.fetchImplementation;
+      }
     }
     return origAdapter.call(this, config);
   };
